@@ -10,7 +10,7 @@
 
 An open-source, community-driven web interface and management platform for eKuiper - the lightweight IoT data analytics and stream processing engine. Built because the existing closed-source solution is buggy and the community deserves a reliable, open alternative.
 
-**Developed & Maintained by [IDACS Business Administration Private Limited](https://i-dacs.com)**
+**Developed & Maintained by [I-Dacs Labs](https://i-dacs.com)**
 
 📧 Contact: measure@i-dacs.com | 🌐 Website: [i-dacs.com](https://i-dacs.com) | 💼 [LinkedIn](https://www.linkedin.com/company/110770924)
 
@@ -237,7 +237,7 @@ If you find this project useful, please give it a star! It helps others discover
 
 ---
 
-**Developed by [IDACS Business Administration Private Limited](https://i-dacs.com)**
+**Developed by [I-Dacs Labs](https://i-dacs.com)**
 
 📧 measure@i-dacs.com | 🌐 [i-dacs.com](https://i-dacs.com) | 💼 [LinkedIn](https://www.linkedin.com/company/110770924)
 

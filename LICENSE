@@ -1,6 +1,6 @@
 # IDACS Open Source License (IOSL) v1.0
 
-Copyright (c) 2025 IDACS Business Administration Private Limited
+Copyright (c) 2025 I-Dacs Labs, a division of IDACS Business Administration Private Limited
 
 https://i-dacs.com | measure@i-dacs.com
 
@@ -22,7 +22,7 @@ Permission is hereby granted, free of charge, to any person or organization obta
 
 ### 2. Enterprise Notification Clause
 
-Organizations with an **annual turnover exceeding USD $1,000,000** (or equivalent in local currency) that deploy this Software in production environments are kindly requested to notify IDACS Business Administration Private Limited by sending an email to:
+Organizations with an **annual turnover exceeding USD $1,000,000** (or equivalent in local currency) that deploy this Software in production environments are kindly requested to notify I-Dacs Labs by sending an email to:
 
 **measure@i-dacs.com**
 
@@ -43,12 +43,12 @@ The above copyright notice and this permission notice shall be included in all c
 
 When redistributing the Software or derivative works, the following attribution must be preserved:
 
-> Originally developed by IDACS Business Administration Private Limited
+> Originally developed by I-Dacs Labs
 > https://i-dacs.com
 
 ### 4. Disclaimer
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL IDACS BUSINESS ADMINISTRATION PRIVATE LIMITED OR THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL I-DACS LABS OR THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### 5. Community Spirit
 
@@ -60,7 +60,8 @@ This project was created to fill a gap in the open-source IoT ecosystem. We enco
 
 ---
 
-**IDACS Business Administration Private Limited**
+**I-Dacs Labs**
+(A division of IDACS Business Administration Private Limited)
 Website: https://i-dacs.com
 Contact: measure@i-dacs.com
 
