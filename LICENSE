@@ -1,21 +1,67 @@
-MIT License
+# IDACS Open Source License (IOSL) v1.0
 
-Copyright (c) 2024 SOTA IIoT
+Copyright (c) 2025 IDACS Business Administration Private Limited
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+https://i-dacs.com | measure@i-dacs.com
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## Preamble
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+This license is designed to encourage widespread adoption and contribution while building a community around industrial IoT solutions. We want everyone - from hobbyists to enterprises - to benefit from this software.
+
+## Terms and Conditions
+
+### 1. Grant of License
+
+Permission is hereby granted, free of charge, to any person or organization obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to:
+
+- Use the Software for any purpose
+- Copy, modify, merge, and distribute the Software
+- Create derivative works
+- Sublicense the Software
+- Publish and sell copies of the Software
+
+### 2. Enterprise Notification Clause
+
+Organizations with an **annual turnover exceeding USD $1,000,000** (or equivalent in local currency) that deploy this Software in production environments are kindly requested to notify IDACS Business Administration Private Limited by sending an email to:
+
+**measure@i-dacs.com**
+
+This notification should include:
+- Organization name
+- Brief description of use case
+- Contact information (optional)
+
+**Important clarifications:**
+- This is a notification, not a request for permission
+- No response is required to proceed with usage
+- No fees or royalties are required
+- This clause is intended for community building and user research purposes only
+
+### 3. Attribution
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+When redistributing the Software or derivative works, the following attribution must be preserved:
+
+> Originally developed by IDACS Business Administration Private Limited
+> https://i-dacs.com
+
+### 4. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL IDACS BUSINESS ADMINISTRATION PRIVATE LIMITED OR THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+### 5. Community Spirit
+
+This project was created to fill a gap in the open-source IoT ecosystem. We encourage:
+- Contributions back to the project
+- Sharing improvements with the community
+- Reporting bugs and suggesting features
+- Helping other users in discussions
+
+---
+
+**IDACS Business Administration Private Limited**
+Website: https://i-dacs.com
+Contact: measure@i-dacs.com
+
+*Building the future of Industrial IoT together.*

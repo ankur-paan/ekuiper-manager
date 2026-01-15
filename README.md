@@ -1,6 +1,6 @@
 # eKuiper Manager
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![License: IOSL](https://img.shields.io/badge/License-IDACS%20Open%20Source-green.svg)](./LICENSE)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
@@ -8,6 +8,10 @@
 > **🚀 The First Open-Source Web UI & Manager for [LF Edge eKuiper](https://ekuiper.org/) - Because the Community Deserves Better**
 
 An open-source, community-driven web interface and management platform for eKuiper - the lightweight IoT data analytics and stream processing engine. Built because the existing closed-source solution is buggy and the community deserves a reliable, open alternative.
+
+**Developed & Maintained by [IDACS Business Administration Private Limited](https://i-dacs.com)**
+
+📧 Contact: measure@i-dacs.com | 🌐 Website: [i-dacs.com](https://i-dacs.com)
 
 ---
 
@@ -208,7 +212,12 @@ src/
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **IDACS Open Source License (IOSL)** - see the [LICENSE](LICENSE) file for details.
+
+**Key points:**
+- ✅ Free to use, modify, and distribute
+- ✅ Commercial use permitted
+- 📧 Organizations with >$1M annual turnover using in production: please notify us at measure@i-dacs.com (just a friendly notification, no fee required)
 
 ---
 
@@ -227,6 +236,8 @@ If you find this project useful, please give it a star! It helps others discover
 
 ---
 
-**Made with ❤️ for the IIoT community**
+**Developed by [IDACS Business Administration Private Limited](https://i-dacs.com)**
 
-*Let's make eKuiper management accessible to everyone!*
+📧 measure@i-dacs.com | 🌐 [i-dacs.com](https://i-dacs.com)
+
+*Building the future of Industrial IoT together.*
