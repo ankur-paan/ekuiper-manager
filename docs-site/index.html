@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>eKuiper API Documentation | IDACS</title>
-    <meta name="description" content="Interactive API documentation for LF Edge eKuiper - Open source IoT stream processing engine">
+    <meta name="description"
+        content="Interactive API documentation for LF Edge eKuiper - Open source IoT stream processing engine">
     <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
     <link rel="icon" type="image/png" href="https://ekuiper.org/img/ekuiper-logo.png">
     <style>
@@ -13,6 +15,7 @@
             padding: 0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
+
         .header {
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             color: white;
@@ -20,8 +23,9 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
         }
+
         .header h1 {
             margin: 0;
             font-size: 1.5rem;
@@ -29,6 +33,7 @@
             align-items: center;
             gap: 10px;
         }
+
         .header h1 span {
             background: #4ade80;
             color: #1a1a2e;
@@ -37,11 +42,13 @@
             font-size: 0.75rem;
             font-weight: bold;
         }
+
         .header-links {
             display: flex;
             gap: 20px;
             align-items: center;
         }
+
         .header-links a {
             color: white;
             text-decoration: none;
@@ -49,37 +56,83 @@
             opacity: 0.9;
             transition: opacity 0.2s;
         }
+
         .header-links a:hover {
             opacity: 1;
         }
+
         .idacs-badge {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
             padding: 8px 16px;
             border-radius: 6px;
             font-size: 0.85rem;
         }
-        .swagger-ui .topbar { display: none; }
-        .swagger-ui .info { margin: 30px 0; }
+
+        .server-control {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f3f4f6;
+            padding: 15px;
+            border-bottom: 1px solid #e5e7eb;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .server-input {
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            width: 300px;
+        }
+
+        .btn {
+            background: #4f46e5;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #4338ca;
+        }
+
+        .swagger-ui .topbar {
+            display: none;
+        }
+
+        .swagger-ui .info {
+            margin: 30px 0;
+        }
+
         .footer {
             background: #1a1a2e;
             color: white;
             padding: 20px 40px;
             text-align: center;
             font-size: 0.85rem;
+            margin-top: 40px;
         }
+
         .footer a {
             color: #4ade80;
             text-decoration: none;
         }
-        .notice {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 12px 20px;
-            margin: 0;
-            font-size: 0.9rem;
-        }
     </style>
 </head>
+
 <body>
     <header class="header">
         <h1>
@@ -94,14 +147,18 @@
             </div>
         </div>
     </header>
-    
-    <div class="notice">
-        ⚠️ <strong>Note:</strong> This is API reference documentation. To use "Try It Out", you need a running eKuiper instance. 
-        <a href="https://ekuiper.org/docs/en/latest/getting_started/getting_started.html" target="_blank">Get started with eKuiper →</a>
+
+    <div class="server-control">
+        <span style="color: #4b5563; font-weight: 500;">🔌 Target Server:</span>
+        <div class="control-group">
+            <input type="text" id="server-url" class="server-input" placeholder="http://localhost:9081">
+            <button id="set-server-btn" class="btn">Update Server</button>
+        </div>
+        <span style="font-size: 0.85rem; color: #6b7280;">(Enable CORS on your eKuiper instance)</span>
     </div>
-    
+
     <div id="swagger-ui"></div>
-    
+
     <footer class="footer">
         <p>
             <strong>eKuiper Manager</strong> - Open Source IoT Stream Processing Management
@@ -114,24 +171,53 @@
 
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
-        window.onload = function() {
-            SwaggerUIBundle({
-                url: "ekuiper-openapi.json",
-                dom_id: '#swagger-ui',
-                deepLinking: true,
-                presets: [
-                    SwaggerUIBundle.presets.apis,
-                    SwaggerUIBundle.SwaggerUIStandalonePreset
-                ],
-                layout: "BaseLayout",
-                defaultModelsExpandDepth: 1,
-                defaultModelExpandDepth: 1,
-                docExpansion: "list",
-                filter: true,
-                showExtensions: true,
-                showCommonExtensions: true
+        window.onload = function () {
+            // Function to fetch spec, modify servers, and init Swagger UI
+            const initSwagger = async () => {
+                const serverUrlInput = document.getElementById('server-url');
+                const savedUrl = localStorage.getItem('ekuiper_server_url') || 'http://localhost:9081';
+                serverUrlInput.value = savedUrl;
+
+                try {
+                    const response = await fetch('ekuiper-openapi.json');
+                    const spec = await response.json();
+
+                    // Force the servers array to use the selected URL
+                    spec.servers = [{ url: savedUrl, description: "Custom eKuiper Server" }];
+
+                    SwaggerUIBundle({
+                        spec: spec,
+                        dom_id: '#swagger-ui',
+                        deepLinking: true,
+                        presets: [
+                            SwaggerUIBundle.presets.apis,
+                            SwaggerUIBundle.SwaggerUIStandalonePreset
+                        ],
+                        layout: "BaseLayout",
+                        defaultModelsExpandDepth: 1,
+                        defaultModelExpandDepth: 1,
+                        docExpansion: "list",
+                        filter: true,
+                        showExtensions: true,
+                        showCommonExtensions: true
+                    });
+                } catch (e) {
+                    console.error("Failed to load spec:", e);
+                }
+            };
+
+            // Button handler
+            document.getElementById('set-server-btn').addEventListener('click', () => {
+                const newUrl = document.getElementById('server-url').value;
+                if (newUrl) {
+                    localStorage.setItem('ekuiper_server_url', newUrl);
+                    window.location.reload(); // Reload to re-init properly
+                }
             });
+
+            initSwagger();
         };
     </script>
 </body>
+
 </html>
