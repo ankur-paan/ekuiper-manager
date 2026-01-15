@@ -15,7 +15,7 @@ async function checkOpenAPI() {
     for (const path of paths) {
         try {
             console.log(`Checking ${path}...`);
-            const response = await client.request(path);
+            const response = await (client as any).request(path);
             console.log(`FOUND at ${path}!`);
             // console.log(JSON.stringify(response).slice(0, 100));
             return;

@@ -458,7 +458,7 @@ export function PluginsManager({ client }: PluginsManagerProps) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => deletePlugin.mutate(plugin)}
+                          onClick={() => deletePlugin.mutate(plugin as { type: "functions" | "sources" | "sinks"; name: string })}
                           className="text-red-500 hover:text-red-600"
                         >
                           <Trash2 className="h-4 w-4" />

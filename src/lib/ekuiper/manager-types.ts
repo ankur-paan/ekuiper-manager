@@ -10,9 +10,9 @@ export interface SystemInfo {
   os: string;
   arch: string;
   uptime: number; // in seconds
-  cpuUsage: string; // e.g. "0.29%"
-  memoryUsed: string; // e.g. "60420096"
-  memoryTotal: string; // e.g. "33582968832"
+  cpuUsage: string | number; // e.g. "0.29%" or -1
+  memoryUsed: string | number; // e.g. "60420096" or -1
+  memoryTotal: string | number; // e.g. "33582968832" or -1
   goroutines: number;
 }
 

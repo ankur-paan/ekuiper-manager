@@ -4,10 +4,10 @@
  */
 
 import { EKuiperClient } from "./client";
-import type { 
-  SystemInfo, 
-  ServerMetrics, 
-  SourceConfig, 
+import type {
+  SystemInfo,
+  ServerMetrics,
+  SourceConfig,
   SinkConfig,
   SchemaDefinition,
   LogEntry,
@@ -22,8 +22,8 @@ import type { Rule, Stream, Table, RuleStatus, RuleTopology } from "./types";
 export class EKuiperManagerClient extends EKuiperClient {
   private ekuiperTargetUrl: string | null;
 
-  constructor(baseUrl?: string, ekuiperUrl?: string, timeout?: number) {
-    super(baseUrl, ekuiperUrl, timeout);
+  constructor(baseUrl?: string, ekuiperUrl?: string, timeout?: number, isDirect: boolean = false) {
+    super(baseUrl, ekuiperUrl, timeout, isDirect);
     this.ekuiperTargetUrl = ekuiperUrl || null;
   }
 
@@ -170,15 +170,15 @@ export class EKuiperManagerClient extends EKuiperClient {
    * 4. Delete the rule using DELETE /rules/{id}
    */
   async testRule(
-    sql: string, 
-    testData: Record<string, any>[], 
+    sql: string,
+    testData: Record<string, any>[],
     options?: { timeout?: number }
   ): Promise<SQLTestResult> {
     const startTime = Date.now();
-    
+
     // Client-side validation only - no server-side test endpoint exists
     const validationResult = await this.validateSQL(sql);
-    
+
     if (!validationResult.valid) {
       return {
         success: false,
@@ -217,7 +217,7 @@ export class EKuiperManagerClient extends EKuiperClient {
 
     // Validate actions/sinks
     const warnings: string[] = [...(sqlResult.warnings || [])];
-    
+
     if (!rule.actions || rule.actions.length === 0) {
       warnings.push("Rule has no actions/sinks defined");
     }
@@ -253,16 +253,17 @@ export class EKuiperManagerClient extends EKuiperClient {
         throw new Error(`HTTP ${response.status}`);
       }
       const data = await response.json();
-      
+
       // Map eKuiper's response to our SystemInfo interface
       // eKuiper returns: { version, os, upTimeSeconds }
       return {
         version: data.version || "unknown",
         os: data.os || "unknown",
+        arch: data.arch || "unknown",
         uptime: data.upTimeSeconds || 0, // Map upTimeSeconds to uptime
         // These are not provided by eKuiper API - display as N/A in UI
         cpuUsage: -1, // -1 indicates not available
-        memoryUsage: -1,
+        memoryUsed: -1,
         memoryTotal: -1,
         goroutines: -1,
       };
@@ -270,9 +271,10 @@ export class EKuiperManagerClient extends EKuiperClient {
       return {
         version: "unknown",
         os: "unknown",
+        arch: "unknown",
         uptime: 0,
         cpuUsage: -1,
-        memoryUsage: -1,
+        memoryUsed: -1,
         memoryTotal: -1,
         goroutines: -1,
       };
@@ -310,7 +312,7 @@ export class EKuiperManagerClient extends EKuiperClient {
           if (status.status === "running") {
             runningRules++;
           }
-          
+
           // Extract metrics from rule status
           // The status object has node metrics with keys like "source_demo_0_records_in_total"
           // We need to sum up all source records_in and all sink records_out
@@ -376,7 +378,7 @@ export class EKuiperManagerClient extends EKuiperClient {
       throw new Error(`Failed to get source config keys: ${keysResponse.statusText}`);
     }
     const confKeys: string[] = await keysResponse.json();
-    
+
     // Now fetch each config's details
     const configs: Record<string, any> = {};
     await Promise.all(
@@ -394,7 +396,7 @@ export class EKuiperManagerClient extends EKuiperClient {
         }
       })
     );
-    
+
     return configs;
   }
 
@@ -402,8 +404,8 @@ export class EKuiperManagerClient extends EKuiperClient {
    * Update source configuration
    */
   async updateSourceConfig(
-    sourceType: string, 
-    confKey: string, 
+    sourceType: string,
+    confKey: string,
     config: Record<string, any>
   ): Promise<void> {
     const response = await fetch(
@@ -432,7 +434,7 @@ export class EKuiperManagerClient extends EKuiperClient {
       throw new Error(`Failed to get sink config keys: ${keysResponse.statusText}`);
     }
     const confKeys: string[] = await keysResponse.json();
-    
+
     // Now fetch each config's details
     const configs: Record<string, any> = {};
     await Promise.all(
@@ -450,7 +452,7 @@ export class EKuiperManagerClient extends EKuiperClient {
         }
       })
     );
-    
+
     return configs;
   }
 
@@ -458,8 +460,8 @@ export class EKuiperManagerClient extends EKuiperClient {
    * Update sink configuration
    */
   async updateSinkConfig(
-    sinkType: string, 
-    confKey: string, 
+    sinkType: string,
+    confKey: string,
     config: Record<string, any>
   ): Promise<void> {
     const response = await fetch(
@@ -488,7 +490,7 @@ export class EKuiperManagerClient extends EKuiperClient {
       throw new Error(`Failed to get connection config keys: ${keysResponse.statusText}`);
     }
     const confKeys: string[] = await keysResponse.json();
-    
+
     // Now fetch each config's details
     const configs: Record<string, any> = {};
     await Promise.all(
@@ -506,7 +508,7 @@ export class EKuiperManagerClient extends EKuiperClient {
         }
       })
     );
-    
+
     return configs;
   }
 
@@ -811,14 +813,14 @@ export class EKuiperManagerClient extends EKuiperClient {
       const response = await fetch(`${this.baseUrl}/ping`, {
         headers: this.getHeaders(),
       });
-      return { 
-        success: response.ok, 
-        message: response.ok ? "Connected successfully to eKuiper" : "Connection failed" 
+      return {
+        success: response.ok,
+        message: response.ok ? "Connected successfully to eKuiper" : "Connection failed"
       };
     } catch (error) {
-      return { 
-        success: false, 
-        message: error instanceof Error ? error.message : "Connection failed" 
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Connection failed"
       };
     }
   }
@@ -839,7 +841,7 @@ export class EKuiperManagerClient extends EKuiperClient {
         influx: ["addr"],
         tdengine: ["host", "port"],
       };
-      
+
       const required = requiredFields[type] || [];
       for (const field of required) {
         if (!config[field]) {
@@ -850,14 +852,14 @@ export class EKuiperManagerClient extends EKuiperClient {
       // Use eKuiper's connection metadata API to test the connection
       // POST /metadata/sources/{type}/confKeys/{confKey} to test source connection
       // or try to create a temporary test stream/rule
-      
+
       // For MQTT specifically, we can try to validate by checking if the broker format is valid
       if (type === "mqtt") {
         const serverUrl = config.server;
         if (!serverUrl.match(/^(tcp|ssl|ws|wss):\/\/.+:\d+$/)) {
-          return { 
-            success: false, 
-            message: `Invalid MQTT server URL format. Expected: tcp://host:port or ssl://host:port` 
+          return {
+            success: false,
+            message: `Invalid MQTT server URL format. Expected: tcp://host:port or ssl://host:port`
           };
         }
       }
@@ -876,29 +878,32 @@ export class EKuiperManagerClient extends EKuiperClient {
 
         // If endpoint doesn't exist, fall back to validation only
         if (response.status === 404) {
-          return { 
-            success: true, 
-            message: `Configuration is valid. Note: Connection will be tested when the stream is created.` 
+          return {
+            success: true,
+            message: `Configuration is valid. Note: Connection will be tested when the stream is created.`
           };
         }
 
         const error = await response.json().catch(() => ({}));
-        return { 
-          success: false, 
-          message: error.error || error.message || `Connection test failed` 
+        return {
+          success: false,
+          message: error.error || error.message || `Connection test failed`
         };
       } catch {
         // Endpoint doesn't exist, just validate the config
-        return { 
-          success: true, 
-          message: `Configuration is valid. Actual connection will be tested when the stream/rule is created.` 
+        return {
+          success: true,
+          message: `Configuration is valid. Actual connection will be tested when the stream/rule is created.`
         };
       }
     } catch (error) {
-      return { 
-        success: false, 
-        message: error instanceof Error ? error.message : "Validation failed" 
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Validation failed"
       };
     }
   }
 }
+
+// Create a singleton instance for client-side usage
+export const ekuiperManagerClient = new EKuiperManagerClient();
