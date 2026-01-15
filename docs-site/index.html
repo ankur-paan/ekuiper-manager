@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eKuiper API Documentation | IDACS</title>
+    <meta name="description" content="Interactive API documentation for LF Edge eKuiper - Open source IoT stream processing engine">
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+    <link rel="icon" type="image/png" href="https://ekuiper.org/img/ekuiper-logo.png">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header h1 span {
+            background: #4ade80;
+            color: #1a1a2e;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+        .header-links {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        .header-links a {
+            color: white;
+            text-decoration: none;
+            font-size: 0.9rem;
+            opacity: 0.9;
+            transition: opacity 0.2s;
+        }
+        .header-links a:hover {
+            opacity: 1;
+        }
+        .idacs-badge {
+            background: rgba(255,255,255,0.1);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        .swagger-ui .topbar { display: none; }
+        .swagger-ui .info { margin: 30px 0; }
+        .footer {
+            background: #1a1a2e;
+            color: white;
+            padding: 20px 40px;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+        .footer a {
+            color: #4ade80;
+            text-decoration: none;
+        }
+        .notice {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 12px 20px;
+            margin: 0;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>
+            🚀 eKuiper API Documentation
+            <span>Beta 0.1</span>
+        </h1>
+        <div class="header-links">
+            <a href="https://github.com/ankur-paan/ekuiper-manager" target="_blank">⭐ GitHub</a>
+            <a href="https://ekuiper.org/docs" target="_blank">📚 eKuiper Docs</a>
+            <div class="idacs-badge">
+                by <a href="https://i-dacs.com" target="_blank" style="color: #4ade80;">IDACS</a>
+            </div>
+        </div>
+    </header>
+    
+    <div class="notice">
+        ⚠️ <strong>Note:</strong> This is API reference documentation. To use "Try It Out", you need a running eKuiper instance. 
+        <a href="https://ekuiper.org/docs/en/latest/getting_started/getting_started.html" target="_blank">Get started with eKuiper →</a>
+    </div>
+    
+    <div id="swagger-ui"></div>
+    
+    <footer class="footer">
+        <p>
+            <strong>eKuiper Manager</strong> - Open Source IoT Stream Processing Management
+            <br>
+            Developed by <a href="https://i-dacs.com">IDACS Business Administration Private Limited</a>
+            | <a href="mailto:measure@i-dacs.com">measure@i-dacs.com</a>
+            | <a href="https://www.linkedin.com/company/110770924" target="_blank">LinkedIn</a>
+        </p>
+    </footer>
+
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+        window.onload = function() {
+            SwaggerUIBundle({
+                url: "ekuiper-openapi.json",
+                dom_id: '#swagger-ui',
+                deepLinking: true,
+                presets: [
+                    SwaggerUIBundle.presets.apis,
+                    SwaggerUIBundle.SwaggerUIStandalonePreset
+                ],
+                layout: "BaseLayout",
+                defaultModelsExpandDepth: 1,
+                defaultModelExpandDepth: 1,
+                docExpansion: "list",
+                filter: true,
+                showExtensions: true,
+                showCommonExtensions: true
+            });
+        };
+    </script>
+</body>
+</html>

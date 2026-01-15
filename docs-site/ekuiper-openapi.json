@@ -1,0 +1,4436 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "eKuiper REST API",
+        "description": "REST API for LF Edge eKuiper - Lightweight IoT data analytics and stream processing engine.",
+        "version": "1.0.0",
+        "contact": {
+            "name": "eKuiper",
+            "url": "https://ekuiper.org"
+        },
+        "license": {
+            "name": "Apache 2.0",
+            "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+    },
+    "servers": [
+        {
+            "url": "/api/ekuiper",
+            "description": "Proxied eKuiper API"
+        }
+    ],
+    "tags": [
+        {
+            "name": "System",
+            "description": "System information, health, and configuration"
+        },
+        {
+            "name": "Streams",
+            "description": "Stream management"
+        },
+        {
+            "name": "Tables",
+            "description": "Table management"
+        },
+        {
+            "name": "Rules",
+            "description": "Rule management, testing, and tracing"
+        },
+        {
+            "name": "Plugins",
+            "description": "Plugin management"
+        },
+        {
+            "name": "Services",
+            "description": "External service and function management"
+        },
+        {
+            "name": "UDF",
+            "description": "JavaScript user-defined functions"
+        },
+        {
+            "name": "Schemas",
+            "description": "Schema registry (protobuf)"
+        },
+        {
+            "name": "Uploads",
+            "description": "File upload management"
+        },
+        {
+            "name": "Ruleset",
+            "description": "Batch import/export of streams, tables, rules"
+        },
+        {
+            "name": "Data",
+            "description": "Full system import/export"
+        },
+        {
+            "name": "Metadata",
+            "description": "Source/sink/connection metadata and connectivity testing"
+        },
+        {
+            "name": "Connections",
+            "description": "Shared connection management"
+        }
+    ],
+    "paths": {
+        "/": {
+            "get": {
+                "tags": [
+                    "System"
+                ],
+                "summary": "Get system info",
+                "description": "Returns eKuiper version, OS, architecture, uptime, and resource usage.",
+                "operationId": "getSystemInfo",
+                "responses": {
+                    "200": {
+                        "description": "System information",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SystemInfo"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ping": {
+            "get": {
+                "tags": [
+                    "System"
+                ],
+                "summary": "Health check",
+                "description": "Returns 'pong' if the server is healthy",
+                "operationId": "ping",
+                "responses": {
+                    "200": {
+                        "description": "Server is healthy",
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string",
+                                    "example": "pong"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/batch/req": {
+            "post": {
+                "tags": [
+                    "System"
+                ],
+                "summary": "Batch multiple API requests",
+                "description": "Execute multiple API calls in a single request",
+                "operationId": "batchRequest",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "method": {
+                                            "type": "string",
+                                            "enum": [
+                                                "GET",
+                                                "POST",
+                                                "PUT",
+                                                "DELETE"
+                                            ]
+                                        },
+                                        "path": {
+                                            "type": "string"
+                                        },
+                                        "body": {
+                                            "type": "object"
+                                        }
+                                    },
+                                    "required": [
+                                        "method",
+                                        "path"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Array of responses for each request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/configs": {
+            "patch": {
+                "tags": [
+                    "System"
+                ],
+                "summary": "Reload dynamic configs",
+                "description": "Update logging and timezone settings without restart",
+                "operationId": "reloadConfigs",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "debug": {
+                                        "type": "boolean"
+                                    },
+                                    "consoleLog": {
+                                        "type": "boolean"
+                                    },
+                                    "fileLog": {
+                                        "type": "boolean"
+                                    },
+                                    "timezone": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Configs updated"
+                    }
+                }
+            }
+        },
+        "/stop": {
+            "post": {
+                "tags": [
+                    "System"
+                ],
+                "summary": "Shutdown eKuiper server",
+                "description": "Gracefully stops the eKuiper server. This is a dangerous operation.",
+                "operationId": "stopServer",
+                "x-playground-dangerous": true,
+                "security": [
+                    {
+                        "ApiKeyHeader": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Server stopping",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SuccessMessage"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/streams": {
+            "get": {
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "List all streams",
+                "operationId": "listStreams",
+                "responses": {
+                    "200": {
+                        "description": "List of stream names",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "Create a stream",
+                "operationId": "createStream",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StreamCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Stream created"
+                    },
+                    "400": {
+                        "description": "Invalid SQL"
+                    }
+                }
+            }
+        },
+        "/streams/{name}": {
+            "get": {
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "Get stream details",
+                "operationId": "getStream",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Stream details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Stream"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Stream not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "Update a stream",
+                "operationId": "updateStream",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StreamCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Stream updated"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "Delete a stream",
+                "operationId": "deleteStream",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Stream deleted"
+                    }
+                }
+            }
+        },
+        "/streamdetails": {
+            "get": {
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "List all streams with details",
+                "description": "Returns detailed definitions of all streams",
+                "operationId": "listStreamDetails",
+                "responses": {
+                    "200": {
+                        "description": "Array of stream definitions",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Stream"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/streams/{name}/schema": {
+            "get": {
+                "tags": [
+                    "Streams"
+                ],
+                "summary": "Get inferred schema of a stream",
+                "operationId": "getStreamSchema",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "JSON schema of stream fields",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Stream not found"
+                    }
+                }
+            }
+        },
+        "/tables": {
+            "get": {
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "List all tables",
+                "operationId": "listTables",
+                "responses": {
+                    "200": {
+                        "description": "List of table names",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Create a table",
+                "operationId": "createTable",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TableCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Table created"
+                    },
+                    "400": {
+                        "description": "Invalid SQL",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tables/{name}": {
+            "get": {
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Get table details",
+                "operationId": "getTable",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Table details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Table"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Update a table",
+                "operationId": "updateTable",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TableCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Table updated"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Delete a table",
+                "operationId": "deleteTable",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Table deleted"
+                    }
+                }
+            }
+        },
+        "/tabledetails": {
+            "get": {
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "List all tables with details",
+                "operationId": "listTableDetails",
+                "parameters": [
+                    {
+                        "name": "kind",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "scan",
+                                "lookup"
+                            ]
+                        },
+                        "description": "Filter by table kind"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of table definitions",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Table"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/tables/{name}/schema": {
+            "get": {
+                "tags": [
+                    "Tables"
+                ],
+                "summary": "Get inferred schema of a table",
+                "operationId": "getTableSchema",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "JSON schema of table fields",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Table not found"
+                    }
+                }
+            }
+        },
+        "/rules": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "List all rules",
+                "operationId": "listRules",
+                "responses": {
+                    "200": {
+                        "description": "List of rules with status",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/RuleListItem"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Create a rule",
+                "description": "Creates and automatically starts a new rule",
+                "operationId": "createRule",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Rule"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Rule created and started"
+                    },
+                    "400": {
+                        "description": "Invalid rule definition",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Rule with this ID already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/{id}": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get rule definition",
+                "operationId": "getRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Rule definition",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Rule"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Rule not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Update a rule",
+                "description": "Updates an existing rule. Acts as upsert - creates if not exists.",
+                "operationId": "updateRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Rule"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Rule updated"
+                    },
+                    "400": {
+                        "description": "Invalid rule definition",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Delete a rule",
+                "operationId": "deleteRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Rule deleted"
+                    },
+                    "404": {
+                        "description": "Rule not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/{id}/start": {
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Start a rule",
+                "operationId": "startRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Rule started"
+                    },
+                    "404": {
+                        "description": "Rule not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/{id}/stop": {
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Stop a rule",
+                "operationId": "stopRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Rule stopped"
+                    },
+                    "404": {
+                        "description": "Rule not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/{id}/restart": {
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Restart a rule",
+                "operationId": "restartRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Rule restarted"
+                    }
+                }
+            }
+        },
+        "/rules/{id}/status": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get rule status and metrics",
+                "operationId": "getRuleStatus",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Rule status and metrics",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RuleMetrics"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/{id}/topo": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get rule topology",
+                "operationId": "getRuleTopology",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Rule topology graph",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RuleTopology"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/validate": {
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Validate a rule definition",
+                "operationId": "validateRule",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Rule"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Rule is valid"
+                    },
+                    "400": {
+                        "description": "Bad request"
+                    },
+                    "422": {
+                        "description": "Rule validation failed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "error": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/{id}/explain": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get SQL query execution plan",
+                "operationId": "explainRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Query plan",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/usage/cpu": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get CPU usage of all rules",
+                "description": "Returns CPU milliseconds used by each rule in the last 30 seconds",
+                "operationId": "getRulesCpuUsage",
+                "responses": {
+                    "200": {
+                        "description": "CPU usage map",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "number"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/status/all": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get status of all rules",
+                "operationId": "getAllRulesStatus",
+                "responses": {
+                    "200": {
+                        "description": "Status of all rules",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/{id}/tags": {
+            "put": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Reset rule tags",
+                "operationId": "resetRuleTags",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "tags": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Tags reset"
+                    }
+                }
+            },
+            "patch": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Add tags to a rule",
+                "operationId": "addRuleTags",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "tags": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Tags added"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Remove tags from a rule",
+                "operationId": "removeRuleTags",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "keys",
+                        "in": "query",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Tags to remove"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tags removed"
+                    }
+                }
+            }
+        },
+        "/rules/tags/match": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Find rules by tags",
+                "operationId": "matchRulesByTags",
+                "parameters": [
+                    {
+                        "name": "tags",
+                        "in": "query",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Tags to match"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Matching rule IDs",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules/{id}/trace/start": {
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Start data tracing on a rule",
+                "operationId": "startRuleTrace",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "strategy": {
+                                        "type": "string",
+                                        "enum": [
+                                            "always",
+                                            "head"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Tracing started"
+                    }
+                }
+            }
+        },
+        "/rules/{id}/trace/stop": {
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Stop data tracing on a rule",
+                "operationId": "stopRuleTrace",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tracing stopped"
+                    }
+                }
+            }
+        },
+        "/trace/rule/{ruleId}": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get trace IDs for a rule",
+                "operationId": "getRuleTraceIds",
+                "parameters": [
+                    {
+                        "name": "ruleId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of trace IDs",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/trace/{traceId}": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get detailed trace spans",
+                "operationId": "getTraceDetails",
+                "parameters": [
+                    {
+                        "name": "traceId",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Trace spans",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ruletest": {
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Create a test rule",
+                "description": "Creates a transient rule for testing with mock data",
+                "operationId": "createTestRule",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "id",
+                                    "sql"
+                                ],
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "sql": {
+                                        "type": "string"
+                                    },
+                                    "mockSource": {
+                                        "type": "object",
+                                        "properties": {
+                                            "data": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "interval": {
+                                                "type": "integer"
+                                            }
+                                        }
+                                    },
+                                    "sinkProps": {
+                                        "type": "object"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Test rule created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {
+                                            "type": "string"
+                                        },
+                                        "port": {
+                                            "type": "integer"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid rule",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "msg": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ruletest/{id}/start": {
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Start a test rule",
+                "operationId": "startTestRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Test rule started"
+                    }
+                }
+            }
+        },
+        "/ruletest/{id}": {
+            "delete": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Delete a test rule",
+                "operationId": "deleteTestRule",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Test rule deleted"
+                    }
+                }
+            }
+        },
+        "/plugins/{type}": {
+            "get": {
+                "tags": [
+                    "Plugins"
+                ],
+                "summary": "List plugins of a type",
+                "operationId": "listPlugins",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "sources",
+                                "sinks",
+                                "functions",
+                                "portables"
+                            ]
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of plugin names",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Plugins"
+                ],
+                "summary": "Install a plugin",
+                "operationId": "createPlugin",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "sources",
+                                "sinks",
+                                "functions",
+                                "portables"
+                            ],
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PluginCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Plugin installed"
+                    },
+                    "400": {
+                        "description": "Invalid plugin configuration",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/plugins/{type}/{name}": {
+            "get": {
+                "tags": [
+                    "Plugins"
+                ],
+                "summary": "Get plugin details",
+                "operationId": "getPlugin",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "sources",
+                                "sinks",
+                                "functions",
+                                "portables"
+                            ],
+                            "minLength": 1
+                        }
+                    },
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Plugin details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Plugin"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Plugin not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Plugins"
+                ],
+                "summary": "Uninstall a plugin",
+                "operationId": "deletePlugin",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "sources",
+                                "sinks",
+                                "functions",
+                                "portables"
+                            ],
+                            "minLength": 1
+                        }
+                    },
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    {
+                        "name": "stop",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Stop dependent rules first"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Plugin uninstalled"
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Plugins"
+                ],
+                "summary": "Update a plugin",
+                "operationId": "updatePlugin",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PluginCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Plugin updated"
+                    }
+                }
+            }
+        },
+        "/plugins/{type}/prebuild": {
+            "get": {
+                "tags": [
+                    "Plugins"
+                ],
+                "summary": "List available prebuilt plugins",
+                "operationId": "listPrebuiltPlugins",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "sources",
+                                "sinks",
+                                "functions"
+                            ]
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Available plugin packages",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/plugins/functions/{pluginName}/register": {
+            "post": {
+                "tags": [
+                    "Plugins"
+                ],
+                "summary": "Register functions of a plugin",
+                "description": "Register or refresh the UDF list for a function plugin",
+                "operationId": "registerPluginFunctions",
+                "parameters": [
+                    {
+                        "name": "pluginName",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "functions": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Functions registered"
+                    }
+                }
+            }
+        },
+        "/services": {
+            "get": {
+                "tags": [
+                    "Services"
+                ],
+                "summary": "List external services",
+                "operationId": "listServices",
+                "responses": {
+                    "200": {
+                        "description": "List of service names",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Services"
+                ],
+                "summary": "Register an external service",
+                "operationId": "createService",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ServiceCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Service registered"
+                    },
+                    "400": {
+                        "description": "Invalid service configuration",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/services/{name}": {
+            "get": {
+                "tags": [
+                    "Services"
+                ],
+                "summary": "Get service details",
+                "operationId": "getService",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Service details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Service"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Service not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Services"
+                ],
+                "summary": "Delete a service",
+                "operationId": "deleteService",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Service deleted"
+                    },
+                    "404": {
+                        "description": "Service not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Services"
+                ],
+                "summary": "Update an external service",
+                "operationId": "updateService",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ServiceCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Service updated"
+                    }
+                }
+            }
+        },
+        "/services/functions": {
+            "get": {
+                "tags": [
+                    "Services"
+                ],
+                "summary": "List all external functions",
+                "operationId": "listExternalFunctions",
+                "responses": {
+                    "200": {
+                        "description": "Array of external functions",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "ServiceName": {
+                                                "type": "string"
+                                            },
+                                            "FuncName": {
+                                                "type": "string"
+                                            },
+                                            "InterfaceName": {
+                                                "type": "string"
+                                            },
+                                            "Addr": {
+                                                "type": "string"
+                                            },
+                                            "MethodName": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/services/functions/{name}": {
+            "get": {
+                "tags": [
+                    "Services"
+                ],
+                "summary": "Get external function details",
+                "operationId": "getExternalFunction",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Function details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Function not found"
+                    }
+                }
+            }
+        },
+        "/udf/javascript": {
+            "get": {
+                "tags": [
+                    "UDF"
+                ],
+                "summary": "List JavaScript UDFs",
+                "operationId": "listJsUdfs",
+                "responses": {
+                    "200": {
+                        "description": "Array of UDF names",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "UDF"
+                ],
+                "summary": "Create a JavaScript UDF",
+                "operationId": "createJsUdf",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "id",
+                                    "script"
+                                ],
+                                "properties": {
+                                    "id": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "example": "myFunc"
+                                    },
+                                    "script": {
+                                        "type": "string",
+                                        "example": "function myFunc(x) { return x * 2; }"
+                                    },
+                                    "isAgg": {
+                                        "type": "boolean",
+                                        "description": "Whether this is an aggregate function"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "UDF created"
+                    },
+                    "400": {
+                        "description": "Invalid UDF definition",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "UDF with this ID already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/udf/javascript/{id}": {
+            "get": {
+                "tags": [
+                    "UDF"
+                ],
+                "summary": "Get JavaScript UDF details",
+                "operationId": "getJsUdf",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "UDF details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "UDF not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "UDF"
+                ],
+                "summary": "Update a JavaScript UDF",
+                "operationId": "updateJsUdf",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "script": {
+                                        "type": "string"
+                                    },
+                                    "isAgg": {
+                                        "type": "boolean"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "UDF updated"
+                    },
+                    "400": {
+                        "description": "Invalid UDF definition",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "UDF not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "UDF"
+                ],
+                "summary": "Delete a JavaScript UDF",
+                "operationId": "deleteJsUdf",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "UDF deleted"
+                    },
+                    "404": {
+                        "description": "UDF not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "UDF is in use by a rule",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/schemas/{type}": {
+            "get": {
+                "tags": [
+                    "Schemas"
+                ],
+                "summary": "List schemas of a type",
+                "operationId": "listSchemas",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "protobuf"
+                            ]
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of schema names",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Schemas"
+                ],
+                "summary": "Create a schema",
+                "operationId": "createSchema",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": [
+                                    "name"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "content": {
+                                        "type": "string"
+                                    },
+                                    "file": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Schema created"
+                    }
+                }
+            }
+        },
+        "/schemas/{type}/{name}": {
+            "get": {
+                "tags": [
+                    "Schemas"
+                ],
+                "summary": "Get schema details",
+                "operationId": "getSchema",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Schema details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Schemas"
+                ],
+                "summary": "Update a schema",
+                "operationId": "updateSchema",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "content": {
+                                        "type": "string"
+                                    },
+                                    "file": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Schema updated"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Schemas"
+                ],
+                "summary": "Delete a schema",
+                "operationId": "deleteSchema",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Schema deleted"
+                    }
+                }
+            }
+        },
+        "/config/uploads": {
+            "get": {
+                "tags": [
+                    "Uploads"
+                ],
+                "summary": "List uploaded files",
+                "operationId": "listUploads",
+                "responses": {
+                    "200": {
+                        "description": "Array of file paths",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Uploads"
+                ],
+                "summary": "Upload a file",
+                "operationId": "uploadFile",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "uploadFile": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                }
+                            }
+                        },
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "content": {
+                                        "type": "string"
+                                    },
+                                    "file": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "File uploaded"
+                    }
+                }
+            }
+        },
+        "/config/uploads/{fileName}": {
+            "delete": {
+                "tags": [
+                    "Uploads"
+                ],
+                "summary": "Delete an uploaded file",
+                "operationId": "deleteUpload",
+                "parameters": [
+                    {
+                        "name": "fileName",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "File deleted"
+                    }
+                }
+            }
+        },
+        "/ruleset/import": {
+            "post": {
+                "tags": [
+                    "Ruleset"
+                ],
+                "summary": "Batch import streams, tables, and rules",
+                "operationId": "importRuleset",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "streams": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "tables": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "rules": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Import result message",
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/ruleset/export": {
+            "post": {
+                "tags": [
+                    "Ruleset"
+                ],
+                "summary": "Export all streams, tables, and rules",
+                "operationId": "exportRuleset",
+                "responses": {
+                    "200": {
+                        "description": "Ruleset JSON file",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/data/import": {
+            "post": {
+                "tags": [
+                    "Data"
+                ],
+                "summary": "Import full system configuration",
+                "operationId": "importData",
+                "parameters": [
+                    {
+                        "name": "stop",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Stop server after import"
+                    },
+                    {
+                        "name": "partial",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Merge without reset"
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "content": {
+                                        "type": "object"
+                                    },
+                                    "file": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Import successful"
+                    }
+                }
+            }
+        },
+        "/data/import/status": {
+            "get": {
+                "tags": [
+                    "Data"
+                ],
+                "summary": "Get last import status",
+                "operationId": "getImportStatus",
+                "responses": {
+                    "200": {
+                        "description": "Import status by component",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/data/export": {
+            "get": {
+                "tags": [
+                    "Data"
+                ],
+                "summary": "Export full system configuration",
+                "operationId": "exportAllData",
+                "responses": {
+                    "200": {
+                        "description": "Configuration JSON file",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Data"
+                ],
+                "summary": "Export data for specific rules",
+                "operationId": "exportDataForRules",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description": "Rule IDs to export"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Filtered configuration JSON",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/async/data/import": {
+            "post": {
+                "tags": [
+                    "Data"
+                ],
+                "summary": "Async import full system configuration",
+                "operationId": "asyncImportData",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "content": {
+                                        "type": "object"
+                                    },
+                                    "file": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "202": {
+                        "description": "Task accepted",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "taskId": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/async/task/{id}": {
+            "get": {
+                "tags": [
+                    "Data"
+                ],
+                "summary": "Get async task status",
+                "operationId": "getAsyncTaskStatus",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "x-playground-polling": true,
+                "responses": {
+                    "200": {
+                        "description": "Task status",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AsyncTask"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Task not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/sources/connection/{sourceType}": {
+            "post": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Test source connectivity",
+                "operationId": "testSourceConnection",
+                "parameters": [
+                    {
+                        "name": "sourceType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connection successful"
+                    },
+                    "500": {
+                        "description": "Connection failed"
+                    }
+                }
+            }
+        },
+        "/metadata/sinks/connection/{sinkType}": {
+            "post": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Test sink connectivity",
+                "operationId": "testSinkConnection",
+                "parameters": [
+                    {
+                        "name": "sinkType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connection successful"
+                    },
+                    "500": {
+                        "description": "Connection failed"
+                    }
+                }
+            }
+        },
+        "/metadata/sources": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "List available source types",
+                "operationId": "getSourceTypes",
+                "responses": {
+                    "200": {
+                        "description": "List of source types",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/sinks": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "List available sink types",
+                "operationId": "getSinkTypes",
+                "responses": {
+                    "200": {
+                        "description": "List of sink types",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/functions": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "List available SQL functions",
+                "operationId": "getFunctions",
+                "responses": {
+                    "200": {
+                        "description": "Functions grouped by category",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/sources/yaml/{sourceType}": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "List source configuration keys (confKeys)",
+                "description": "Returns all Config Keys defined for a source type. Use this to discover available configurations.",
+                "operationId": "getSourceConfKeys",
+                "parameters": [
+                    {
+                        "name": "sourceType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "mqtt",
+                                "httppull",
+                                "httppush",
+                                "file",
+                                "memory",
+                                "neuron",
+                                "edgex",
+                                "redis",
+                                "redisPub",
+                                "simulator",
+                                "video",
+                                "sql",
+                                "random",
+                                "zmq",
+                                "kafka",
+                                "can",
+                                "influx",
+                                "influx2"
+                            ]
+                        },
+                        "description": "Source type"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration keys object",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/sinks/yaml/{sinkType}": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "List sink configuration keys (confKeys)",
+                "description": "Returns all Config Keys defined for a sink type.",
+                "operationId": "getSinkConfKeysYaml",
+                "parameters": [
+                    {
+                        "name": "sinkType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "mqtt",
+                                "rest",
+                                "log",
+                                "nop",
+                                "file",
+                                "memory",
+                                "neuron",
+                                "edgex",
+                                "redis",
+                                "redisPub",
+                                "kafka",
+                                "image",
+                                "influx",
+                                "influx2",
+                                "sql",
+                                "tdengine",
+                                "zmq"
+                            ]
+                        },
+                        "description": "Sink type"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration keys object",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/connections/yaml/{connType}": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "List connection configuration keys",
+                "description": "Returns all Config Keys defined for a connection type.",
+                "operationId": "getConnectionConfKeysYaml",
+                "parameters": [
+                    {
+                        "name": "connType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "mqtt",
+                                "edgex",
+                                "sql",
+                                "redis",
+                                "kafka",
+                                "influx",
+                                "influx2",
+                                "websocket",
+                                "httppush",
+                                "httppull"
+                            ]
+                        },
+                        "description": "Connection type"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration keys object",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/sources/{sourceType}/confKeys/{confKey}": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Get source configuration details",
+                "operationId": "getSourceConfKey",
+                "parameters": [
+                    {
+                        "name": "sourceType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration key details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Update source configuration",
+                "operationId": "updateSourceConfKey",
+                "parameters": [
+                    {
+                        "name": "sourceType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Configuration updated"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Delete source configuration",
+                "operationId": "deleteSourceConfKey",
+                "parameters": [
+                    {
+                        "name": "sourceType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration deleted"
+                    }
+                }
+            }
+        },
+        "/metadata/sinks/{sinkType}/confKeys": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "List sink configuration keys",
+                "operationId": "getSinkConfKeys",
+                "parameters": [
+                    {
+                        "name": "sinkType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Sink type (e.g., mqtt, rest)"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of configuration key names",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/sinks/{sinkType}/confKeys/{confKey}": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Get sink configuration details",
+                "operationId": "getSinkConfKey",
+                "parameters": [
+                    {
+                        "name": "sinkType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration key details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Update sink configuration",
+                "operationId": "updateSinkConfKey",
+                "parameters": [
+                    {
+                        "name": "sinkType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Configuration updated"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Delete sink configuration",
+                "operationId": "deleteSinkConfKey",
+                "parameters": [
+                    {
+                        "name": "sinkType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration deleted"
+                    }
+                }
+            }
+        },
+        "/metadata/connections/{connType}/confKeys": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "List connection configuration keys",
+                "operationId": "getConnectionConfKeys",
+                "parameters": [
+                    {
+                        "name": "connType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Connection type (e.g., mqtt, sql)"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of configuration key names",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metadata/connections/{connType}/confKeys/{confKey}": {
+            "get": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Get connection configuration details",
+                "operationId": "getConnectionConfKey",
+                "parameters": [
+                    {
+                        "name": "connType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration key details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Update connection configuration",
+                "operationId": "updateConnectionConfKey",
+                "parameters": [
+                    {
+                        "name": "connType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Configuration updated"
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Metadata"
+                ],
+                "summary": "Delete connection configuration",
+                "operationId": "deleteConnectionConfKey",
+                "parameters": [
+                    {
+                        "name": "connType",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "confKey",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Configuration deleted"
+                    }
+                }
+            }
+        },
+        "/connections": {
+            "get": {
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "List shared connections",
+                "operationId": "listConnections",
+                "responses": {
+                    "200": {
+                        "description": "List of connections",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/SharedConnection"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Create a shared connection",
+                "operationId": "createConnection",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConnectionCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Connection created"
+                    },
+                    "400": {
+                        "description": "Invalid connection configuration",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Connection with this ID already exists",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/connections/{id}": {
+            "delete": {
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Delete a connection",
+                "operationId": "deleteConnection",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Connection deleted"
+                    },
+                    "404": {
+                        "description": "Connection not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Connection is in use by a rule",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "get": {
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Get connection status",
+                "operationId": "getConnection",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Connection details and status",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SharedConnection"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Connection not found"
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Update a connection",
+                "operationId": "updateConnection",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ConnectionCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connection updated"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "ApiKeyHeader": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key",
+                "description": "API key for authentication"
+            },
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Bearer token authentication"
+            },
+            "EKuiperUrlHeader": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-EKuiper-URL",
+                "description": "Target eKuiper server URL (used by proxy)"
+            }
+        },
+        "schemas": {
+            "ErrorResponse": {
+                "type": "object",
+                "description": "Standard error response format",
+                "required": [
+                    "code",
+                    "message"
+                ],
+                "properties": {
+                    "code": {
+                        "type": "integer",
+                        "description": "HTTP status code",
+                        "example": 400
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Human-readable error message",
+                        "example": "Invalid SQL syntax"
+                    },
+                    "details": {
+                        "type": "string",
+                        "description": "Additional error details or stack trace"
+                    },
+                    "requestId": {
+                        "type": "string",
+                        "description": "Request tracking ID for debugging"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the error occurred"
+                    }
+                },
+                "example": {
+                    "code": 400,
+                    "message": "Invalid SQL syntax",
+                    "details": "Parse error near 'SELECT' at position 0",
+                    "requestId": "req-123456",
+                    "timestamp": "2026-01-15T19:00:00Z"
+                }
+            },
+            "ValidationErrorResponse": {
+                "type": "object",
+                "description": "Validation error with field-level details",
+                "required": [
+                    "code",
+                    "message",
+                    "errors"
+                ],
+                "properties": {
+                    "code": {
+                        "type": "integer",
+                        "example": 422
+                    },
+                    "message": {
+                        "type": "string",
+                        "example": "Validation failed"
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field": {
+                                    "type": "string",
+                                    "example": "sql"
+                                },
+                                "message": {
+                                    "type": "string",
+                                    "example": "SQL statement is required"
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": "The invalid value provided"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "SuccessMessage": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "example": "Operation completed successfully"
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "ID of affected resource"
+                    }
+                }
+            },
+            "DeleteResponse": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "ID of deleted resource"
+                    },
+                    "deleted": {
+                        "type": "boolean",
+                        "example": true
+                    }
+                }
+            },
+            "ExplainPlan": {
+                "type": "object",
+                "description": "SQL query execution plan",
+                "additionalProperties": true,
+                "properties": {
+                    "op": {
+                        "type": "string",
+                        "description": "Operation type"
+                    },
+                    "info": {
+                        "type": "string",
+                        "description": "Operation details"
+                    },
+                    "children": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        }
+                    }
+                }
+            },
+            "TraceSpan": {
+                "type": "object",
+                "description": "Trace span from data tracing",
+                "properties": {
+                    "TraceID": {
+                        "type": "string"
+                    },
+                    "SpanID": {
+                        "type": "string"
+                    },
+                    "ParentSpanID": {
+                        "type": "string"
+                    },
+                    "OperationName": {
+                        "type": "string"
+                    },
+                    "StartTime": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "Duration": {
+                        "type": "integer",
+                        "description": "Duration in nanoseconds"
+                    },
+                    "Attributes": {
+                        "type": "object",
+                        "additionalProperties": true
+                    },
+                    "Children": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TraceSpan"
+                        }
+                    }
+                }
+            },
+            "FunctionsByCategory": {
+                "type": "object",
+                "description": "SQL functions grouped by category",
+                "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "example": {
+                    "aggregate": [
+                        "avg",
+                        "count",
+                        "max",
+                        "min",
+                        "sum"
+                    ],
+                    "mathematical": [
+                        "abs",
+                        "ceil",
+                        "floor",
+                        "round"
+                    ],
+                    "string": [
+                        "concat",
+                        "lower",
+                        "upper",
+                        "trim"
+                    ]
+                }
+            },
+            "AsyncTask": {
+                "type": "object",
+                "description": "Async task status",
+                "properties": {
+                    "taskId": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "pending",
+                            "running",
+                            "completed",
+                            "failed"
+                        ]
+                    },
+                    "progress": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100
+                    },
+                    "result": {
+                        "type": "object",
+                        "additionalProperties": true
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "completedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "x-playground-polling": true
+            },
+            "SystemInfo": {
+                "type": "object",
+                "properties": {
+                    "version": {
+                        "type": "string",
+                        "example": "2.3.1"
+                    },
+                    "os": {
+                        "type": "string",
+                        "example": "linux"
+                    },
+                    "arch": {
+                        "type": "string",
+                        "example": "amd64"
+                    },
+                    "upTimeSeconds": {
+                        "type": "integer",
+                        "example": 101076
+                    },
+                    "cpuUsage": {
+                        "type": "string",
+                        "example": "0.29%"
+                    },
+                    "memoryUsed": {
+                        "type": "string",
+                        "example": "60420096"
+                    },
+                    "memoryTotal": {
+                        "type": "string",
+                        "example": "33582968832"
+                    }
+                }
+            },
+            "StreamCreateRequest": {
+                "type": "object",
+                "required": [
+                    "sql"
+                ],
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "example": "CREATE STREAM demo (temperature FLOAT, humidity FLOAT) WITH (DATASOURCE=\"demo\", FORMAT=\"JSON\")"
+                    }
+                }
+            },
+            "Stream": {
+                "type": "object",
+                "properties": {
+                    "Name": {
+                        "type": "string"
+                    },
+                    "StreamFields": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/StreamField"
+                        }
+                    },
+                    "Options": {
+                        "type": "object"
+                    }
+                }
+            },
+            "StreamField": {
+                "type": "object",
+                "description": "Field definition in a stream or table",
+                "properties": {
+                    "Name": {
+                        "type": "string",
+                        "example": "temperature"
+                    },
+                    "FieldType": {
+                        "type": "object",
+                        "description": "Field type information",
+                        "properties": {
+                            "Type": {
+                                "type": "integer",
+                                "description": "Type code (1=bigint, 2=float, 3=string, 4=datetime, 5=boolean, 6=bytea, 7=array, 8=struct)",
+                                "example": 2
+                            },
+                            "Name": {
+                                "type": "string",
+                                "description": "Type name for complex types"
+                            }
+                        }
+                    }
+                }
+            },
+            "StreamOptions": {
+                "type": "object",
+                "description": "Stream/Table configuration options",
+                "properties": {
+                    "DATASOURCE": {
+                        "type": "string",
+                        "description": "Data source topic/path",
+                        "example": "demo"
+                    },
+                    "FORMAT": {
+                        "type": "string",
+                        "enum": [
+                            "json",
+                            "binary",
+                            "protobuf",
+                            "delimited",
+                            "custom"
+                        ],
+                        "example": "json"
+                    },
+                    "TYPE": {
+                        "type": "string",
+                        "description": "Source type",
+                        "example": "mqtt"
+                    },
+                    "SCHEMAID": {
+                        "type": "string",
+                        "description": "Schema registry ID for protobuf"
+                    },
+                    "CONF_KEY": {
+                        "type": "string",
+                        "description": "Configuration key to use"
+                    },
+                    "SHARED": {
+                        "type": "boolean",
+                        "description": "Whether source is shared across rules"
+                    },
+                    "STRICT_VALIDATION": {
+                        "type": "boolean",
+                        "description": "Enable strict schema validation"
+                    }
+                },
+                "additionalProperties": true
+            },
+            "TableCreateRequest": {
+                "type": "object",
+                "required": [
+                    "sql"
+                ],
+                "properties": {
+                    "sql": {
+                        "type": "string",
+                        "example": "CREATE TABLE lookupTable (id STRING, name STRING) WITH (DATASOURCE=\"lookup.json\", FORMAT=\"JSON\", TYPE=\"file\")"
+                    }
+                }
+            },
+            "Table": {
+                "type": "object",
+                "description": "Table definition (scan or lookup)",
+                "properties": {
+                    "Name": {
+                        "type": "string",
+                        "example": "lookupTable"
+                    },
+                    "StreamFields": {
+                        "type": "array",
+                        "description": "Field definitions (same as streams)",
+                        "items": {
+                            "$ref": "#/components/schemas/StreamField"
+                        }
+                    },
+                    "Options": {
+                        "$ref": "#/components/schemas/StreamOptions"
+                    }
+                }
+            },
+            "RuleListItem": {
+                "type": "object",
+                "description": "Rule summary in list results",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "example": "rule1"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Current status. May include reason for stopped/error states (e.g., 'Stopped: canceled by error.')",
+                        "example": "running"
+                    }
+                },
+                "example": {
+                    "id": "rule1",
+                    "status": "running"
+                }
+            },
+            "Rule": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "sql",
+                    "actions"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "example": "myRule"
+                    },
+                    "sql": {
+                        "type": "string",
+                        "example": "SELECT * FROM demo WHERE temperature > 30"
+                    },
+                    "actions": {
+                        "type": "array",
+                        "items": {
+                            "type": "object"
+                        },
+                        "example": [
+                            {
+                                "log": {}
+                            }
+                        ]
+                    },
+                    "options": {
+                        "type": "object"
+                    }
+                }
+            },
+            "RuleMetrics": {
+                "type": "object",
+                "description": "Rule execution status and metrics",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Current rule status",
+                        "example": "running"
+                    },
+                    "lastStartTimestamp": {
+                        "type": "integer",
+                        "description": "Unix timestamp of last start",
+                        "example": 1704067200000
+                    },
+                    "lastStopTimestamp": {
+                        "type": "integer",
+                        "description": "Unix timestamp of last stop"
+                    },
+                    "nextStartTimestamp": {
+                        "type": "integer",
+                        "description": "Unix timestamp of scheduled restart"
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Error or status message"
+                    }
+                },
+                "additionalProperties": {
+                    "type": "number",
+                    "description": "Dynamic metrics like source_demo_0_records_in_total, op_filter_0_records_in_total, etc."
+                },
+                "example": {
+                    "status": "running",
+                    "lastStartTimestamp": 1704067200000,
+                    "source_demo_0_records_in_total": 100,
+                    "source_demo_0_records_out_total": 100,
+                    "op_filter_0_records_in_total": 100,
+                    "op_filter_0_records_out_total": 50,
+                    "sink_log_0_records_in_total": 50
+                }
+            },
+            "RuleTopology": {
+                "type": "object",
+                "properties": {
+                    "sources": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "edges": {
+                        "type": "object"
+                    }
+                }
+            },
+            "Plugin": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    },
+                    "functions": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "PluginCreateRequest": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "file"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "URL to the plugin file"
+                    },
+                    "shellParas": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "functions": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "Service": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "about": {
+                        "type": "object"
+                    },
+                    "interfaces": {
+                        "type": "object"
+                    }
+                }
+            },
+            "ServiceCreateRequest": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "file"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "file": {
+                        "type": "string"
+                    }
+                }
+            },
+            "SharedConnection": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "typ": {
+                        "type": "string"
+                    },
+                    "props": {
+                        "type": "object"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ConnectionCreateRequest": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "typ",
+                    "props"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "typ": {
+                        "type": "string"
+                    },
+                    "props": {
+                        "type": "object"
+                    }
+                }
+            }
+        }
+    }
+}
