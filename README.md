@@ -1,5 +1,6 @@
 # eKuiper Manager
 
+[![Build Status](https://github.com/ankur-paan/ekuiper-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/ankur-paan/ekuiper-manager/actions/workflows/ci.yml)
 [![License: IOSL](https://img.shields.io/badge/License-IDACS%20Open%20Source-green.svg)](./LICENSE)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
