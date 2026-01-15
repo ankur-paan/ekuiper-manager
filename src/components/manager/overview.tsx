@@ -2,38 +2,40 @@
 
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Activity,
-  Database,
-  Workflow,
+import { Progress } from "@/components/ui/progress";
+import { 
+  Activity, 
+  Database, 
+  Workflow, 
   Table,
   Package,
   Server,
-  TrendingUp,
-  AlertTriangle,
-  RefreshCw,
-  ArrowRight,
-  Zap,
   Cpu,
-  Radio,
-  BarChart3,
-  Globe
+  HardDrive,
+  Clock,
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  RefreshCw,
+  ArrowUpRight,
+  Zap,
+  Radio
 } from "lucide-react";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { EKuiperManagerClient } from "@/lib/ekuiper/manager-client";
-import { GlassCard } from "@/components/ui/glass-card";
-import { HealthRing } from "@/components/ui/health-ring";
-import { motion } from "framer-motion";
-import { Activity as ActivityIcon } from "lucide-react"; // Renamed for clarity vs Activity component
+import type { SystemInfo, ServerMetrics } from "@/lib/ekuiper/manager-types";
 
 interface ManagerOverviewProps {
   client: EKuiperManagerClient;
   onNavigate?: (view: string) => void;
 }
 
-function MetricTile({
+function MetricCard({
   title,
   value,
   subValue,
@@ -41,57 +43,126 @@ function MetricTile({
   trend,
   trendValue,
   onClick,
-  variant = "gradient",
-  color = "blue"
+  variant = "default",
 }: {
   title: string;
   value: string | number;
   subValue?: string;
   icon: React.ComponentType<{ className?: string }>;
-  trend?: "up" | "down";
+  trend?: "up" | "down" | "neutral";
   trendValue?: string;
   onClick?: () => void;
-  variant?: "default" | "gradient" | "neon-blue" | "neon-purple" | "neon-green";
-  color?: "blue" | "purple" | "green" | "orange";
+  variant?: "default" | "success" | "warning" | "error";
 }) {
-  const colorStyles = {
-    blue: "text-blue-500 bg-blue-500/10",
-    purple: "text-purple-500 bg-purple-500/10",
-    green: "text-green-500 bg-green-500/10",
-    orange: "text-orange-500 bg-orange-500/10",
-    red: "text-red-500 bg-red-500/10",
+  const variantStyles = {
+    default: "border-border",
+    success: "border-green-500/30 bg-green-500/5",
+    warning: "border-yellow-500/30 bg-yellow-500/5",
+    error: "border-red-500/30 bg-red-500/5",
   };
 
   return (
-    <GlassCard
-      variant={variant}
-      hoverEffect={!!onClick}
+    <Card 
+      className={cn(
+        "transition-all",
+        variantStyles[variant],
+        onClick && "cursor-pointer hover:border-primary"
+      )}
       onClick={onClick}
-      className="p-6 flex flex-col justify-between h-auto min-h-[140px]"
     >
-      <div className="flex justify-between items-start">
-        <div className={cn("p-2 rounded-xl", colorStyles[color])}>
-          <Icon className="h-6 w-6" />
-        </div>
-        {trend && (
-          <Badge variant="outline" className={cn(
-            "gap-1 border-0",
-            trend === "up" ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
+      <CardContent className="pt-4">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">{title}</p>
+            <div className="flex items-baseline gap-2">
+              <p className="text-2xl font-bold">{value}</p>
+              {subValue && (
+                <span className="text-sm text-muted-foreground">{subValue}</span>
+              )}
+            </div>
+            {trend && trendValue && (
+              <div className={cn(
+                "flex items-center gap-1 text-xs",
+                trend === "up" ? "text-green-500" : 
+                trend === "down" ? "text-red-500" : 
+                "text-muted-foreground"
+              )}>
+                {trend === "up" ? <TrendingUp className="h-3 w-3" /> : 
+                 trend === "down" ? <TrendingDown className="h-3 w-3" /> : null}
+                {trendValue}
+              </div>
+            )}
+          </div>
+          <div className={cn(
+            "p-2 rounded-lg",
+            variant === "success" ? "bg-green-500/10" :
+            variant === "warning" ? "bg-yellow-500/10" :
+            variant === "error" ? "bg-red-500/10" :
+            "bg-muted"
           )}>
-            <TrendingUp className={cn("h-3 w-3", trend === "down" && "rotate-180")} />
-            {trendValue}
-          </Badge>
-        )}
-      </div>
-
-      <div className="mt-4">
-        <h3 className="text-3xl font-bold tracking-tight">{value}</h3>
-        <div className="flex items-center gap-2 mt-1">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          {subValue && <span className="text-xs text-muted-foreground/60">• {subValue}</span>}
+            <Icon className={cn(
+              "h-5 w-5",
+              variant === "success" ? "text-green-500" :
+              variant === "warning" ? "text-yellow-500" :
+              variant === "error" ? "text-red-500" :
+              "text-muted-foreground"
+            )} />
+          </div>
         </div>
+        {onClick && (
+          <div className="mt-3 pt-3 border-t flex items-center justify-between text-sm text-muted-foreground">
+            <span>View details</span>
+            <ArrowUpRight className="h-4 w-4" />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SystemResourceCard({ 
+  label, 
+  value, 
+  max, 
+  unit,
+  icon: Icon 
+}: { 
+  label: string; 
+  value: number; 
+  max?: number;
+  unit: string;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  // -1 indicates value is not available from API
+  const isNotAvailable = value < 0 || (max !== undefined && max < 0);
+  const percentage = isNotAvailable ? 0 : (max ? (value / max) * 100 : value);
+  const displayValue = isNotAvailable 
+    ? "N/A" 
+    : (max ? `${value.toFixed(1)} / ${max.toFixed(1)} ${unit}` : `${value.toFixed(1)} ${unit}`);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          <span>{label}</span>
+        </div>
+        <span className="font-mono text-muted-foreground">
+          {displayValue}
+        </span>
       </div>
-    </GlassCard>
+      {!isNotAvailable && (
+        <Progress 
+          value={percentage} 
+          className={cn(
+            "h-2",
+            percentage > 90 ? "[&>div]:bg-red-500" :
+            percentage > 70 ? "[&>div]:bg-yellow-500" :
+            "[&>div]:bg-green-500"
+          )}
+        />
+      )}
+    </div>
   );
 }
 
@@ -129,241 +200,235 @@ export function ManagerOverview({ client, onNavigate }: ManagerOverviewProps) {
     if (!seconds) return "N/A";
     const days = Math.floor(seconds / 86400);
     const hours = Math.floor((seconds % 86400) / 3600);
-    return days > 0 ? `${days}d ${hours}h` : `${hours}h ${Math.floor((seconds % 3600) / 60)}m`;
-  };
-
-  const container = {
-    hidden: { opacity: 0 },
-    show: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1
-      }
-    }
-  };
-
-  const item = {
-    hidden: { y: 20, opacity: 0 },
-    show: { y: 0, opacity: 1 }
-  };
-
-  // Calculate generic health score based on rules running vs total, and errors
-  const calculateHealth = () => {
-    if (!metrics) return 0;
-    if (metrics.ruleCount === 0) return 100; // No rules, good health?
-
-    const ruleHealth = (metrics.runningRules / (metrics.ruleCount || 1)) * 100;
-    const errorPenalty = Math.min((metrics.totalExceptions || 0) * 5, 20); // Penalty for exceptions
-    return Math.max(Math.round(ruleHealth - errorPenalty), 0);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6 md:p-8 space-y-8 bg-gradient-to-br from-background via-background to-muted/20">
-
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="space-y-1"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-sota-blue to-purple-600 shadow-lg shadow-purple-500/20">
-              <Server className="h-6 w-6 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">
-              Dashboard
-            </h1>
-          </div>
-          <p className="text-muted-foreground pl-14">
-            Monitor your event streaming pipelines
+    <div className="h-full overflow-auto p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-3">
+            <Server className="h-7 w-7" />
+            eKuiper Manager
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            System overview and monitoring
           </p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-3"
-        >
-          <div className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-full border backdrop-blur-sm",
-            isConnected ? "bg-green-500/10 border-green-500/20 text-green-500" : "bg-red-500/10 border-red-500/20 text-red-500"
-          )}>
-            <div className={cn("w-2 h-2 rounded-full animate-pulse", isConnected ? "bg-green-500" : "bg-red-500")} />
-            <span className="text-sm font-medium">{isConnected ? "System Online" : "System Offline"}</span>
-          </div>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => { refetchConnection(); refetchMetrics(); }}
-            className="rounded-full hover:bg-muted/50 transition-colors"
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge 
+            variant={isConnected ? "success" : "destructive"}
+            className="gap-1"
           >
-            <RefreshCw className="h-4 w-4" />
+            {isConnected ? (
+              <>
+                <CheckCircle2 className="h-3 w-3" />
+                Connected
+              </>
+            ) : (
+              <>
+                <XCircle className="h-3 w-3" />
+                Disconnected
+              </>
+            )}
+          </Badge>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              refetchConnection();
+              refetchMetrics();
+            }}
+          >
+            <RefreshCw className="h-4 w-4 mr-1" />
+            Refresh
           </Button>
-        </motion.div>
+        </div>
       </div>
 
       {!isConnected ? (
-        <GlassCard variant="neon-purple" className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="p-4 rounded-full bg-red-500/10 mb-4">
-            <AlertTriangle className="h-12 w-12 text-red-500" />
-          </div>
-          <h2 className="text-2xl font-bold mb-2">Connection Lost</h2>
-          <p className="text-muted-foreground max-w-md mb-6">
-            Use "localhost:9081" or check your connection settings.
-          </p>
-          <Button onClick={() => refetchConnection()} size="lg" className="rounded-full px-8">
-            Retry Connection
-          </Button>
-        </GlassCard>
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardContent className="py-8 text-center">
+            <AlertTriangle className="h-12 w-12 mx-auto text-yellow-500 mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Cannot Connect to eKuiper</h3>
+            <p className="text-muted-foreground max-w-md mx-auto">
+              Unable to connect to the eKuiper server. Please check that the server is running 
+              and the URL is correct in the server settings.
+            </p>
+            <Button 
+              className="mt-4"
+              onClick={() => refetchConnection()}
+            >
+              Retry Connection
+            </Button>
+          </CardContent>
+        </Card>
       ) : (
-        <motion.div
-          variants={container}
-          initial="hidden"
-          animate="show"
-          className="grid grid-cols-1 lg:grid-cols-12 gap-6"
-        >
-
-          {/* Main Stats Row */}
-          <motion.div variants={item} className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <MetricTile
-              title="Active Rules"
-              value={metrics?.runningRules || 0}
-              subValue={`of ${metrics?.ruleCount || 0} total`}
-              icon={Workflow}
-              color="green"
-              variant="neon-green"
-              onClick={() => onNavigate?.("manager-batch-rules")}
-            />
-            <MetricTile
-              title="Events Processed"
-              value={(metrics?.totalMessagesIn || 0).toLocaleString()}
-              icon={Activity}
-              color="blue"
-              variant="neon-blue"
-              trend="up"
-              trendValue={`${(metrics?.totalMessagesOut || 0).toLocaleString()} out`}
-            />
-            <MetricTile
-              title="Data Streams"
-              value={metrics?.streamCount || 0}
-              icon={Database}
-              color="purple"
-              onClick={() => onNavigate?.("streams")}
-            />
-            <MetricTile
-              title="Active Plugins"
-              value={metrics?.pluginCount || 0}
-              icon={Package}
-              color="orange"
-              onClick={() => onNavigate?.("plugins")}
-            />
-          </motion.div>
-
-          {/* System Health Column */}
-          <motion.div variants={item} className="lg:col-span-4">
-            <GlassCard className="h-full min-h-[300px] flex flex-col justify-center items-center p-6 relative">
-              <div className="absolute top-4 right-4">
-                <Badge variant="outline" className="font-mono text-xs">{systemInfo?.version || "v1.0.0"}</Badge>
-              </div>
-              <HealthRing score={calculateHealth()} label="System Health" subLabel={`Uptime: ${formatUptime(systemInfo?.uptime || 0)}`} />
-
-              <div className="w-full mt-8 space-y-4">
-                {/* CPU Usage */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center gap-2"><Cpu className="h-4 w-4" /> CPU Load</span>
-                    <span className="font-medium font-mono">{systemInfo?.cpuUsage || "0%"}</span>
+        <>
+          {/* System Status */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Card className="lg:col-span-1">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Server className="h-4 w-4" />
+                  Server Info
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Server className="h-4 w-4" />
+                    <span>Version</span>
                   </div>
-                  {/* Visual bar for CPU */}
-                  <div className="h-1.5 w-full bg-secondary/50 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                      style={{ width: systemInfo?.cpuUsage || "0%" }}
-                    />
-                  </div>
+                  <Badge variant="outline">{systemInfo?.version && systemInfo.version !== "unknown" ? systemInfo.version : "N/A"}</Badge>
                 </div>
-
-                {/* Memory Usage */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center gap-2"><ActivityIcon className="h-4 w-4" /> Memory</span>
-                    <span className="font-medium font-mono">
-                      {systemInfo?.memoryUsed ? formatBytes(parseInt(systemInfo.memoryUsed)) : "0 B"} / {systemInfo?.memoryTotal ? formatBytes(parseInt(systemInfo.memoryTotal)) : "0 B"}
-                    </span>
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Zap className="h-4 w-4" />
+                    <span>OS</span>
                   </div>
-                  {/* Visual bar for Memory */}
-                  <div className="h-1.5 w-full bg-secondary/50 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-purple-500 rounded-full transition-all duration-500"
-                      style={{
-                        width: systemInfo?.memoryUsed && systemInfo?.memoryTotal
-                          ? `${(parseInt(systemInfo.memoryUsed) / parseInt(systemInfo.memoryTotal)) * 100}%`
-                          : "0%"
-                      }}
-                    />
+                  <Badge variant="outline">{systemInfo?.os || "N/A"}</Badge>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    <span>Uptime</span>
                   </div>
+                  <span className="font-mono">{systemInfo?.uptime && systemInfo.uptime > 0 ? formatUptime(systemInfo.uptime) : "N/A"}</span>
                 </div>
-
-                <div className="flex justify-between text-sm pt-2 border-t border-border/40">
-                  <span className="text-muted-foreground flex items-center gap-2"><Cpu className="h-4 w-4" /> OS / Arch</span>
-                  <span className="font-medium">{systemInfo?.os || "-"} / {systemInfo?.arch || "-"}</span>
+                <div className="pt-2 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    Note: CPU/Memory metrics are not exposed by eKuiper API
+                  </p>
                 </div>
-              </div>
-            </GlassCard>
-          </motion.div>
+              </CardContent>
+            </Card>
 
-          {/* Quick Actions Row */}
-          <motion.div variants={item} className="lg:col-span-12">
-            <h3 className="text-lg font-semibold mb-4 px-1">Quick Actions</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: "Create Rule", icon: Workflow, view: "manager-batch-rules", desc: "Define logic" },
-                { label: "Add Stream", icon: Radio, view: "streams", desc: "Connect data source" },
-                { label: "Server Config", icon: Server, view: "manager-configurations", desc: "System settings" },
-                { label: "Extensions", icon: Package, view: "plugins", desc: "Manage plugins" },
-                { label: "API Docs", icon: Globe, view: "api-docs", desc: "Swagger Reference" },
-              ].map((action, i) => (
-                <GlassCard
-                  key={i}
-                  hoverEffect
-                  onClick={() => onNavigate?.(action.view)}
-                  className="p-4 flex items-center gap-4 cursor-pointer group"
-                >
-                  <div className="p-3 rounded-full bg-secondary group-hover:bg-primary/20 transition-colors">
-                    <action.icon className="h-5 w-5 group-hover:text-primary transition-colors" />
+            <div className="lg:col-span-2 grid grid-cols-2 gap-4">
+              <MetricCard
+                title="Total Rules"
+                value={metrics?.ruleCount || 0}
+                subValue={`${metrics?.runningRules || 0} running`}
+                icon={Workflow}
+                onClick={() => onNavigate?.("manager-batch-rules")}
+                variant={metrics?.runningRules === metrics?.ruleCount ? "success" : "warning"}
+              />
+              <MetricCard
+                title="Streams"
+                value={metrics?.streamCount || 0}
+                icon={Database}
+                onClick={() => onNavigate?.("streams")}
+              />
+              <MetricCard
+                title="Messages Processed"
+                value={(metrics?.totalMessagesIn || 0).toLocaleString()}
+                subValue="total in"
+                icon={Radio}
+                trend="up"
+                trendValue={`${(metrics?.totalMessagesOut || 0).toLocaleString()} out`}
+              />
+              <MetricCard
+                title="Exceptions"
+                value={metrics?.totalExceptions || 0}
+                icon={AlertTriangle}
+                variant={(metrics?.totalExceptions || 0) > 0 ? "error" : "success"}
+              />
+            </div>
+          </div>
+
+          {/* Quick Stats */}
+          {/* Quick Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => onNavigate?.("streams")}>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-blue-500/10">
+                    <Database className="h-5 w-5 text-blue-500" />
                   </div>
                   <div>
-                    <p className="font-medium group-hover:text-primary transition-colors">{action.label}</p>
-                    <p className="text-xs text-muted-foreground">{action.desc}</p>
+                    <p className="text-2xl font-bold">{metrics?.streamCount || 0}</p>
+                    <p className="text-sm text-muted-foreground">Streams</p>
                   </div>
-                  <ArrowRight className="h-4 w-4 ml-auto opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all text-primary" />
-                </GlassCard>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Activity Chart Area (Placeholder for now, keeping it clean) */}
-          <motion.div variants={item} className="lg:col-span-12">
-            <GlassCard className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="text-lg font-semibold">Throughput History</h3>
-                  <p className="text-sm text-muted-foreground">Incoming vs Outgoing messages</p>
                 </div>
-              </div>
-              <div className="h-[200px] w-full flex items-center justify-center border-2 border-dashed border-muted rounded-lg bg-muted/5">
-                <div className="text-center text-muted-foreground">
-                  <BarChart3 className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                  <p>Real-time chart visualization coming soon</p>
-                </div>
-              </div>
-            </GlassCard>
-          </motion.div>
+              </CardContent>
+            </Card>
 
-        </motion.div>
+            <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => onNavigate?.("streams")}>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-purple-500/10">
+                    <Table className="h-5 w-5 text-purple-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{metrics?.tableCount || 0}</p>
+                    <p className="text-sm text-muted-foreground">Tables</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => onNavigate?.("plugins")}>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-green-500/10">
+                    <Package className="h-5 w-5 text-green-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{metrics?.pluginCount || 0}</p>
+                    <p className="text-sm text-muted-foreground">Plugins</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => onNavigate?.("plugins")}>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-orange-500/10">
+                    <Server className="h-5 w-5 text-orange-500" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{metrics?.serviceCount || 0}</p>
+                    <p className="text-sm text-muted-foreground">Services</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Quick Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Quick Actions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => onNavigate?.("manager-batch-rules")}>
+                  <Workflow className="h-4 w-4 mr-2" />
+                  Manage Rules
+                </Button>
+                <Button variant="outline" onClick={() => onNavigate?.("streams")}>
+                  <Database className="h-4 w-4 mr-2" />
+                  Manage Streams
+                </Button>
+                <Button variant="outline" onClick={() => onNavigate?.("manager-configurations")}>
+                  <Server className="h-4 w-4 mr-2" />
+                  Configurations
+                </Button>
+                <Button variant="outline" onClick={() => onNavigate?.("manager-import-export")}>
+                  <Activity className="h-4 w-4 mr-2" />
+                  Import/Export
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );
 }
-

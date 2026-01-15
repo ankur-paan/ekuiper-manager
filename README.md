@@ -4,6 +4,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+[![Live Demo](https://img.shields.io/badge/Live-API%20Docs-orange)](https://ankur-paan.github.io/ekuiper-manager/)
 
 > **🚀 The First Open-Source Web UI & Manager for [LF Edge eKuiper](https://ekuiper.org/) - Because the Community Deserves Better**
 
