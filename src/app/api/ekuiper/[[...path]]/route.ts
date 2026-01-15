@@ -1,0 +1,194 @@
+import { NextRequest, NextResponse } from "next/server";
+
+/**
+ * Dynamic API route that proxies all requests to the eKuiper server.
+ * This handles CORS issues and allows the frontend to communicate with eKuiper.
+ * 
+ * The eKuiper base URL is configured via:
+ * 1. Query parameter: ?ekuiper_url=http://...
+ * 2. Header: X-EKuiper-URL
+ * 3. Environment variable: EKUIPER_URL
+ * 4. Default: http://localhost:9081
+ */
+
+function getEKuiperBaseUrl(request: NextRequest): string {
+  // Check query parameter first
+  const urlParam = request.nextUrl.searchParams.get("ekuiper_url");
+  if (urlParam) {
+    const normalized = normalizeUrl(urlParam);
+    console.log(`[getEKuiperBaseUrl] From query param: ${urlParam} -> ${normalized}`);
+    return normalized;
+  }
+
+  // Check header
+  const headerUrl = request.headers.get("X-EKuiper-URL");
+  if (headerUrl) {
+    const normalized = normalizeUrl(headerUrl);
+    console.log(`[getEKuiperBaseUrl] From header: ${headerUrl} -> ${normalized}`);
+    return normalized;
+  }
+
+  // Fall back to environment variable or default
+  const fallback = process.env.EKUIPER_URL || "http://localhost:9081";
+  const normalized = normalizeUrl(fallback);
+  console.log(`[getEKuiperBaseUrl] From env/default: ${fallback} -> ${normalized}`);
+  return normalized;
+}
+
+// Ensure URL has a protocol
+function normalizeUrl(url: string): string {
+  if (!url) return url;
+  // If URL doesn't start with http:// or https://, add https://
+  if (!url.match(/^https?:\/\//i)) {
+    const result = `https://${url}`;
+    console.log(`[normalizeUrl] Adding protocol: ${url} -> ${result}`);
+    return result;
+  }
+  return url;
+}
+
+async function proxyRequest(
+  request: NextRequest,
+  method: string,
+  path: string
+): Promise<NextResponse> {
+  const baseUrl = getEKuiperBaseUrl(request);
+  // Ensure baseUrl doesn't end with slash and path doesn't start with slash
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const targetUrl = `${cleanBaseUrl}${cleanPath}`;
+
+  console.log(`[Proxy] baseUrl: ${baseUrl}, cleanBaseUrl: ${cleanBaseUrl}, path: ${path}, cleanPath: ${cleanPath}, targetUrl: ${targetUrl}`);
+
+  try {
+    // Get request body for non-GET requests
+    let body: string | undefined;
+    if (method !== "GET" && method !== "HEAD") {
+      try {
+        body = await request.text();
+      } catch {
+        // No body
+      }
+    }
+
+    // Set a timeout for the fetch
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    // Forward the request to eKuiper
+    const response = await fetch(targetUrl, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: body || undefined,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    // Get response data
+    const responseText = await response.text();
+    let responseData: any;
+    try {
+      responseData = responseText ? JSON.parse(responseText) : null;
+    } catch {
+      responseData = responseText;
+    }
+
+    // Return the response with proper CORS headers
+    return NextResponse.json(responseData, {
+      status: response.status,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-EKuiper-URL",
+      },
+    });
+  } catch (error) {
+    // Helper function to check if error is connection refused
+    const isConnectionError = (err: unknown): boolean => {
+      if (!(err instanceof Error)) return false;
+      // Check message
+      if (err.message.includes("ECONNREFUSED") || err.message.includes("fetch failed")) return true;
+      // Check cause (can be an AggregateError)
+      if (err.cause) {
+        if (typeof err.cause === "object" && "code" in err.cause && err.cause.code === "ECONNREFUSED") return true;
+        if (err.cause instanceof Error && err.cause.message?.includes("ECONNREFUSED")) return true;
+      }
+      return false;
+    };
+
+    const isConnErr = isConnectionError(error);
+
+    // Only log non-connection errors to avoid spam
+    if (!isConnErr) {
+      console.error(`Error proxying request to ${targetUrl}:`, error);
+    }
+
+    // Provide user-friendly error message
+    let userMessage = "Failed to connect to eKuiper";
+    if (isConnErr) {
+      userMessage = `Cannot connect to eKuiper at ${baseUrl}. Make sure eKuiper is running.`;
+    } else if (error instanceof Error && error.name === "AbortError") {
+      userMessage = `Connection to ${baseUrl} timed out.`;
+    }
+
+    return NextResponse.json(
+      {
+        error: userMessage,
+        details: `Server: ${baseUrl}`,
+      },
+      {
+        status: 502,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+        },
+      }
+    );
+  }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { path?: string[] } }
+) {
+  const path = params.path ? params.path.join("/") : "";
+  return proxyRequest(request, "GET", path);
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { path?: string[] } }
+) {
+  const path = params.path ? params.path.join("/") : "";
+  return proxyRequest(request, "POST", path);
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: { path?: string[] } }
+) {
+  const path = params.path ? params.path.join("/") : "";
+  return proxyRequest(request, "PUT", path);
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { path?: string[] } }
+) {
+  const path = params.path ? params.path.join("/") : "";
+  return proxyRequest(request, "DELETE", path);
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, X-EKuiper-URL",
+    },
+  });
+}
