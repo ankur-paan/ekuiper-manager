@@ -11,7 +11,7 @@ An open-source, community-driven web interface and management platform for eKuip
 
 **Developed & Maintained by [IDACS Business Administration Private Limited](https://i-dacs.com)**
 
-📧 Contact: measure@i-dacs.com | 🌐 Website: [i-dacs.com](https://i-dacs.com)
+📧 Contact: measure@i-dacs.com | 🌐 Website: [i-dacs.com](https://i-dacs.com) | 💼 [LinkedIn](https://www.linkedin.com/company/110770924)
 
 ---
 
@@ -238,6 +238,6 @@ If you find this project useful, please give it a star! It helps others discover
 
 **Developed by [IDACS Business Administration Private Limited](https://i-dacs.com)**
 
-📧 measure@i-dacs.com | 🌐 [i-dacs.com](https://i-dacs.com)
+📧 measure@i-dacs.com | 🌐 [i-dacs.com](https://i-dacs.com) | 💼 [LinkedIn](https://www.linkedin.com/company/110770924)
 
 *Building the future of Industrial IoT together.*
