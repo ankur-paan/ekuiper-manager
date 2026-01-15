@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       
       - name: Copy latest OpenAPI spec
         run: cp public/ekuiper-openapi.json docs-site/ekuiper-openapi.json
