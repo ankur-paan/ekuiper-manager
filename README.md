@@ -34,15 +34,18 @@ This project aims to fill that gap with a **completely open-source, community-dr
 
 | Feature | Description |
 |---------|-------------|
-| **Swagger API Playground** | Complete interactive API documentation with live "Try It Out" functionality. Full OpenAPI 3.0 spec with 70+ endpoints, error handling, examples, and schema definitions. |
+| **Swagger API Playground** | Complete interactive API documentation with live "Try It Out" functionality. Full OpenAPI 3.0 spec with 70+ endpoints. |
+| **Rule Tracing & Debugging** | Real-time data flow tracing with span hierarchy and detailed message attributes. |
+| **Rule Topology** | Visual graph representation of the data flow from sources through operators to sinks. |
+| **Query Plan (Explain)** | Visualized execution plans and performance hints for eKuiper SQL queries. |
 
 ### 🔶 Partially Built (Functional but Incomplete)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
+| **Rule Management** | 90% | List, start, stop, tracing, topology, and explain working. Edit with SQL working. Create with UI logic in progress. |
 | **Dashboard Overview** | 70% | System info display, CPU/memory/uptime monitoring. Needs real-time refresh polish. |
-| **Rule Management** | 60% | List, start, stop rules. Create/edit needs more work. |
-| **Rule Metrics** | 50% | Basic metrics display. Advanced charts and historical data pending. |
+| **Rule Metrics** | 70% | Basic metrics and status display. Advanced historical charts pending. |
 | **eKuiper Health Check** | 80% | Ping and system info working. Connection status indicators need work. |
 | **Action/Sink Configuration** | 40% | Basic MQTT sink working. Other sink types need implementation. |
 | **Stream Management** | 50% | List and view streams. Create with SQL editor partially working. |
@@ -79,10 +82,12 @@ This project aims to fill that gap with a **completely open-source, community-dr
 
 ### Phase 2: Core Rule Engine Features
 
-- Complete rule CRUD with validation
-- Rule metrics dashboard with historical charts
-- Rule topology visualization
-- Data tracing and debugging
+- ✅ Rule CRUD with validation (SQL-based)
+- ✅ Rule status & basic metrics
+- ✅ Rule topology visualization
+- ✅ Data tracing and debugging
+- ✅ Query execution plan visualization (Explain)
+- ⏳ Advanced historical charts (Pending)
 
 ### Phase 3: Extended Sources & Sinks
 
