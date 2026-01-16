@@ -229,7 +229,10 @@ export default function ConnectionsPage() {
 
   React.useEffect(() => {
     if (viewTab === "keys") fetchKeys();
-  }, [fetchKeys, viewTab]);
+    // fetchKeys is excluded from deps because it's recreated when its dependencies change
+    // Including the actual dependencies directly instead
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTab, activeServer, activeResTab, selectedType]);
 
   const handleSaveKey = async () => {
     if (!selectedType) return;

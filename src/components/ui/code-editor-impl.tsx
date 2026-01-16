@@ -13,6 +13,18 @@ interface CodeEditorProps {
 export function CodeEditorImpl({ value, onChange, language = "javascript", readOnly = false }: CodeEditorProps) {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const editorRef = React.useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+    
+    // Use refs to avoid stale closures in onChange callback
+    const onChangeRef = React.useRef(onChange);
+    const readOnlyRef = React.useRef(readOnly);
+    
+    React.useEffect(() => {
+        onChangeRef.current = onChange;
+    }, [onChange]);
+    
+    React.useEffect(() => {
+        readOnlyRef.current = readOnly;
+    }, [readOnly]);
 
     React.useEffect(() => {
         let editor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -38,7 +50,7 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             editorRef.current = editor;
 
             editor.onDidChangeModelContent(() => {
-                onChange?.(editor!.getValue());
+                onChangeRef.current?.(editor!.getValue());
             });
         }
 
@@ -46,8 +58,9 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             editor?.dispose();
             editorRef.current = null;
         };
+        // Only mount once - value/language/readOnly are handled in separate effects below
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Only mount once
+    }, []);
 
     // Update value if changed externally
     React.useEffect(() => {
@@ -68,6 +81,13 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             }
         }
     }, [language]);
+    
+    // Update readOnly option
+    React.useEffect(() => {
+        if (editorRef.current) {
+            editorRef.current.updateOptions({ readOnly });
+        }
+    }, [readOnly]);
 
     return <div ref={containerRef} className="h-full min-h-[400px] w-full border rounded-md overflow-hidden bg-[#1e1e1e]" />;
 }

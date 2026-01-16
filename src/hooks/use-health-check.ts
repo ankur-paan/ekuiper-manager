@@ -87,7 +87,10 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
       hasInitialCheck.current = true;
       checkHealth();
     }
-  }, [_hasHydrated, enabled, activeServer, checkHealth]);
+    // checkHealth is excluded from deps to avoid infinite loop
+    // It's recreated when activeServer/updateServer change, which are already in deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_hasHydrated, enabled, activeServer]);
 
   // Reset initial check flag when server changes
   React.useEffect(() => {
@@ -101,7 +104,10 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
     const intervalId = setInterval(checkHealth, interval);
 
     return () => clearInterval(intervalId);
-  }, [_hasHydrated, enabled, activeServer, interval, checkHealth]);
+    // checkHealth is excluded from deps to avoid infinite loop
+    // It's recreated when activeServer/updateServer change, which are already in deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_hasHydrated, enabled, activeServer, interval]);
 
   return {
     ...health,

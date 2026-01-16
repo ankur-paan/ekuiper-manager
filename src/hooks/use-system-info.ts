@@ -63,7 +63,10 @@ export function useSystemInfo(options: UseSystemInfoOptions = {}) {
     if (enabled && activeServer) {
       fetchSystemInfo();
     }
-  }, [_hasHydrated, enabled, activeServer, fetchSystemInfo]);
+    // fetchSystemInfo is excluded from deps to avoid infinite loop
+    // It's recreated when activeServer changes, which is already in deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_hasHydrated, enabled, activeServer]);
 
   // Periodic refresh
   React.useEffect(() => {
@@ -72,7 +75,10 @@ export function useSystemInfo(options: UseSystemInfoOptions = {}) {
     const intervalId = setInterval(fetchSystemInfo, refetchInterval);
 
     return () => clearInterval(intervalId);
-  }, [_hasHydrated, enabled, activeServer, refetchInterval, fetchSystemInfo]);
+    // fetchSystemInfo is excluded from deps to avoid infinite loop
+    // It's recreated when activeServer changes, which is already in deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_hasHydrated, enabled, activeServer, refetchInterval]);
 
   return {
     data,
