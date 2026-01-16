@@ -9,6 +9,9 @@ out/
 build/
 dist/
 
+# Local database
+.data/
+
 # Documentation (local only)
 doc/
 docs/
@@ -45,3 +48,6 @@ next-env.d.ts
 # Misc
 *.log
 .vercel
+
+# AI Planning Docs
+IMPLEMENTATION_PLAN.md
