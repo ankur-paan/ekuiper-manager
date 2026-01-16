@@ -25,6 +25,71 @@ function normalizeUrl(url: string): string {
   return url;
 }
 
+// SSRF Protection: Validate URL to prevent requests to internal/private networks
+function isValidExternalUrl(urlString: string): { valid: boolean; reason?: string } {
+  try {
+    const parsedUrl = new URL(urlString);
+
+    // Only allow http and https protocols
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      return { valid: false, reason: "Only HTTP and HTTPS protocols are allowed" };
+    }
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+
+    // Block localhost and loopback addresses
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+      return { valid: false, reason: "Localhost addresses are not allowed" };
+    }
+
+    // Block private IPv4 ranges
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const [, a, b, c] = ipv4Match.map(Number);
+      // 10.0.0.0/8
+      if (a === 10) {
+        return { valid: false, reason: "Private IP addresses (10.x.x.x) are not allowed" };
+      }
+      // 172.16.0.0/12
+      if (a === 172 && b >= 16 && b <= 31) {
+        return { valid: false, reason: "Private IP addresses (172.16-31.x.x) are not allowed" };
+      }
+      // 192.168.0.0/16
+      if (a === 192 && b === 168) {
+        return { valid: false, reason: "Private IP addresses (192.168.x.x) are not allowed" };
+      }
+      // 169.254.0.0/16 (link-local)
+      if (a === 169 && b === 254) {
+        return { valid: false, reason: "Link-local addresses are not allowed" };
+      }
+      // 0.0.0.0
+      if (a === 0) {
+        return { valid: false, reason: "Invalid IP address" };
+      }
+    }
+
+    // Block common internal hostnames
+    const blockedPatterns = [
+      /^internal\./i,
+      /^intranet\./i,
+      /^private\./i,
+      /\.local$/i,
+      /\.internal$/i,
+      /\.corp$/i,
+      /\.lan$/i,
+    ];
+    for (const pattern of blockedPatterns) {
+      if (pattern.test(hostname)) {
+        return { valid: false, reason: "Internal hostnames are not allowed" };
+      }
+    }
+
+    return { valid: true };
+  } catch {
+    return { valid: false, reason: "Invalid URL format" };
+  }
+}
+
 /**
  * Test connection to an eKuiper instance
  * POST /api/ekuiper/test-connection
@@ -44,6 +109,15 @@ export async function POST(request: NextRequest) {
 
     // Normalize URL to ensure it has a protocol
     url = normalizeUrl(url);
+
+    // SSRF Protection: Validate URL before making request
+    const validation = isValidExternalUrl(url);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { success: false, message: validation.reason || "Invalid URL" },
+        { status: 400 }
+      );
+    }
 
     // Test by calling the ping endpoint (or just check if we can reach the server)
     const controller = new AbortController();
