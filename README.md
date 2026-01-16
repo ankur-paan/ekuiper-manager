@@ -112,7 +112,7 @@ This project aims to fill that gap with a **completely open-source, community-dr
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/ekuiper-manager.git
+git clone https://github.com/ankur-paan/ekuiper-manager.git
 cd ekuiper-manager
 
 # Install dependencies
