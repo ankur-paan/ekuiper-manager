@@ -14,27 +14,12 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
     const containerRef = React.useRef<HTMLDivElement>(null);
     const editorRef = React.useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
-    // Use refs to avoid stale closures
+    // Use ref for onChange to avoid recreating the change handler
     const onChangeRef = React.useRef(onChange);
-    const valueRef = React.useRef(value);
-    const languageRef = React.useRef(language);
-    const readOnlyRef = React.useRef(readOnly);
-
+    
     React.useEffect(() => {
         onChangeRef.current = onChange;
     }, [onChange]);
-
-    React.useEffect(() => {
-        valueRef.current = value;
-    }, [value]);
-
-    React.useEffect(() => {
-        languageRef.current = language;
-    }, [language]);
-
-    React.useEffect(() => {
-        readOnlyRef.current = readOnly;
-    }, [readOnly]);
 
     React.useEffect(() => {
         let editor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -46,10 +31,10 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             }
 
             editor = monaco.editor.create(containerRef.current, {
-                value: valueRef.current,
-                language: languageRef.current,
+                value,
+                language,
                 theme: "vs-dark",
-                readOnly: readOnlyRef.current,
+                readOnly,
                 minimap: { enabled: false },
                 automaticLayout: true,
                 scrollBeyondLastLine: false,
@@ -68,7 +53,8 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             editor?.dispose();
             editorRef.current = null;
         };
-    }, []); // Only mount once - props are handled via refs
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Only mount once - value/language/readOnly are synced by separate effects
 
     // Update value if changed externally
     React.useEffect(() => {
@@ -93,7 +79,7 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
     // Update readOnly option
     React.useEffect(() => {
         if (editorRef.current) {
-            editorRef.current.updateOptions({ readOnly: readOnlyRef.current });
+            editorRef.current.updateOptions({ readOnly });
         }
     }, [readOnly]);
 
