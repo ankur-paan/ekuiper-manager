@@ -22,7 +22,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-export default function CreateSchemaPage() {
+function CreateSchemaContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const initialType = searchParams.get("type") || "protobuf";
@@ -220,5 +220,13 @@ export default function CreateSchemaPage() {
                 </div>
             </div>
         </AppLayout>
+    );
+}
+
+export default function CreateSchemaPage() {
+    return (
+        <React.Suspense fallback={<LoadingSpinner />}>
+            <CreateSchemaContent />
+        </React.Suspense>
     );
 }

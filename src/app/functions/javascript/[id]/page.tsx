@@ -16,7 +16,7 @@ import {
     Save,
     Code2,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CodeEditor } from "@/components/ui/code-editor";
 
@@ -37,8 +37,9 @@ function main(...args) {
 }
 `;
 
-export default function JSUDFEditorPage({ params }: PageProps) {
+export default function JSUDFEditorPage() {
     const router = useRouter();
+    const params = useParams() as { id: string };
     const { servers, activeServerId } = useServerStore();
     const activeServer = servers.find((s) => s.id === activeServerId);
 

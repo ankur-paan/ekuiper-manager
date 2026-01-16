@@ -32,7 +32,7 @@ import {
   HelpCircle,
   Code,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { EKuiperClient } from "@/lib/ekuiper/client";
 import { Service } from "@/lib/ekuiper/types";
 
@@ -42,8 +42,9 @@ interface ServiceDetailPageProps {
   };
 }
 
-export default function ServiceDetailPage({ params }: ServiceDetailPageProps) {
+export default function ServiceDetailPage() {
   const router = useRouter();
+  const params = useParams() as { name: string };
   const name = decodeURIComponent(params.name);
   const { servers, activeServerId } = useServerStore();
   const activeServer = servers.find((s) => s.id === activeServerId);

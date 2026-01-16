@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Dynamic API route that proxies all requests to the eKuiper server.
  * This handles CORS issues and allows the frontend to communicate with eKuiper.
@@ -140,34 +142,26 @@ async function proxyRequest(
   }
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { path?: string[] } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
+  const params = await props.params;
   const path = params.path ? params.path.join("/") : "";
   return proxyRequest(request, "GET", path);
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { path?: string[] } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
+  const params = await props.params;
   const path = params.path ? params.path.join("/") : "";
   return proxyRequest(request, "POST", path);
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { path?: string[] } }
-) {
+export async function PUT(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
+  const params = await props.params;
   const path = params.path ? params.path.join("/") : "";
   return proxyRequest(request, "PUT", path);
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { path?: string[] } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
+  const params = await props.params;
   const path = params.path ? params.path.join("/") : "";
   return proxyRequest(request, "DELETE", path);
 }

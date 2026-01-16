@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, ErrorState, LoadingPage } from "@/components/common";
 import { ArrowLeft, Zap, Server, Code, FileCode } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { EKuiperClient } from "@/lib/ekuiper/client";
 import { Service } from "@/lib/ekuiper/types";
 
@@ -33,8 +33,9 @@ interface FunctionDetails {
     schemaType: string;
 }
 
-export default function FunctionDetailPage({ params }: FunctionDetailPageProps) {
+export default function FunctionDetailPage() {
     const router = useRouter();
+    const params = useParams() as { name: string };
     const name = decodeURIComponent(params.name);
     const { servers, activeServerId } = useServerStore();
     const activeServer = servers.find((s) => s.id === activeServerId);

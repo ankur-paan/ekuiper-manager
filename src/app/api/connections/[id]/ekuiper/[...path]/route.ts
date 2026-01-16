@@ -87,32 +87,36 @@ async function proxyToEKuiper(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string; path: string[] } }
+  props: { params: Promise<{ id: string; path: string[] }> }
 ) {
+  const params = await props.params;
   const ekuiperPath = params.path.join("/");
   return proxyToEKuiper(request, "GET", params.id, ekuiperPath);
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string; path: string[] } }
+  props: { params: Promise<{ id: string; path: string[] }> }
 ) {
+  const params = await props.params;
   const ekuiperPath = params.path.join("/");
   return proxyToEKuiper(request, "POST", params.id, ekuiperPath);
 }
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string; path: string[] } }
+  props: { params: Promise<{ id: string; path: string[] }> }
 ) {
+  const params = await props.params;
   const ekuiperPath = params.path.join("/");
   return proxyToEKuiper(request, "PUT", params.id, ekuiperPath);
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string; path: string[] } }
+  props: { params: Promise<{ id: string; path: string[] }> }
 ) {
+  const params = await props.params;
   const ekuiperPath = params.path.join("/");
   return proxyToEKuiper(request, "DELETE", params.id, ekuiperPath);
 }

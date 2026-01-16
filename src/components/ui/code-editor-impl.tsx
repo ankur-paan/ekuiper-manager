@@ -51,7 +51,6 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             editor?.dispose();
             editorRef.current = null;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Only mount once - value, language, readOnly are handled by other effects
 
     // Update value if changed externally
