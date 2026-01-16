@@ -24,7 +24,10 @@ jobs:
       
     - name: Lint
       run: npm run lint
-      
+
+    - name: Test with Coverage
+      run: npx jest --coverage --passWithNoTests
+
     - name: Build
       run: npm run build
 
