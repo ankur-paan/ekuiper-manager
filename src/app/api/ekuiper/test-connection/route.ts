@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 // Helper function to check if error is connection refused
 function isConnectionError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -89,7 +91,7 @@ export async function POST(request: NextRequest) {
           message: "Connection timeout - eKuiper did not respond within 5 seconds",
         });
       }
-      
+
       // Check for connection refused errors
       if (isConnectionError(fetchError)) {
         return NextResponse.json({
@@ -97,7 +99,7 @@ export async function POST(request: NextRequest) {
           message: `Cannot connect to ${url}. Make sure eKuiper is running and accessible.`,
         });
       }
-      
+
       throw fetchError;
     }
   } catch (error) {

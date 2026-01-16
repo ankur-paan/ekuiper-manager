@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Dynamic API route that proxies all requests to the eKuiper server.
  * This handles CORS issues and allows the frontend to communicate with eKuiper.
