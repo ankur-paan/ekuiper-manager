@@ -14,17 +14,12 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
     const containerRef = React.useRef<HTMLDivElement>(null);
     const editorRef = React.useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     
-    // Use refs to avoid stale closures in onChange callback
+    // Use ref to avoid stale closures in onChange callback
     const onChangeRef = React.useRef(onChange);
-    const readOnlyRef = React.useRef(readOnly);
     
     React.useEffect(() => {
         onChangeRef.current = onChange;
     }, [onChange]);
-    
-    React.useEffect(() => {
-        readOnlyRef.current = readOnly;
-    }, [readOnly]);
 
     React.useEffect(() => {
         let editor: monaco.editor.IStandaloneCodeEditor | null = null;
