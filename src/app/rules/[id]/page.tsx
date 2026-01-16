@@ -245,7 +245,7 @@ export default function RuleDetailPage() {
                     <Code className="h-4 w-4" />
                     SQL Query
                   </CardTitle>
-                  <CardDescription>The rule's processing query</CardDescription>
+                  <CardDescription>The rule&apos;s processing query</CardDescription>
                 </div>
                 <Button
                   variant="outline"

@@ -223,7 +223,7 @@ export default function NewStreamPage() {
               <CardContent>
                 {fields.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">
-                    No fields defined. Click "Add Field" to define a schema, or leave empty for a schemaless stream.
+                    No fields defined. Click &quot;Add Field&quot; to define a schema, or leave empty for a schemaless stream.
                   </p>
                 ) : (
                   <div className="space-y-2">

@@ -63,7 +63,7 @@ export function useSystemInfo(options: UseSystemInfoOptions = {}) {
     if (enabled && activeServer) {
       fetchSystemInfo();
     }
-  }, [_hasHydrated, enabled, activeServer?.id, fetchSystemInfo]);
+  }, [_hasHydrated, enabled, activeServer, fetchSystemInfo]);
 
   // Periodic refresh
   React.useEffect(() => {
@@ -72,7 +72,7 @@ export function useSystemInfo(options: UseSystemInfoOptions = {}) {
     const intervalId = setInterval(fetchSystemInfo, refetchInterval);
 
     return () => clearInterval(intervalId);
-  }, [_hasHydrated, enabled, activeServer?.id, refetchInterval, fetchSystemInfo]);
+  }, [_hasHydrated, enabled, activeServer, refetchInterval, fetchSystemInfo]);
 
   return {
     data,

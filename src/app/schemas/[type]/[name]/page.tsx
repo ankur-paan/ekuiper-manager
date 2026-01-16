@@ -46,7 +46,7 @@ export default function SchemaDetailPage({ params }: { params: { type: string; n
             if (type === "custom") {
                 setFileUrl(data.file || data.content || "");
             } else {
-                setContent(data.content);
+                setContent(data.content || "");
             }
         } catch (err) {
             toast.error(`Failed to fetch schema: ${err instanceof Error ? err.message : "Unknown error"}`);

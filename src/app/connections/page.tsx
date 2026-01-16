@@ -202,6 +202,7 @@ export default function ConnectionsPage() {
       }
       setTypes(typeList);
       if (typeList.length > 0) setSelectedType(typeList[0]);
+    } catch (err) {
       toast.error(`Failed to fetch types: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setLoadingTypes(false);
@@ -228,7 +229,7 @@ export default function ConnectionsPage() {
 
   React.useEffect(() => {
     if (viewTab === "keys") fetchKeys();
-  }, [fetchKeys]);
+  }, [fetchKeys, viewTab]);
 
   const handleSaveKey = async () => {
     if (!selectedType) return;

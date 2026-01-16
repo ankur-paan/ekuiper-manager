@@ -72,7 +72,7 @@ export function UnifiedSearch() {
                 ekuiperClient.listStreams(),
                 ekuiperClient.listTables(),
                 ekuiperClient.listRules(),
-                ekuiperClient.listPlugins("portable"), // Just one type for now or add native too
+                ekuiperClient.listPlugins("portables"), // Just one type for now or add native too
             ]);
 
             if (streams.status === "fulfilled") {

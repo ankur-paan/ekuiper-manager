@@ -513,22 +513,6 @@ export class EKuiperManagerClient extends EKuiperClient {
   }
 
   /**
-   * Create shared connection
-   * POST /connections with body {id, typ, props}
-   */
-  async createConnection(id: string, typ: string, props: Record<string, any>): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/connections`, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify({ id, typ, props }),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to create connection: ${errorText || response.statusText}`);
-    }
-  }
-
-  /**
    * List all connections
    * GET /connections
    */
@@ -554,20 +538,7 @@ export class EKuiperManagerClient extends EKuiperClient {
     }
   }
 
-  /**
-   * Delete a connection
-   * DELETE /connections/{id}
-   */
-  async deleteConnection(id: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/connections/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: this.getHeaders(),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to delete connection: ${errorText || response.statusText}`);
-    }
-  }
+
 
   /**
    * Get schema registry

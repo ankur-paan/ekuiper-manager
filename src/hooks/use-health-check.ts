@@ -24,7 +24,7 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
     error: null,
   });
   const [isChecking, setIsChecking] = React.useState(false);
-  
+
   // Use ref to track if we've done initial check
   const hasInitialCheck = React.useRef(false);
 
@@ -81,18 +81,18 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
   // Initial check - only once per server after hydration
   React.useEffect(() => {
     if (!_hasHydrated || !enabled || !activeServer) return;
-    
+
     // Only do initial check once per session
     if (!hasInitialCheck.current) {
       hasInitialCheck.current = true;
       checkHealth();
     }
-  }, [_hasHydrated, enabled, activeServer?.id, checkHealth]);
+  }, [_hasHydrated, enabled, activeServer, checkHealth]);
 
   // Reset initial check flag when server changes
   React.useEffect(() => {
     hasInitialCheck.current = false;
-  }, [activeServer?.id]);
+  }, [activeServer]);
 
   // Periodic health checks
   React.useEffect(() => {
@@ -101,7 +101,7 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
     const intervalId = setInterval(checkHealth, interval);
 
     return () => clearInterval(intervalId);
-  }, [_hasHydrated, enabled, activeServer?.id, interval, checkHealth]);
+  }, [_hasHydrated, enabled, activeServer, interval, checkHealth]);
 
   return {
     ...health,
