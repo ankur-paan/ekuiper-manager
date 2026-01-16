@@ -26,8 +26,10 @@ export function useSystemInfo(options: UseSystemInfoOptions = {}) {
 
   const activeServer = servers.find((s) => s.id === activeServerId);
 
+  const activeServerUrl = activeServer?.url;
+
   const fetchSystemInfo = React.useCallback(async () => {
-    if (!activeServer) {
+    if (!activeServerUrl) {
       setError("No server selected");
       return;
     }
@@ -39,7 +41,7 @@ export function useSystemInfo(options: UseSystemInfoOptions = {}) {
       const response = await fetch(`/api/ekuiper/`, {
         method: "GET",
         headers: {
-          "X-EKuiper-URL": activeServer.url,
+          "X-EKuiper-URL": activeServerUrl,
         },
       });
 
@@ -55,24 +57,24 @@ export function useSystemInfo(options: UseSystemInfoOptions = {}) {
     } finally {
       setIsLoading(false);
     }
-  }, [activeServer]);
+  }, [activeServerUrl]);
 
   // Initial fetch - wait for hydration
   React.useEffect(() => {
     if (!_hasHydrated) return;
-    if (enabled && activeServer) {
+    if (enabled && activeServerUrl) {
       fetchSystemInfo();
     }
-  }, [_hasHydrated, enabled, activeServer, fetchSystemInfo]);
+  }, [_hasHydrated, enabled, activeServerUrl, fetchSystemInfo]);
 
   // Periodic refresh
   React.useEffect(() => {
-    if (!_hasHydrated || !enabled || !activeServer || !refetchInterval) return;
+    if (!_hasHydrated || !enabled || !activeServerUrl || !refetchInterval) return;
 
     const intervalId = setInterval(fetchSystemInfo, refetchInterval);
 
     return () => clearInterval(intervalId);
-  }, [_hasHydrated, enabled, activeServer, refetchInterval, fetchSystemInfo]);
+  }, [_hasHydrated, enabled, activeServerUrl, refetchInterval, fetchSystemInfo]);
 
   return {
     data,

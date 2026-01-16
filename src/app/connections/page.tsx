@@ -102,17 +102,14 @@ export default function ConnectionsPage() {
   const [deleteKey, setDeleteKey] = React.useState<string | null>(null);
 
 
-  // --- Methods: Phase 9 Instances ---
+  const activeServerUrl = activeServer?.url;
 
   const fetchConnections = React.useCallback(async () => {
-    if (!activeServer) return;
+    if (!activeServerUrl) return;
     setLoadingConns(true);
-    ekuiperClient.setBaseUrl(activeServer.url);
+    ekuiperClient.setBaseUrl(activeServerUrl);
     try {
       const list = await ekuiperClient.listConnections();
-      // list is typically array of { id, typ, props... }
-      // Fetch status for each? Or step 95 says "Monitor".
-      // I'll fetch list first.
       setConnections(Array.isArray(list) ? list : []);
     } catch (err) {
       toast.error("Failed to fetch connections. Check network/server log.");
@@ -120,7 +117,7 @@ export default function ConnectionsPage() {
     } finally {
       setLoadingConns(false);
     }
-  }, [activeServer]);
+  }, [activeServerUrl]);
 
   React.useEffect(() => {
     if (viewTab === "instances") fetchConnections();
@@ -185,12 +182,12 @@ export default function ConnectionsPage() {
   // (Copied largely from previous file)
 
   const fetchTypes = React.useCallback(async () => {
-    if (!activeServer) return;
+    if (!activeServerUrl) return;
     setLoadingTypes(true);
     setTypes([]);
     setSelectedType(null);
     setKeys([]);
-    ekuiperClient.setBaseUrl(activeServer.url);
+    ekuiperClient.setBaseUrl(activeServerUrl);
 
     try {
       const meta = await ekuiperClient.listMetadata(activeResTab);
@@ -207,15 +204,16 @@ export default function ConnectionsPage() {
     } finally {
       setLoadingTypes(false);
     }
-  }, [activeServer, activeResTab]);
+  }, [activeServerUrl, activeResTab]);
 
   React.useEffect(() => {
     if (viewTab === "keys") fetchTypes();
-  }, [fetchTypes, viewTab]);
+  }, [viewTab, activeServerUrl, activeResTab, fetchTypes]);
 
   const fetchKeys = React.useCallback(async () => {
-    if (!activeServer || !selectedType) return;
+    if (!activeServerId || !activeServerUrl || !selectedType) return;
     setLoadingKeys(true);
+    ekuiperClient.setBaseUrl(activeServerUrl);
     try {
       const list = await ekuiperClient.listConfKeys(activeResTab, selectedType);
       const items = Array.isArray(list) ? list.map(name => ({ name })) : [];
@@ -225,11 +223,11 @@ export default function ConnectionsPage() {
     } finally {
       setLoadingKeys(false);
     }
-  }, [activeServer, activeResTab, selectedType]);
+  }, [activeServerId, activeServerUrl, activeResTab, selectedType]);
 
   React.useEffect(() => {
     if (viewTab === "keys") fetchKeys();
-  }, [fetchKeys, viewTab]);
+  }, [viewTab, activeServerId, activeServerUrl, activeResTab, selectedType, fetchKeys]);
 
   const handleSaveKey = async () => {
     if (!selectedType) return;

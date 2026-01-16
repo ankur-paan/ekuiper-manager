@@ -1,0 +1,27 @@
+
+> sota-ekuiper-playground@1.0.0 lint
+> next lint
+
+
+./src/app/connections/page.tsx
+231:6  Warning: React Hook React.useEffect has a missing dependency: 'viewTab'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/rules/[id]/page.tsx
+248:44  Error: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+
+./src/app/streams/new/page.tsx
+226:46  Error: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+226:56  Error: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+
+./src/components/ui/code-editor.tsx
+49:8  Warning: React Hook React.useEffect has missing dependencies: 'language', 'onChange', 'readOnly', and 'value'. Either include them or remove the dependency array. If 'onChange' changes too often, find the parent component that defines it and wrap that definition in useCallback.  react-hooks/exhaustive-deps
+
+./src/hooks/use-health-check.ts
+90:6  Warning: React Hook React.useEffect has a missing dependency: 'activeServer'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+104:6  Warning: React Hook React.useEffect has a missing dependency: 'activeServer'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/hooks/use-system-info.ts
+66:6  Warning: React Hook React.useEffect has a missing dependency: 'activeServer'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+75:6  Warning: React Hook React.useEffect has a missing dependency: 'activeServer'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/basic-features/eslint#disabling-rules

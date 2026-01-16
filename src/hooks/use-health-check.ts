@@ -29,9 +29,15 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
   const hasInitialCheck = React.useRef(false);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
+  const activeServerIdRef = React.useRef(activeServerId);
+  const activeServerUrl = activeServer?.url;
+
+  React.useEffect(() => {
+    activeServerIdRef.current = activeServerId;
+  }, [activeServerId]);
 
   const checkHealth = React.useCallback(async () => {
-    if (!activeServer) {
+    if (!activeServerId || !activeServerUrl) {
       setHealth({
         isHealthy: false,
         lastChecked: new Date(),
@@ -46,7 +52,7 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
       const response = await fetch(`/api/ekuiper/ping`, {
         method: "GET",
         headers: {
-          "X-EKuiper-URL": activeServer.url,
+          "X-EKuiper-URL": activeServerUrl,
         },
       });
 
@@ -59,9 +65,9 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
       });
 
       const newStatus: ServerStatus = isHealthy ? "connected" : "error";
-      updateServer(activeServer.id, {
+      updateServer(activeServerId, {
         status: newStatus,
-        lastConnected: isHealthy ? new Date() : activeServer.lastConnected,
+        lastConnected: isHealthy ? new Date() : undefined,
       });
     } catch (error) {
       setHealth({
@@ -70,38 +76,38 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
         error: error instanceof Error ? error.message : "Connection failed",
       });
 
-      updateServer(activeServer.id, {
+      updateServer(activeServerId, {
         status: "error",
       });
     } finally {
       setIsChecking(false);
     }
-  }, [activeServer, updateServer]);
+  }, [activeServerId, activeServerUrl, updateServer]);
 
   // Initial check - only once per server after hydration
   React.useEffect(() => {
-    if (!_hasHydrated || !enabled || !activeServer) return;
+    if (!_hasHydrated || !enabled || !activeServerId || !activeServerUrl) return;
 
-    // Only do initial check once per session
+    // Only do initial check once per session or server change
     if (!hasInitialCheck.current) {
       hasInitialCheck.current = true;
       checkHealth();
     }
-  }, [_hasHydrated, enabled, activeServer, checkHealth]);
+  }, [_hasHydrated, enabled, activeServerId, activeServerUrl, checkHealth]);
 
   // Reset initial check flag when server changes
   React.useEffect(() => {
     hasInitialCheck.current = false;
-  }, [activeServer]);
+  }, [activeServerId]);
 
   // Periodic health checks
   React.useEffect(() => {
-    if (!_hasHydrated || !enabled || !activeServer) return;
+    if (!_hasHydrated || !enabled || !activeServerId || !activeServerUrl) return;
 
     const intervalId = setInterval(checkHealth, interval);
 
     return () => clearInterval(intervalId);
-  }, [_hasHydrated, enabled, activeServer, interval, checkHealth]);
+  }, [_hasHydrated, enabled, activeServerId, activeServerUrl, interval, checkHealth]);
 
   return {
     ...health,

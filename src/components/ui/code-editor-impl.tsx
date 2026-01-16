@@ -14,6 +14,11 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
     const containerRef = React.useRef<HTMLDivElement>(null);
     const editorRef = React.useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
+    const onChangeRef = React.useRef(onChange);
+    React.useEffect(() => {
+        onChangeRef.current = onChange;
+    }, [onChange]);
+
     React.useEffect(() => {
         let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 
@@ -38,7 +43,7 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             editorRef.current = editor;
 
             editor.onDidChangeModelContent(() => {
-                onChange?.(editor!.getValue());
+                onChangeRef.current?.(editor!.getValue());
             });
         }
 
@@ -47,7 +52,7 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             editorRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Only mount once
+    }, []); // Only mount once - value, language, readOnly are handled by other effects
 
     // Update value if changed externally
     React.useEffect(() => {
