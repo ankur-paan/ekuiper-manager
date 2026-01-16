@@ -140,34 +140,26 @@ async function proxyRequest(
   }
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { path?: string[] } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
+  const params = await props.params;
   const path = params.path ? params.path.join("/") : "";
   return proxyRequest(request, "GET", path);
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { path?: string[] } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
+  const params = await props.params;
   const path = params.path ? params.path.join("/") : "";
   return proxyRequest(request, "POST", path);
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { path?: string[] } }
-) {
+export async function PUT(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
+  const params = await props.params;
   const path = params.path ? params.path.join("/") : "";
   return proxyRequest(request, "PUT", path);
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { path?: string[] } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
+  const params = await props.params;
   const path = params.path ? params.path.join("/") : "";
   return proxyRequest(request, "DELETE", path);
 }

@@ -16,12 +16,13 @@ import {
     FileCode,
     File,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Schema } from "@/lib/ekuiper/types";
 
-export default function SchemaDetailPage({ params }: { params: { type: string; name: string } }) {
+export default function SchemaDetailPage() {
     const router = useRouter();
+    const params = useParams() as { type: string; name: string };
     const { type, name: encodedName } = params;
     const name = decodeURIComponent(encodedName);
 

@@ -31,10 +31,8 @@ async function writeConnections(connections: EKuiperConnection[]): Promise<void>
 /**
  * GET /api/connections/[id] - Get a specific connection
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const connections = await readConnections();
   const connection = connections.find((c) => c.id === params.id);
 
@@ -48,10 +46,8 @@ export async function GET(
 /**
  * PUT /api/connections/[id] - Update a connection
  */
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const body = await request.json();
     const connections = await readConnections();
@@ -86,10 +82,8 @@ export async function PUT(
 /**
  * DELETE /api/connections/[id] - Delete a connection
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const connections = await readConnections();
     const index = connections.findIndex((c) => c.id === params.id);
