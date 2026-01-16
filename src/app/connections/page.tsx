@@ -227,7 +227,8 @@ export default function ConnectionsPage() {
 
   React.useEffect(() => {
     if (viewTab === "keys") fetchKeys();
-  }, [viewTab, activeServerId, activeServerUrl, activeResTab, selectedType, fetchKeys]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewTab, activeServerId, activeServerUrl, activeResTab, selectedType]);
 
   const handleSaveKey = async () => {
     if (!selectedType) return;

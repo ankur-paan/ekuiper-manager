@@ -93,7 +93,8 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
       hasInitialCheck.current = true;
       checkHealth();
     }
-  }, [_hasHydrated, enabled, activeServerId, activeServerUrl, checkHealth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_hasHydrated, enabled, activeServerId, activeServerUrl]);
 
   // Reset initial check flag when server changes
   React.useEffect(() => {
@@ -107,7 +108,8 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
     const intervalId = setInterval(checkHealth, interval);
 
     return () => clearInterval(intervalId);
-  }, [_hasHydrated, enabled, activeServerId, activeServerUrl, interval, checkHealth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_hasHydrated, enabled, activeServerId, activeServerUrl, interval]);
 
   return {
     ...health,

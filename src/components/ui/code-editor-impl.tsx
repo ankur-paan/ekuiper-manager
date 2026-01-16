@@ -14,10 +14,27 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
     const containerRef = React.useRef<HTMLDivElement>(null);
     const editorRef = React.useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
+    // Use refs to avoid stale closures
     const onChangeRef = React.useRef(onChange);
+    const valueRef = React.useRef(value);
+    const languageRef = React.useRef(language);
+    const readOnlyRef = React.useRef(readOnly);
+
     React.useEffect(() => {
         onChangeRef.current = onChange;
     }, [onChange]);
+
+    React.useEffect(() => {
+        valueRef.current = value;
+    }, [value]);
+
+    React.useEffect(() => {
+        languageRef.current = language;
+    }, [language]);
+
+    React.useEffect(() => {
+        readOnlyRef.current = readOnly;
+    }, [readOnly]);
 
     React.useEffect(() => {
         let editor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -29,10 +46,10 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             }
 
             editor = monaco.editor.create(containerRef.current, {
-                value,
-                language,
+                value: valueRef.current,
+                language: languageRef.current,
                 theme: "vs-dark",
-                readOnly,
+                readOnly: readOnlyRef.current,
                 minimap: { enabled: false },
                 automaticLayout: true,
                 scrollBeyondLastLine: false,
@@ -51,8 +68,7 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             editor?.dispose();
             editorRef.current = null;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Only mount once - value, language, readOnly are handled by other effects
+    }, []); // Only mount once - props are handled via refs
 
     // Update value if changed externally
     React.useEffect(() => {
@@ -73,6 +89,13 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
             }
         }
     }, [language]);
+
+    // Update readOnly option
+    React.useEffect(() => {
+        if (editorRef.current) {
+            editorRef.current.updateOptions({ readOnly: readOnlyRef.current });
+        }
+    }, [readOnly]);
 
     return <div ref={containerRef} className="h-full min-h-[400px] w-full border rounded-md overflow-hidden bg-[#1e1e1e]" />;
 }
