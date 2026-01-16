@@ -113,6 +113,7 @@ export default function RuleTracingPage() {
     };
 
     const collectSpanIds = (span: TraceSpan): string[] => {
+        if (!span) return [];
         const ids = [span.SpanID];
         span.ChildSpan?.forEach((child) => {
             ids.push(...collectSpanIds(child));
@@ -178,21 +179,26 @@ export default function RuleTracingPage() {
     };
 
     const calculateDuration = (start: string, end: string): string => {
+        if (!start || !end) return "unknown";
         const startTime = new Date(start).getTime();
         const endTime = new Date(end).getTime();
+        if (isNaN(startTime) || isNaN(endTime)) return "unknown";
         const durationMs = endTime - startTime;
-        if (durationMs < 1) return "<1µs";
+        if (durationMs < 1) return "<1ms";
         if (durationMs < 1000) return `${durationMs.toFixed(2)}ms`;
         return `${(durationMs / 1000).toFixed(2)}s`;
     };
 
     const getSpanIcon = (name: string) => {
-        if (name.includes("source") || name.includes("demo")) return <Database className="h-4 w-4 text-blue-500" />;
-        if (name.includes("sink") || name.includes("log") || name.includes("mqtt")) return <Send className="h-4 w-4 text-green-500" />;
+        if (!name) return <Cpu className="h-4 w-4 text-amber-500" />;
+        const lowerName = name.toLowerCase();
+        if (lowerName.includes("source") || lowerName.includes("demo")) return <Database className="h-4 w-4 text-blue-500" />;
+        if (lowerName.includes("sink") || lowerName.includes("log") || lowerName.includes("mqtt")) return <Send className="h-4 w-4 text-green-500" />;
         return <Cpu className="h-4 w-4 text-amber-500" />;
     };
 
     const renderSpan = (span: TraceSpan, depth: number = 0): React.ReactNode => {
+        if (!span) return null;
         const isExpanded = expandedSpans.has(span.SpanID);
         const hasChildren = span.ChildSpan && span.ChildSpan.length > 0;
 
@@ -228,7 +234,7 @@ export default function RuleTracingPage() {
                                     <div key={key} className="text-xs text-muted-foreground">
                                         <span className="font-medium">{key}:</span>{" "}
                                         <code className="bg-muted px-1 rounded text-xs max-w-[300px] truncate inline-block align-bottom">
-                                            {value.length > 50 ? value.slice(0, 50) + "..." : value}
+                                            {String(value).length > 50 ? String(value).slice(0, 50) + "..." : String(value)}
                                         </code>
                                     </div>
                                 ))}
