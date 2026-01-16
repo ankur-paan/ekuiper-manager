@@ -1,71 +1,63 @@
-/**
- * Server Connection Store
- * Manages multiple eKuiper server connections with persistence
- */
+"use client";
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { persist } from "zustand/middleware";
+import { EKuiperClient } from "@/lib/ekuiper";
 
-export type ServerStatus = "connected" | "disconnected" | "error" | "unknown";
-
-export interface ServerConnection {
+interface ServerConfig {
   id: string;
   name: string;
   url: string;
-  description?: string;
-  status: ServerStatus;
-  createdAt: Date;
-  lastConnected?: Date;
+  isDefault: boolean;
 }
 
+type ConnectionStatus = "unknown" | "connecting" | "connected" | "disconnected";
+
 interface ServerState {
-  // State
-  servers: ServerConnection[];
+  servers: ServerConfig[];
   activeServerId: string | null;
-  _hasHydrated: boolean;
-  
-  // Actions
-  addServer: (server: Omit<ServerConnection, "id" | "createdAt" | "status">) => string;
-  updateServer: (id: string, updates: Partial<Omit<ServerConnection, "id">>) => void;
+  connectionStatus: ConnectionStatus;
+  connectionError: string | null;
+  addServer: (server: Omit<ServerConfig, "id">) => void;
   removeServer: (id: string) => void;
-  setActiveServer: (id: string | null) => void;
-  getActiveServer: () => ServerConnection | null;
-  setHasHydrated: (state: boolean) => void;
+  updateServer: (id: string, updates: Partial<ServerConfig>) => void;
+  setActiveServer: (id: string) => void;
+  getActiveServer: () => ServerConfig | null;
+  getClient: () => EKuiperClient | null;
+  testConnection: () => Promise<boolean>;
+  setConnectionStatus: (status: ConnectionStatus, error?: string | null) => void;
+  isConnected: () => boolean;
 }
+
+const DEFAULT_SERVERS: ServerConfig[] = [
+  {
+    id: "local",
+    name: "Local eKuiper",
+    url: "http://localhost:9081",
+    isDefault: true,
+  },
+];
 
 export const useServerStore = create<ServerState>()(
   persist(
     (set, get) => ({
-      servers: [
-        {
-          id: "localhost",
-          name: "Localhost",
-          url: "http://localhost:9081",
-          description: "Local eKuiper instance",
-          status: "unknown" as ServerStatus,
-          createdAt: new Date(),
-        },
-      ],
-      activeServerId: "localhost",
-      _hasHydrated: false,
+      servers: DEFAULT_SERVERS,
+      activeServerId: "local",
+      connectionStatus: "unknown",
+      connectionError: null,
 
-      setHasHydrated: (state) => {
-        set({ _hasHydrated: state });
+      addServer: (server) => {
+        const id = crypto.randomUUID();
+        set((state) => ({
+          servers: [...state.servers, { ...server, id }],
+        }));
       },
 
-      addServer: (serverData) => {
-        const id = `server-${Date.now()}`;
-        const server: ServerConnection = {
-          ...serverData,
-          id,
-          status: "unknown",
-          createdAt: new Date(),
-        };
+      removeServer: (id) => {
         set((state) => ({
-          servers: [...state.servers, server],
-          activeServerId: state.activeServerId || id,
+          servers: state.servers.filter((s) => s.id !== id),
+          activeServerId: state.activeServerId === id ? null : state.activeServerId,
         }));
-        return id;
       },
 
       updateServer: (id, updates) => {
@@ -76,32 +68,70 @@ export const useServerStore = create<ServerState>()(
         }));
       },
 
-      removeServer: (id) => {
-        set((state) => ({
-          servers: state.servers.filter((s) => s.id !== id),
-          activeServerId:
-            state.activeServerId === id 
-              ? (state.servers.find((s) => s.id !== id)?.id || null)
-              : state.activeServerId,
-        }));
-      },
-
       setActiveServer: (id) => {
-        set({ activeServerId: id });
+        // Reset connection status when switching servers
+        set({ activeServerId: id, connectionStatus: "unknown", connectionError: null });
       },
 
       getActiveServer: () => {
-        const { servers, activeServerId } = get();
-        return servers.find((s) => s.id === activeServerId) || null;
+        const state = get();
+        return state.servers.find((s) => s.id === state.activeServerId) || null;
+      },
+
+      getClient: () => {
+        const server = get().getActiveServer();
+        if (!server) return null;
+        // Use the API proxy with eKuiper URL passed via header
+        return new EKuiperClient("/api/ekuiper", server.url);
+      },
+
+      testConnection: async () => {
+        const server = get().getActiveServer();
+        if (!server) {
+          set({ connectionStatus: "disconnected", connectionError: "No server selected" });
+          return false;
+        }
+
+        set({ connectionStatus: "connecting", connectionError: null });
+
+        try {
+          const response = await fetch("/api/ekuiper/test-connection", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: server.url }),
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            set({ connectionStatus: "connected", connectionError: null });
+            return true;
+          } else {
+            set({ connectionStatus: "disconnected", connectionError: result.error || "Connection failed" });
+            return false;
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          set({ connectionStatus: "disconnected", connectionError: errorMessage });
+          return false;
+        }
+      },
+
+      setConnectionStatus: (status, error = null) => {
+        set({ connectionStatus: status, connectionError: error });
+      },
+
+      isConnected: () => {
+        return get().connectionStatus === "connected";
       },
     }),
     {
       name: "ekuiper-servers",
-      version: 2,
-      storage: createJSONStorage(() => localStorage),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
-      },
+      partialize: (state) => ({
+        servers: state.servers,
+        activeServerId: state.activeServerId,
+        // Don't persist connection status
+      }),
     }
   )
 );

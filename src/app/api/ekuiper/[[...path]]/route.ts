@@ -15,18 +15,24 @@ function getEKuiperBaseUrl(request: NextRequest): string {
   // Check query parameter first
   const urlParam = request.nextUrl.searchParams.get("ekuiper_url");
   if (urlParam) {
-    return normalizeUrl(urlParam);
+    const normalized = normalizeUrl(urlParam);
+    console.log(`[getEKuiperBaseUrl] From query param: ${urlParam} -> ${normalized}`);
+    return normalized;
   }
 
   // Check header
   const headerUrl = request.headers.get("X-EKuiper-URL");
   if (headerUrl) {
-    return normalizeUrl(headerUrl);
+    const normalized = normalizeUrl(headerUrl);
+    console.log(`[getEKuiperBaseUrl] From header: ${headerUrl} -> ${normalized}`);
+    return normalized;
   }
 
   // Fall back to environment variable or default
   const fallback = process.env.EKUIPER_URL || "http://localhost:9081";
-  return normalizeUrl(fallback);
+  const normalized = normalizeUrl(fallback);
+  console.log(`[getEKuiperBaseUrl] From env/default: ${fallback} -> ${normalized}`);
+  return normalized;
 }
 
 // Ensure URL has a protocol
@@ -34,7 +40,9 @@ function normalizeUrl(url: string): string {
   if (!url) return url;
   // If URL doesn't start with http:// or https://, add https://
   if (!url.match(/^https?:\/\//i)) {
-    return `https://${url}`;
+    const result = `https://${url}`;
+    console.log(`[normalizeUrl] Adding protocol: ${url} -> ${result}`);
+    return result;
   }
   return url;
 }
@@ -49,6 +57,8 @@ async function proxyRequest(
   const cleanBaseUrl = baseUrl.replace(/\/$/, '');
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const targetUrl = `${cleanBaseUrl}${cleanPath}`;
+
+  console.log(`[Proxy] baseUrl: ${baseUrl}, cleanBaseUrl: ${cleanBaseUrl}, path: ${path}, cleanPath: ${cleanPath}, targetUrl: ${targetUrl}`);
 
   try {
     // Get request body for non-GET requests

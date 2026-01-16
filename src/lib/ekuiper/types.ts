@@ -69,24 +69,6 @@ export interface TableCreateRequest {
   sql: string;
 }
 
-// Table detail from /tabledetails endpoint
-export interface TableDetail {
-  name: string;
-  type: string;
-  format?: string;
-  kind?: "scan" | "lookup";
-}
-
-// Table schema from /tables/{name}/schema endpoint
-export interface TableSchema {
-  [field: string]: {
-    type: string;
-    optional?: boolean;
-    items?: TableSchema;
-    properties?: TableSchema;
-  } | string;
-}
-
 // -----------------------------------------------------------------------------
 // Rule Types
 // -----------------------------------------------------------------------------
@@ -207,130 +189,11 @@ export interface RuleTopology {
   sinks?: Record<string, any>;
 }
 
-// Rule validation result
-export interface RuleValidationResult {
-  valid: boolean;
-  error?: string;
-  message?: string;
-}
-
-// Rule explain/query plan
-export interface RuleExplainResult {
-  plan: string;
-  [key: string]: any;
-}
-
-// Bulk status for all rules
-export interface RuleBulkStatus {
-  [ruleId: string]: RuleMetrics;
-}
-
-// CPU usage for all rules
-export interface RuleCPUUsage {
-  [ruleId: string]: number;
-}
-
-// Rule tags
-export interface RuleTags {
-  tags: string[];
-}
-
-// Tag match query
-export interface TagMatchQuery {
-  keys: string[];
-}
-
-// -----------------------------------------------------------------------------
-// Tracing Types (Phase 5)
-// -----------------------------------------------------------------------------
-
-export type TraceStrategy = "always" | "head";
-
-export interface TraceStartRequest {
-  strategy: TraceStrategy;
-}
-
-export interface TraceSpan {
-  Name: string;
-  TraceID: string;
-  SpanID: string;
-  ParentSpanID: string;
-  Attribute?: Record<string, string>;
-  Links?: any[];
-  StartTime: string;
-  EndTime: string;
-  ChildSpan: TraceSpan[];
-}
-
-// -----------------------------------------------------------------------------
-// Rule Test Types (Phase 5)
-// -----------------------------------------------------------------------------
-
-export interface MockSourceData {
-  data: Record<string, any>[];
-  interval?: number;
-  loop?: boolean;
-}
-
-export interface RuleTestRequest {
-  id: string;
-  sql: string;
-  mockSource?: Record<string, MockSourceData>;
-  sinkProps?: Record<string, any>;
-}
-
-export interface RuleTestResponse {
-  id: string;
-  port: number;
-}
-
-// -----------------------------------------------------------------------------
-// Metadata Types (Phase 5)
-// -----------------------------------------------------------------------------
-
-export interface MetadataAbout {
-  trial: boolean;
-  installed: boolean;
-  author?: string;
-  helpUrl?: string;
-  description?: string;
-}
-
-export interface MetadataItem {
-  name: string;
-  about: MetadataAbout;
-  type: "internal" | "plugin";
-}
-
-export interface MetadataProperty {
-  name: string;
-  default?: any;
-  type: string;
-  control: string;
-  optional: boolean;
-  values?: string[];
-  hint?: string;
-  label?: string;
-  connection_related?: boolean;
-}
-
-export interface MetadataDetail {
-  about: MetadataAbout;
-  libs?: string[];
-  properties: MetadataProperty[];
-  node?: {
-    category: string;
-    icon?: string;
-    label?: string;
-  };
-  type: "internal" | "plugin";
-}
-
 // -----------------------------------------------------------------------------
 // Plugin Types
 // -----------------------------------------------------------------------------
 
-export type PluginType = "sources" | "sinks" | "functions" | "portables" | "udfs";
+export type PluginType = "sources" | "sinks" | "functions" | "portables";
 
 export interface Plugin {
   name: string;
@@ -397,31 +260,8 @@ export interface ExternalFunction {
   interfaceName: string;
 }
 
-export interface JSUDF {
-  id: string;
-  script: string;
-  isAgg?: boolean;
-}
-
 // -----------------------------------------------------------------------------
 // Configuration Types
-// -----------------------------------------------------------------------------
-
-export interface Schema {
-  name: string;
-  content?: string;
-  file?: string;
-}
-
-export interface UploadFile {
-  name: string;
-}
-
-export interface ConfKey {
-  name: string;
-  content: Record<string, any>;
-}
-
 // -----------------------------------------------------------------------------
 
 export interface MqttSourceConfig {
