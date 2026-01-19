@@ -7,21 +7,41 @@ export const dynamic = 'force-dynamic';
  * Server-side log capture API (backup for client-side capture).
  * This is used when client-side capture isn't available or fails.
  */
-// Maximum allowed capture duration (60 seconds) to prevent resource exhaustion
-const MAX_CAPTURE_DURATION_MS = 60_000;
-const MIN_CAPTURE_DURATION_MS = 1_000;
-const DEFAULT_CAPTURE_DURATION_MS = 10_000;
+
+/**
+ * Allowlist of safe capture durations (in milliseconds).
+ * Using hardcoded values to prevent resource exhaustion attacks (CWE-400).
+ * User provides 'durationLevel' (0-4) which maps to these safe constants.
+ */
+const ALLOWED_DURATIONS_MS = [
+    5_000,   // Level 0: 5 seconds (quick capture)
+    10_000,  // Level 1: 10 seconds (default)
+    20_000,  // Level 2: 20 seconds
+    30_000,  // Level 3: 30 seconds
+    60_000,  // Level 4: 60 seconds (maximum)
+] as const;
+
+const DEFAULT_DURATION_LEVEL = 1; // 10 seconds
+
+/**
+ * Get a safe duration from the allowlist based on user-provided level.
+ * This completely breaks the taint chain from user input to setTimeout.
+ */
+function getSafeDuration(durationLevel: unknown): number {
+    const level = Number(durationLevel);
+    // Validate level is a valid index, otherwise use default
+    if (!Number.isInteger(level) || level < 0 || level >= ALLOWED_DURATIONS_MS.length) {
+        return ALLOWED_DURATIONS_MS[DEFAULT_DURATION_LEVEL];
+    }
+    return ALLOWED_DURATIONS_MS[level];
+}
 
 export async function POST(req: Request) {
     try {
-        const { ruleIds, duration, serverUrl } = await req.json();
+        const { ruleIds, durationLevel, serverUrl } = await req.json();
 
-        // Validate and sanitize duration to prevent resource exhaustion (CodeQL fix)
-        let parsedDuration = Number(duration);
-        if (!Number.isFinite(parsedDuration) || parsedDuration < MIN_CAPTURE_DURATION_MS) {
-            parsedDuration = DEFAULT_CAPTURE_DURATION_MS;
-        }
-        const safeDuration = Math.min(parsedDuration, MAX_CAPTURE_DURATION_MS);
+        // Get safe duration from allowlist - no user-controlled values reach setTimeout
+        const captureDuration = getSafeDuration(durationLevel);
 
         if (!ruleIds || !Array.isArray(ruleIds) || ruleIds.length === 0) {
             return NextResponse.json({ error: "No rules specified for tracing" }, { status: 400 });
@@ -41,7 +61,7 @@ export async function POST(req: Request) {
         );
 
         const startedRules = ruleIds.filter((_, i) => startResults[i].status === 'fulfilled');
-        console.log(`Capture Logs: Started tracing for ${startedRules.length}/${ruleIds.length} rules`);
+        console.log('Capture Logs: Started tracing for %d/%d rules', startedRules.length, ruleIds.length);
 
         if (startedRules.length === 0) {
             return NextResponse.json({
@@ -50,8 +70,8 @@ export async function POST(req: Request) {
             }, { status: 500 });
         }
 
-        // 2. Wait for the sanitized duration to capture data
-        await new Promise(resolve => setTimeout(resolve, safeDuration));
+        // 2. Wait for allowed duration to capture data (uses only allowlist values)
+        await new Promise(resolve => setTimeout(resolve, captureDuration));
 
         // 3. Stop tracing and collect data
         const results: Record<string, any[]> = {};
