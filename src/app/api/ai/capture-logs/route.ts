@@ -7,9 +7,21 @@ export const dynamic = 'force-dynamic';
  * Server-side log capture API (backup for client-side capture).
  * This is used when client-side capture isn't available or fails.
  */
+// Maximum allowed capture duration (60 seconds) to prevent resource exhaustion
+const MAX_CAPTURE_DURATION_MS = 60_000;
+const MIN_CAPTURE_DURATION_MS = 1_000;
+const DEFAULT_CAPTURE_DURATION_MS = 10_000;
+
 export async function POST(req: Request) {
     try {
-        const { ruleIds, duration = 10000, serverUrl } = await req.json();
+        const { ruleIds, duration, serverUrl } = await req.json();
+
+        // Validate and sanitize duration to prevent resource exhaustion (CodeQL fix)
+        let parsedDuration = Number(duration);
+        if (!Number.isFinite(parsedDuration) || parsedDuration < MIN_CAPTURE_DURATION_MS) {
+            parsedDuration = DEFAULT_CAPTURE_DURATION_MS;
+        }
+        const safeDuration = Math.min(parsedDuration, MAX_CAPTURE_DURATION_MS);
 
         if (!ruleIds || !Array.isArray(ruleIds) || ruleIds.length === 0) {
             return NextResponse.json({ error: "No rules specified for tracing" }, { status: 400 });
@@ -38,8 +50,8 @@ export async function POST(req: Request) {
             }, { status: 500 });
         }
 
-        // 2. Wait for the duration to capture data
-        await new Promise(resolve => setTimeout(resolve, duration));
+        // 2. Wait for the sanitized duration to capture data
+        await new Promise(resolve => setTimeout(resolve, safeDuration));
 
         // 3. Stop tracing and collect data
         const results: Record<string, any[]> = {};
@@ -65,7 +77,8 @@ export async function POST(req: Request) {
                     .map(r => (r as PromiseFulfilledResult<any>).value);
 
             } catch (e: any) {
-                console.error(`Failed to collect trace for ${id}:`, e.message);
+                // Use safe logging pattern to prevent format string injection (CodeQL fix)
+                console.error('Failed to collect trace for %s:', String(id), e);
                 results[id] = [];
             }
         }
