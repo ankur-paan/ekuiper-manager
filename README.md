@@ -154,7 +154,8 @@ To enable **Database Mode (SQLite)** (Experimental/Beta):
 4. Explore the Swagger Playground at `/api-docs`
 
 ---
-
+## Documentation available
+[https://ekuiper-manager.superdocs.cloud/] (https://ekuiper-manager.superdocs.cloud/)
 ## 🤝 Contributing - Let's Build This Together!
 
 **This project needs YOUR help to become the best eKuiper manager out there!**
