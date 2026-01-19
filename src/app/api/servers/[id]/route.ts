@@ -1,5 +1,5 @@
 import { NextResponse, NextRequest } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { getPrisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
@@ -7,6 +7,7 @@ export async function DELETE(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    const prisma = await getPrisma();
     if (!prisma) {
         return NextResponse.json({ error: 'Database not available' }, { status: 503 });
     }
@@ -26,6 +27,7 @@ export async function PUT(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
+    const prisma = await getPrisma();
     if (!prisma) {
         return NextResponse.json({ error: 'Database not available' }, { status: 503 });
     }

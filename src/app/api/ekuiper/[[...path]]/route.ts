@@ -11,7 +11,63 @@ export const dynamic = "force-dynamic";
  * 2. Header: X-EKuiper-URL
  * 3. Environment variable: EKUIPER_URL
  * 4. Default: http://localhost:9081
+ * 
+ * SSRF Protection:
+ * - Only allows requests to localhost, loopback, and explicitly allowed hosts
+ * - Configure EKUIPER_ALLOWED_HOSTS env var for additional hosts (comma-separated)
  */
+
+/**
+ * Validate URL against allowlist to prevent SSRF attacks.
+ * Only allows localhost and explicitly configured hosts.
+ */
+function isAllowedHost(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Always allow localhost and loopback addresses
+    const localPatterns = [
+      'localhost',
+      '127.0.0.1',
+      '::1',
+      '0.0.0.0',
+    ];
+
+    if (localPatterns.includes(hostname)) {
+      return true;
+    }
+
+    // Check for IPv4 loopback range (127.x.x.x)
+    if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+      return true;
+    }
+
+    // Allow hosts from environment variable (comma-separated)
+    const allowedHosts = (process.env.EKUIPER_ALLOWED_HOSTS || '')
+      .split(',')
+      .map(h => h.trim().toLowerCase())
+      .filter(h => h.length > 0);
+
+    if (allowedHosts.includes(hostname)) {
+      return true;
+    }
+
+    // Allow private network ranges if explicitly enabled
+    if (process.env.EKUIPER_ALLOW_PRIVATE_NETWORKS === 'true') {
+      // 10.x.x.x
+      if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+      // 172.16-31.x.x
+      if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+      // 192.168.x.x
+      if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 function getEKuiperBaseUrl(request: NextRequest): string {
   // Check query parameter first
@@ -47,6 +103,16 @@ async function proxyRequest(
   path: string
 ): Promise<NextResponse> {
   const baseUrl = getEKuiperBaseUrl(request);
+
+  // SSRF Protection: Validate the target URL against allowlist
+  if (!isAllowedHost(baseUrl)) {
+    console.warn('SSRF Protection: Blocked request to disallowed host: %s', baseUrl);
+    return NextResponse.json(
+      { error: 'Target host is not allowed. Only localhost and configured hosts are permitted.' },
+      { status: 403 }
+    );
+  }
+
   // Ensure baseUrl doesn't end with slash and path doesn't start with slash
   const cleanBaseUrl = baseUrl.replace(/\/$/, '');
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
@@ -72,7 +138,7 @@ async function proxyRequest(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    // Forward the request to eKuiper
+    // Forward the request to eKuiper (URL has been validated by isAllowedHost)
     const response = await fetch(targetUrl, {
       method,
       headers: {
