@@ -50,7 +50,7 @@ interface ServerState {
 export const useServerStore = create<ServerState>()(
   persist(
     (set, get) => ({
-      storageMode: 'database', // Default to DB
+      storageMode: 'browser', // Default to Browser (client-side) as DB is experimental
       servers: [],
       savedBrowserServers: [],
       activeServerId: null,

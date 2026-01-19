@@ -1,6 +1,6 @@
 {
   "name": "sota-ekuiper-playground",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "SOTA iiot eKuiper Rule Engine Playground - Multi-stage decision tree builder",
   "private": true,
   "scripts": {
