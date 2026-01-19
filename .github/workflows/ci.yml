@@ -31,6 +31,9 @@ jobs:
     - name: Test with Coverage
       run: npx jest --coverage --passWithNoTests
 
+    - name: Generate Prisma Client
+      run: npx prisma generate
+
     - name: Build
       run: npm run build
 
