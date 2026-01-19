@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/layout";
 import { DataTable } from "@/components/common/data-table";
 import { StatusBadge, EmptyState, ErrorState, ConfirmDialog } from "@/components/common";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,13 +22,21 @@ import {
   Trash2,
   Database,
   ArrowUpDown,
+  Share2,
+  Wifi,
+  FileJson,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-interface Stream {
+// StreamDetail type matching /streamdetails endpoint response
+interface StreamDetail {
   name: string;
-  streamType?: string;
-  statement?: string;
+  type: string;
+  format?: string;
+  datasource?: string;
+  confKey?: string;
+  shared?: boolean;
 }
 
 export default function StreamsPage() {
@@ -35,7 +44,7 @@ export default function StreamsPage() {
   const { servers, activeServerId } = useServerStore();
   const activeServer = servers.find((s) => s.id === activeServerId);
 
-  const [streams, setStreams] = React.useState<Stream[]>([]);
+  const [streams, setStreams] = React.useState<StreamDetail[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [deleteStream, setDeleteStream] = React.useState<string | null>(null);
@@ -51,22 +60,33 @@ export default function StreamsPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/ekuiper/streams", {
+      // Use /streamdetails for rich information (type, format, datasource)
+      const response = await fetch("/api/ekuiper/streamdetails", {
         headers: {
           "X-EKuiper-URL": activeServer.url,
         },
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch streams: ${response.status}`);
+        // Fallback to basic /streams endpoint
+        const basicResponse = await fetch("/api/ekuiper/streams", {
+          headers: {
+            "X-EKuiper-URL": activeServer.url,
+          },
+        });
+        if (!basicResponse.ok) {
+          throw new Error(`Failed to fetch streams: ${basicResponse.status}`);
+        }
+        const basicData = await basicResponse.json();
+        const streamList = Array.isArray(basicData)
+          ? basicData.map((name: string) => ({ name, type: "unknown" }))
+          : [];
+        setStreams(streamList);
+        return;
       }
 
       const data = await response.json();
-      // eKuiper returns array of stream names
-      const streamList = Array.isArray(data)
-        ? data.map((name: string) => ({ name }))
-        : [];
-      setStreams(streamList);
+      setStreams(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch streams");
     } finally {
@@ -100,7 +120,33 @@ export default function StreamsPage() {
     }
   };
 
-  const columns: ColumnDef<Stream>[] = [
+  // Map source types to icons and colors
+  const getTypeStyle = (type: string) => {
+    const typeMap: Record<string, { color: string; label: string }> = {
+      mqtt: { color: "bg-purple-500/10 text-purple-500 border-purple-500/20", label: "MQTT" },
+      httppull: { color: "bg-blue-500/10 text-blue-500 border-blue-500/20", label: "HTTP Pull" },
+      httppush: { color: "bg-cyan-500/10 text-cyan-500 border-cyan-500/20", label: "HTTP Push" },
+      memory: { color: "bg-amber-500/10 text-amber-500 border-amber-500/20", label: "Memory" },
+      file: { color: "bg-green-500/10 text-green-500 border-green-500/20", label: "File" },
+      edgex: { color: "bg-orange-500/10 text-orange-500 border-orange-500/20", label: "EdgeX" },
+      simulator: { color: "bg-pink-500/10 text-pink-500 border-pink-500/20", label: "Simulator" },
+      redis: { color: "bg-red-500/10 text-red-500 border-red-500/20", label: "Redis" },
+      neuron: { color: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20", label: "Neuron" },
+    };
+    return typeMap[type?.toLowerCase()] || { color: "bg-gray-500/10 text-gray-500 border-gray-500/20", label: type || "Unknown" };
+  };
+
+  const getFormatStyle = (format: string) => {
+    const formatMap: Record<string, { color: string; icon: React.ReactNode }> = {
+      json: { color: "text-emerald-500", icon: <FileJson className="h-3.5 w-3.5" /> },
+      binary: { color: "text-amber-500", icon: <Wifi className="h-3.5 w-3.5" /> },
+      protobuf: { color: "text-blue-500", icon: <Database className="h-3.5 w-3.5" /> },
+      delimited: { color: "text-purple-500", icon: <FileJson className="h-3.5 w-3.5" /> },
+    };
+    return formatMap[format?.toLowerCase()] || { color: "text-muted-foreground", icon: null };
+  };
+
+  const columns: ColumnDef<StreamDetail>[] = [
     {
       accessorKey: "name",
       header: ({ column }) => (
@@ -116,19 +162,67 @@ export default function StreamsPage() {
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-blue-500" />
           <span className="font-medium">{row.getValue("name")}</span>
+          {row.original.shared && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Share2 className="h-3.5 w-3.5 text-green-500" />
+                </TooltipTrigger>
+                <TooltipContent>Shared Stream</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       ),
     },
     {
-      accessorKey: "streamType",
-      header: "Type",
-      cell: ({ row }) => (
-        <StatusBadge
-          status="info"
-          label={row.getValue("streamType") || "stream"}
-          showIcon={false}
-        />
-      ),
+      accessorKey: "type",
+      header: "Source Type",
+      cell: ({ row }) => {
+        const style = getTypeStyle(row.original.type);
+        return (
+          <Badge variant="outline" className={`${style.color} font-medium`}>
+            {style.label}
+          </Badge>
+        );
+      },
+    },
+    {
+      accessorKey: "format",
+      header: "Format",
+      cell: ({ row }) => {
+        const format = row.original.format;
+        if (!format) return <span className="text-muted-foreground text-sm">-</span>;
+        const style = getFormatStyle(format);
+        return (
+          <div className={`flex items-center gap-1.5 ${style.color}`}>
+            {style.icon}
+            <span className="text-sm font-medium uppercase">{format}</span>
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "datasource",
+      header: "Datasource",
+      cell: ({ row }) => {
+        const datasource = row.original.datasource;
+        if (!datasource) return <span className="text-muted-foreground text-sm">-</span>;
+        return (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger>
+                <code className="text-xs bg-muted px-2 py-1 rounded font-mono max-w-[200px] truncate block">
+                  {datasource}
+                </code>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[400px]">
+                <code className="text-xs">{datasource}</code>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        );
+      },
     },
     {
       id: "actions",

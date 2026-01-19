@@ -67,7 +67,6 @@ export function useHealthCheck(options: UseHealthCheckOptions = {}) {
       const newStatus: ServerStatus = isHealthy ? "connected" : "error";
       updateServer(activeServerId, {
         status: newStatus,
-        lastConnected: isHealthy ? new Date() : undefined,
       });
     } catch (error) {
       setHealth({

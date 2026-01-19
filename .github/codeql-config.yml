@@ -1,0 +1,20 @@
+name: "CodeQL Configuration"
+
+# Queries to run
+queries:
+  - uses: security-extended
+
+# Paths to ignore in analysis
+paths-ignore:
+  - 'node_modules/**'
+  - '.next/**'
+  - 'coverage/**'
+
+# Alert suppressions
+# See: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/customizing-code-scanning
+query-filters:
+  # Suppress SSRF alerts for the eKuiper proxy endpoint
+  # This is INTENTIONAL functionality - users need to specify which eKuiper server to manage
+  - exclude:
+      id: js/request-forgery
+      path: src/app/api/ekuiper/\[\[\.\.\.path\]\]/route\.ts

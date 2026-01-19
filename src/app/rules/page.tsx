@@ -5,6 +5,8 @@ import { useServerStore } from "@/stores/server-store";
 import { AppLayout } from "@/components/layout";
 import { DataTable } from "@/components/common/data-table";
 import { StatusBadge, EmptyState, ErrorState, ConfirmDialog } from "@/components/common";
+import { ekuiperClient } from "@/lib/ekuiper/client";
+import { BatchRequestItem } from "@/lib/ekuiper/types";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,6 +15,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   Plus,
@@ -31,14 +40,25 @@ import {
   FileCode,
   FlaskConical,
   Radio,
+  ArrowRight,
+  Code2,
+  MessageSquare,
+  Tag,
+  Filter,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 
 interface Rule {
   id: string;
   status?: string;
   name?: string;
+  sql?: string;
+  actions?: Array<Record<string, unknown>>;
+  metrics?: Record<string, any>;
+  tags?: string[];
 }
 
 export default function RulesPage() {
@@ -50,6 +70,7 @@ export default function RulesPage() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [deleteRule, setDeleteRule] = React.useState<string | null>(null);
+  const [activeTag, setActiveTag] = React.useState<string | null>(null);
 
   const fetchRules = React.useCallback(async () => {
     if (!activeServer) {
@@ -62,27 +83,59 @@ export default function RulesPage() {
     setError(null);
 
     try {
-      const response = await fetch("/api/ekuiper/rules", {
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
+      ekuiperClient.setBaseUrl(activeServer.url);
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch rules: ${response.status}`);
+      // 1. Get List of Rules (IDs & Status)
+      const basicList = await ekuiperClient.listRules();
+
+      if (basicList.length === 0) {
+        setRules([]);
+        setLoading(false);
+        return;
       }
 
-      const data = await response.json();
-      // eKuiper can return:
-      // 1. Direct array: [{ id, status }, ...]
-      // 2. Wrapped object: { value: [{ id, status }, ...], Count: n }
-      let ruleList: Rule[] = [];
-      if (Array.isArray(data)) {
-        ruleList = data;
-      } else if (data && Array.isArray(data.value)) {
-        ruleList = data.value;
+      // 2. Batch Request for Details (SQL, Actions) AND Status Metrics
+      // We want: GET /rules/{id} and GET /rules/{id}/status for each rule
+      const defRequests = basicList.map(r => ({ method: "GET" as const, path: `/rules/${r.id}` }));
+      const statRequests = basicList.map(r => ({ method: "GET" as const, path: `/rules/${r.id}/status` }));
+
+      const requests: BatchRequestItem[] = [...defRequests, ...statRequests];
+
+      try {
+        const responses = await ekuiperClient.batchRequest(requests);
+        const count = basicList.length;
+
+        // 3. Merge Data
+        const mergedRules: Rule[] = basicList.map((basicRule, index) => {
+          const defRes = responses[index];
+          const statRes = responses[index + count];
+
+          let detail: any = {};
+          let metrics: any = {};
+
+          if (defRes.code === 200) {
+            try { detail = JSON.parse(defRes.response); } catch { /* ignore */ }
+          }
+          if (statRes.code === 200) {
+            try { metrics = JSON.parse(statRes.response); } catch { /* ignore */ }
+          }
+
+          return {
+            ...basicRule,
+            sql: detail.sql || "",
+            actions: detail.actions || [],
+            metrics,
+            tags: detail.tags || []
+          };
+        });
+
+        setRules(mergedRules);
+
+      } catch (batchError) {
+        console.warn("Batch request failed, falling back to basic list", batchError);
+        setRules(basicList);
       }
-      setRules(ruleList);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch rules");
     } finally {
@@ -98,16 +151,8 @@ export default function RulesPage() {
     if (!deleteRule || !activeServer) return;
 
     try {
-      const response = await fetch(`/api/ekuiper/rules/${deleteRule}`, {
-        method: "DELETE",
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to delete rule: ${response.status}`);
-      }
+      ekuiperClient.setBaseUrl(activeServer.url);
+      await ekuiperClient.deleteRule(deleteRule);
 
       toast.success(`Rule "${deleteRule}" deleted successfully`);
       setDeleteRule(null);
@@ -121,15 +166,14 @@ export default function RulesPage() {
     if (!activeServer) return;
 
     try {
-      const response = await fetch(`/api/ekuiper/rules/${ruleId}/${action}`, {
-        method: "POST",
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
+      ekuiperClient.setBaseUrl(activeServer.url);
 
-      if (!response.ok) {
-        throw new Error(`Failed to ${action} rule: ${response.status}`);
+      if (action === "start") {
+        await ekuiperClient.startRule(ruleId);
+      } else if (action === "stop") {
+        await ekuiperClient.stopRule(ruleId);
+      } else if (action === "restart") {
+        await ekuiperClient.restartRule(ruleId);
       }
 
       toast.success(`Rule "${ruleId}" ${action}ed successfully`);
@@ -148,37 +192,121 @@ export default function RulesPage() {
     return "info";
   };
 
+  const getPipelineInfo = (rule: Rule) => {
+    const sources = [];
+    if (rule.sql) {
+      // Simple regex to find FROM table/stream
+      const fromMatch = rule.sql.match(/FROM\s+([a-zA-Z0-9_]+)/i);
+      if (fromMatch) sources.push(fromMatch[1]);
+    }
+    const sinks = rule.actions ? rule.actions.flatMap(a => Object.keys(a)) : [];
+    return { sources, sinks };
+  };
+
   const columns: ColumnDef<Rule>[] = [
     {
       accessorKey: "id",
       header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Rule ID
+        <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+          Rule Details
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          <Workflow className="h-4 w-4 text-green-500" />
-          <span className="font-medium">{row.getValue("id")}</span>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const rule = row.original;
+        return (
+          <div className="flex flex-col gap-1 max-w-[200px]">
+            <div className="flex items-center gap-2 font-medium">
+              <Workflow className="h-4 w-4 text-primary" />
+              <span>{rule.id}</span>
+            </div>
+            {rule.sql && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground truncate" title={rule.sql}>
+                <Code2 className="h-3 w-3 inline" />
+                <span className="truncate font-mono">{rule.sql}</span>
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: "pipeline",
+      header: "Pipeline Flow",
+      cell: ({ row }) => {
+        const { sources, sinks } = getPipelineInfo(row.original);
+        if (sources.length === 0 && sinks.length === 0) return <span className="text-muted-foreground">-</span>;
+
+        return (
+          <div className="flex items-center gap-2 text-sm">
+            <div className="flex gap-1">
+              {sources.map(s => (
+                <Badge key={s} variant="outline" className="bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">
+                  {s}
+                </Badge>
+              ))}
+            </div>
+            {(sources.length > 0 || sinks.length > 0) && <ArrowRight className="h-3 w-3 text-muted-foreground" />}
+            <div className="flex gap-1 flex-wrap">
+              {sinks.map((s, i) => (
+                <Badge key={i} variant="outline" className="bg-orange-50/50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800">
+                  {s}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        );
+      }
     },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
         const status = row.getValue("status") as string;
+        const isRunning = status?.toLowerCase().includes("running");
+        const ruleId = row.original.id;
+
         return (
-          <StatusBadge
-            status={getStatusVariant(status)}
-            label={status || "Unknown"}
-          />
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={isRunning}
+              onCheckedChange={(checked) => handleRuleAction(ruleId, checked ? "start" : "stop")}
+            />
+            <StatusBadge
+              status={getStatusVariant(status)}
+              label={status || "Unknown"}
+            />
+          </div>
         );
       },
+    },
+    {
+      accessorKey: "metrics",
+      header: "Metrics",
+      cell: ({ row }) => {
+        const m = row.original.metrics;
+        if (!m || Object.keys(m).length === 0) return <span className="text-muted-foreground text-xs">-</span>;
+
+        // Find throughput
+        let inCount = 0;
+        let outCount = 0;
+
+        Object.keys(m).forEach(k => {
+          if (k.endsWith("records_in_total")) inCount = m[k];
+          if (k.endsWith("records_out_total")) outCount = m[k];
+        });
+
+        return (
+          <div className="flex flex-col text-xs font-mono">
+            <div className="flex items-center gap-1 text-blue-600">
+              <span className="font-bold">In:</span> {inCount}
+            </div>
+            <div className="flex items-center gap-1 text-green-600">
+              <span className="font-bold">Out:</span> {outCount}
+            </div>
+          </div>
+        )
+      }
     },
     {
       id: "actions",
@@ -195,65 +323,22 @@ export default function RulesPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => router.push(`/rules/${rule.id}`)}
-              >
-                <Eye className="mr-2 h-4 w-4" />
-                View Details
+              <DropdownMenuItem onClick={() => router.push(`/rules/${rule.id}`)}>
+                <Eye className="mr-2 h-4 w-4" /> View Details
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => router.push(`/rules/${rule.id}/status`)}
-              >
-                <Activity className="mr-2 h-4 w-4" />
-                View Metrics
+              <DropdownMenuItem onClick={() => router.push(`/rules/${rule.id}/status`)}>
+                <Activity className="mr-2 h-4 w-4" /> Metrics
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => router.push(`/rules/${rule.id}/topology`)}
-              >
-                <GitBranch className="mr-2 h-4 w-4" />
-                View Topology
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => router.push(`/rules/${rule.id}/explain`)}
-              >
-                <FileCode className="mr-2 h-4 w-4" />
-                Query Plan
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => router.push(`/rules/${rule.id}/tracing`)}
-              >
-                <Radio className="mr-2 h-4 w-4" />
-                Tracing
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => router.push(`/rules/${rule.id}/edit`)}
-              >
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit
+              <DropdownMenuItem onClick={() => router.push(`/rules/${rule.id}/topology`)}>
+                <GitBranch className="mr-2 h-4 w-4" /> Topology
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              {isRunning ? (
-                <DropdownMenuItem onClick={() => handleRuleAction(rule.id, "stop")}>
-                  <Square className="mr-2 h-4 w-4" />
-                  Stop
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem onClick={() => handleRuleAction(rule.id, "start")}>
-                  <Play className="mr-2 h-4 w-4" />
-                  Start
-                </DropdownMenuItem>
-              )}
               <DropdownMenuItem onClick={() => handleRuleAction(rule.id, "restart")}>
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Restart
+                <RotateCcw className="mr-2 h-4 w-4" /> Restart
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => setDeleteRule(rule.id)}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
+              <DropdownMenuItem className="text-destructive" onClick={() => setDeleteRule(rule.id)}>
+                <Trash2 className="mr-2 h-4 w-4" /> Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -308,10 +393,28 @@ export default function RulesPage() {
           </div>
         </div>
 
+        {/* Filter Toolbar */}
+        <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={activeTag || "all"} onValueChange={(v) => setActiveTag(v === "all" ? null : v)}>
+              <SelectTrigger className="w-[180px] h-8">
+                <SelectValue placeholder="All Tags" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tags</SelectItem>
+                {Array.from(new Set(rules.flatMap(r => r.tags || []))).sort().map(t => (
+                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         {/* Data Table */}
         <DataTable
           columns={columns}
-          data={rules}
+          data={activeTag ? rules.filter(r => r.tags?.includes(activeTag)) : rules}
           searchKey="id"
           searchPlaceholder="Search rules..."
           loading={loading}

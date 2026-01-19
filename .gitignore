@@ -51,3 +51,22 @@ next-env.d.ts
 
 # AI Planning Docs
 IMPLEMENTATION_PLAN.md
+
+# Generated Prisma client
+/src/generated/prisma
+
+# Build logs and temporary files
+build_log.txt
+build_output.txt
+body.json
+response.txt
+
+# SQLite databases (local development)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Prisma local development files
+prisma/migrations/
+prisma.config.ts

@@ -16,6 +16,50 @@ export interface EKuiperInfo {
   memoryTotal: string;
 }
 
+// Batch request item (for /batch/req endpoint)
+export interface BatchRequestItem {
+  method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+  path: string;
+  body?: string;
+}
+
+// Batch response item
+export interface BatchResponseItem {
+  code: number;
+  response: string;
+}
+
+// Dynamic config options (for PATCH /configs)
+export interface DynamicConfig {
+  debug?: boolean;
+  consoleLog?: boolean;
+  fileLog?: boolean;
+  timezone?: string;
+}
+
+// Portable plugin status
+export interface PortablePluginStatus {
+  name: string;
+  running: boolean;
+  error?: string;
+  instances?: number;
+}
+
+// Import status
+export interface ImportStatus {
+  status: "running" | "completed" | "failed";
+  progress?: number;
+  message?: string;
+  errors?: string[];
+}
+
+// Source connection test result
+export interface ConnectionTestResult {
+  success: boolean;
+  error?: string;
+  message?: string;
+}
+
 // -----------------------------------------------------------------------------
 // Stream Types
 // -----------------------------------------------------------------------------
@@ -51,6 +95,26 @@ export interface StreamCreateRequest {
 
 export interface StreamListItem {
   name: string;
+}
+
+// Stream detail from /streamdetails endpoint
+export interface StreamDetail {
+  name: string;
+  type: string;
+  format?: string;
+  datasource?: string;
+  confKey?: string;
+  shared?: boolean;
+}
+
+// Stream schema from /streams/{name}/schema endpoint (JSON Schema-like format)
+export interface StreamSchema {
+  [field: string]: {
+    type: string;
+    optional?: boolean;
+    items?: StreamSchema;
+    properties?: StreamSchema;
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -175,6 +239,7 @@ export interface Rule {
   sql: string;
   actions: Sink[];
   options?: RuleOptions;
+  tags?: string[];
 }
 
 export interface RuleListItem {
@@ -228,6 +293,19 @@ export interface RuleBulkStatus {
 // CPU usage for all rules
 export interface RuleCPUUsage {
   [ruleId: string]: number;
+}
+
+// Rule output schema from /rules/{id}/schema endpoint
+// Describes the fields and properties produced by the rule's SELECT statement
+export interface RuleSchema {
+  [field: string]: {
+    type?: string;
+    hasIndex?: boolean;
+    index?: number;
+    optional?: boolean;
+    properties?: RuleSchema;
+    items?: RuleSchema;
+  };
 }
 
 // Rule tags

@@ -3,12 +3,15 @@
 import * as React from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useServerStore } from "@/stores/server-store";
+import { ekuiperClient } from "@/lib/ekuiper/client";
 import { AppLayout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -16,8 +19,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Plus, Trash2, Save, Database, Code, RefreshCw } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ArrowLeft, Plus, Trash2, Save, Database, Code, Link2, Settings2, Info, RefreshCw, Loader2, Sparkles, Bot } from "lucide-react";
 import { LoadingSpinner, ErrorState, EmptyState } from "@/components/common";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface StreamField {
   name: string;
@@ -26,7 +32,7 @@ interface StreamField {
 
 interface StreamDetails {
   Name: string;
-  StreamFields?: Array<{ Name: string; FieldType: string }>;
+  StreamFields?: Array<{ Name: string; FieldType: string | { Type: number } }>;
   Options?: Record<string, unknown>;
   Statement?: string;
 }
@@ -43,77 +49,166 @@ const DATA_TYPES = [
 ];
 
 const SOURCE_TYPES = [
-  { value: "mqtt", label: "MQTT" },
-  { value: "httppull", label: "HTTP Pull" },
-  { value: "httppush", label: "HTTP Push" },
-  { value: "memory", label: "Memory" },
-  { value: "neuron", label: "Neuron" },
-  { value: "edgex", label: "EdgeX" },
-  { value: "file", label: "File" },
-  { value: "redis", label: "Redis" },
+  { value: "mqtt", label: "MQTT", description: "Subscribe to MQTT topics" },
+  { value: "httppull", label: "HTTP Pull", description: "Pull data from HTTP endpoints" },
+  { value: "httppush", label: "HTTP Push", description: "Receive HTTP push data" },
+  { value: "memory", label: "Memory", description: "In-memory topic for rule pipelines" },
+  { value: "neuron", label: "Neuron", description: "Neuron industrial gateway" },
+  { value: "edgex", label: "EdgeX", description: "EdgeX Foundry message bus" },
+  { value: "file", label: "File", description: "Read from files" },
+  { value: "redis", label: "Redis", description: "Redis pub/sub" },
+  { value: "simulator", label: "Simulator", description: "Generate mock data for testing" },
+];
+
+const FORMAT_TYPES = [
+  { value: "json", label: "JSON" },
+  { value: "binary", label: "Binary" },
+  { value: "protobuf", label: "Protobuf" },
+  { value: "delimited", label: "Delimited" },
 ];
 
 export default function EditStreamPage() {
   const router = useRouter();
   const params = useParams();
-  const streamName = params.name as string;
+  const streamName = decodeURIComponent(params.name as string);
   const { servers, activeServerId } = useServerStore();
   const activeServer = servers.find((s) => s.id === activeServerId);
 
+  // Loading and error states
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [stream, setStream] = React.useState<StreamDetails | null>(null);
 
-  const [mode, setMode] = React.useState<"form" | "sql">("sql");
+  // Mode
+  const [mode, setMode] = React.useState<"form" | "sql">("form");
+
+  // Basic fields
   const [name, setName] = React.useState("");
   const [sourceType, setSourceType] = React.useState("mqtt");
   const [fields, setFields] = React.useState<StreamField[]>([]);
   const [datasource, setDatasource] = React.useState("");
   const [format, setFormat] = React.useState("json");
   const [sqlStatement, setSqlStatement] = React.useState("");
+
+  // Connection & Configuration
+  const [useConfKey, setUseConfKey] = React.useState(false);
+  const [confKey, setConfKey] = React.useState("");
+  const [useSharedConnection, setUseSharedConnection] = React.useState(false);
+  const [sharedConnection, setSharedConnection] = React.useState("");
+  const [originalSharedValue, setOriginalSharedValue] = React.useState(false); // Track original SHARED value - cannot be changed
+
+  // Available configurations and connections
+  const [confKeys, setConfKeys] = React.useState<string[]>([]);
+  const [sharedConnections, setSharedConnections] = React.useState<{ id: string; typ: string }[]>([]);
+  const [loadingConfigs, setLoadingConfigs] = React.useState(false);
+
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
-  // Helper to reconstruct SQL from stream data (since eKuiper doesn't return the original Statement)
+  // AI State
+  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
+  const [explaining, setExplaining] = React.useState(false);
+  const [aiModels, setAiModels] = React.useState<{ id: string, name: string }[]>([]);
+  const [selectedModel, setSelectedModel] = React.useState("gemini-1.5-flash");
+
+  // Fetch AI Models on mount
+  React.useEffect(() => {
+    fetch('/api/ai/models')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setAiModels(data);
+          const flash = data.find(m => m.id.includes('flash')) || data[0];
+          if (flash) setSelectedModel(flash.id);
+        }
+      })
+      .catch(err => console.error("Failed to fetch AI models:", err));
+  }, []);
+
+  const handleExplain = async () => {
+    if (!stream) return;
+    setExplaining(true);
+    setAiSummary(null);
+    try {
+      const res = await fetch('/api/ai/stream-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          streamData: stream,
+          modelName: selectedModel
+        })
+      });
+
+      if (!res.ok) throw new Error("Explanation failed");
+      const data = await res.json();
+      setAiSummary(data.summary);
+      toast.success("AI Insights generated");
+    } catch (err) {
+      toast.error("Failed to explain stream");
+    } finally {
+      setExplaining(false);
+    }
+  };
+
+  // Fetch available configuration keys
+  const fetchConfKeys = React.useCallback(async () => {
+    if (!activeServer?.url) return;
+    setLoadingConfigs(true);
+    ekuiperClient.setBaseUrl(activeServer.url);
+
+    try {
+      const keys = await ekuiperClient.listConfKeys("sources", sourceType);
+      setConfKeys(Array.isArray(keys) ? keys : []);
+    } catch {
+      setConfKeys([]);
+    }
+
+    try {
+      const connections = await ekuiperClient.listConnections();
+      const filtered = Array.isArray(connections)
+        ? connections.filter((c: any) => c.typ === sourceType || !c.typ)
+        : [];
+      setSharedConnections(filtered);
+    } catch {
+      setSharedConnections([]);
+    }
+
+    setLoadingConfigs(false);
+  }, [activeServer?.url, sourceType]);
+
+  React.useEffect(() => {
+    fetchConfKeys();
+  }, [fetchConfKeys]);
+
+  // Helper to reconstruct SQL
   const reconstructSQL = React.useCallback((data: StreamDetails, parsedFields: StreamField[], opts: Record<string, unknown>): string => {
-    const streamName = data.Name;
-    
-    // Build schema part - eKuiper REQUIRES parentheses even for schemaless streams
-    // Correct: CREATE STREAM name () WITH (...)
-    // Wrong: CREATE STREAM name WITH (...)
+    const sName = data.Name;
+
     let schemaStr = "()";
     if (parsedFields.length > 0) {
       schemaStr = `(\n  ${parsedFields.map(f => `${f.name} ${f.type}`).join(",\n  ")}\n)`;
     }
-    
-    // Build WITH options
+
     const withParts: string[] = [];
-    
-    // Extract all option values first (handle both uppercase and lowercase keys)
+
     const typeVal = opts.TYPE || opts.type || opts.Type;
     const dsVal = opts.DATASOURCE || opts.datasource || opts.Datasource;
     const fmtVal = opts.FORMAT || opts.format || opts.Format;
     const confKeyVal = opts.CONF_KEY || opts.confKey || opts.ConfKey;
     const sharedVal = opts.SHARED || opts.shared || opts.Shared;
-    const schemaIdVal = opts.SCHEMAID || opts.schemaId || opts.SchemaId;
-    const tsVal = opts.TIMESTAMP || opts.timestamp || opts.Timestamp;
-    const tsFmtVal = opts.TIMESTAMP_FORMAT || opts.timestampFormat || opts.TimestampFormat;
-    
-    // Add options in standard order
+
     if (typeVal) withParts.push(`TYPE = "${typeVal}"`);
     if (dsVal) withParts.push(`DATASOURCE = "${dsVal}"`);
     if (fmtVal) withParts.push(`FORMAT = "${fmtVal}"`);
     if (confKeyVal) withParts.push(`CONF_KEY = "${confKeyVal}"`);
     if (sharedVal) withParts.push(`SHARED = "${sharedVal}"`);
-    if (schemaIdVal) withParts.push(`SCHEMAID = "${schemaIdVal}"`);
-    if (tsVal) withParts.push(`TIMESTAMP = "${tsVal}"`);
-    if (tsFmtVal) withParts.push(`TIMESTAMP_FORMAT = "${tsFmtVal}"`);
-    
+
     const withStr = withParts.length > 0 ? `WITH (\n  ${withParts.join(",\n  ")}\n)` : "";
-    
-    return `CREATE STREAM ${streamName} ${schemaStr} ${withStr};`;
+
+    return `CREATE STREAM ${sName} ${schemaStr} ${withStr};`;
   }, []);
 
+  // Fetch stream data
   const fetchStream = React.useCallback(async () => {
     if (!activeServer) return;
 
@@ -132,16 +227,12 @@ export default function EditStreamPage() {
       }
 
       const data = await response.json();
-      console.log("Stream data received:", JSON.stringify(data, null, 2));
       setStream(data);
 
-      // Initialize form fields from stream data
+      // Initialize form fields
       setName(data.Name || streamName);
-      
-      // Parse fields from StreamFields
-      // eKuiper can return StreamFields as null for schemaless streams
-      // or as array: [{ Name: "fieldName", FieldType: { Type: 2 } }, ...] where Type is numeric
-      // or as array: [{ Name: "fieldName", FieldType: "bigint" }, ...]
+
+      // Parse fields
       let parsedFields: StreamField[] = [];
       if (data.StreamFields && Array.isArray(data.StreamFields) && data.StreamFields.length > 0) {
         parsedFields = data.StreamFields.map((f: { Name: string; FieldType: string | { Type: number } }) => {
@@ -149,42 +240,53 @@ export default function EditStreamPage() {
           if (typeof f.FieldType === "string") {
             fieldType = f.FieldType.toLowerCase();
           } else if (f.FieldType && typeof f.FieldType === "object" && "Type" in f.FieldType) {
-            // Map numeric type to string: 1=bigint, 2=float, 3=string, 4=datetime, 5=boolean, 6=bytea
             const typeMap: Record<number, string> = { 1: "bigint", 2: "float", 3: "string", 4: "datetime", 5: "boolean", 6: "bytea" };
             fieldType = typeMap[f.FieldType.Type] || "string";
           }
           return { name: f.Name || "", type: fieldType };
         });
-        console.log("Parsed fields:", parsedFields);
         setFields(parsedFields);
       } else {
         setFields([]);
       }
 
-      // Parse options - eKuiper returns lowercase keys
+      // Parse options
       const opts = data.Options || {};
-      console.log("Options received:", opts);
-      
-      // TYPE (lowercase in actual API response)
+
       const typeVal = opts.TYPE || opts.type || opts.Type;
       if (typeVal) setSourceType(String(typeVal).toLowerCase());
-      
-      // DATASOURCE
+
       const dsVal = opts.DATASOURCE || opts.datasource || opts.Datasource;
       if (dsVal) setDatasource(String(dsVal));
-      
-      // FORMAT
+
       const fmtVal = opts.FORMAT || opts.format || opts.Format;
       if (fmtVal) setFormat(String(fmtVal).toLowerCase());
 
-      // eKuiper does NOT return the original Statement (it's null)
-      // So we need to reconstruct the SQL from the stream data
+      // Check for CONF_KEY
+      const confKeyVal = opts.CONF_KEY || opts.confKey || opts.ConfKey;
+      if (confKeyVal) {
+        setUseConfKey(true);
+        setConfKey(String(confKeyVal));
+      }
+
+      // Check for shared connection - SHARED = "true" with a CONF_KEY
+      // NOTE: eKuiper does NOT support changing SHARED option after stream creation
+      const sharedVal = opts.SHARED || opts.shared || opts.Shared;
+      const isShared = sharedVal && String(sharedVal).toLowerCase() === "true";
+      setOriginalSharedValue(isShared);
+      if (isShared) {
+        setUseSharedConnection(true);
+        // The CONF_KEY contains the connection reference when SHARED is true
+        if (confKeyVal) {
+          setSharedConnection(String(confKeyVal));
+        }
+      }
+
+      // Reconstruct SQL
       const reconstructedSQL = reconstructSQL(data, parsedFields, opts);
-      console.log("Reconstructed SQL:", reconstructedSQL);
       setSqlStatement(reconstructedSQL);
-      
+
     } catch (err) {
-      console.error("Error fetching stream:", err);
       setError(err instanceof Error ? err.message : "Failed to load stream");
     } finally {
       setLoading(false);
@@ -210,9 +312,6 @@ export default function EditStreamPage() {
   };
 
   const generateSQL = (): string => {
-    // eKuiper REQUIRES parentheses even for schemaless streams
-    // Correct: CREATE STREAM name () WITH (...)
-    // Wrong: CREATE STREAM name WITH (...)
     const schemaStr = fields.length > 0
       ? `(${fields.map((f) => `${f.name} ${f.type}`).join(", ")})`
       : "()";
@@ -221,6 +320,16 @@ export default function EditStreamPage() {
     optionsArr.push(`TYPE = "${sourceType}"`);
     if (datasource) optionsArr.push(`DATASOURCE = "${datasource}"`);
     if (format) optionsArr.push(`FORMAT = "${format}"`);
+
+    if (useConfKey && confKey) {
+      optionsArr.push(`CONF_KEY = "${confKey}"`);
+    }
+
+    // For shared connections, use CONF_KEY with SHARED = "true"
+    if (useSharedConnection && sharedConnection) {
+      optionsArr.push(`CONF_KEY = "${sharedConnection}"`);
+      optionsArr.push(`SHARED = "true"`);
+    }
 
     return `CREATE STREAM ${name} ${schemaStr} WITH (${optionsArr.join(", ")});`;
   };
@@ -242,7 +351,6 @@ export default function EditStreamPage() {
     setSaveError(null);
 
     try {
-      // eKuiper uses PUT to update a stream
       const response = await fetch(`/api/ekuiper/streams/${encodeURIComponent(streamName)}`, {
         method: "PUT",
         headers: {
@@ -257,6 +365,7 @@ export default function EditStreamPage() {
         throw new Error(errData || `Failed to update stream: ${response.status}`);
       }
 
+      toast.success("Stream updated successfully");
       router.push(`/streams/${encodeURIComponent(streamName)}`);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to update stream");
@@ -300,11 +409,11 @@ export default function EditStreamPage() {
 
   return (
     <AppLayout title={`Edit Stream: ${streamName}`}>
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => router.push(`/streams/${streamName}`)}>
+            <Button variant="ghost" size="icon" onClick={() => router.push(`/streams/${encodeURIComponent(streamName)}`)}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div className="flex items-center gap-3">
@@ -312,56 +421,108 @@ export default function EditStreamPage() {
                 <Database className="h-5 w-5 text-blue-500" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">Edit Stream</h1>
+                <h1 className="text-xl md:text-2xl font-bold">Edit Stream</h1>
                 <p className="text-sm text-muted-foreground">
-                  Modify stream: {streamName}
+                  Modify: {streamName}
                 </p>
               </div>
             </div>
           </div>
-          <Button variant="outline" size="icon" onClick={fetchStream}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2 self-start sm:self-center">
+            {aiModels.length > 0 && (
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
+                <SelectTrigger className="w-[140px] h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {aiModels.map(m => (
+                    <SelectItem key={m.id} value={m.id} className="text-xs">
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExplain}
+              disabled={explaining}
+              className="gap-2 border-purple-200 hover:bg-purple-50 text-purple-700 transition-all shadow-sm h-9"
+            >
+              {explaining ? (
+                <Loader2 className="h-4 w-4 animate-spin text-purple-600" />
+              ) : (
+                <Sparkles className="h-4 w-4 text-purple-600" />
+              )}
+              {explaining ? "Thinking..." : "Understand with AI"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={fetchStream} className="gap-2 h-9">
+              <RefreshCw className="h-4 w-4" />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+          </div>
         </div>
 
+        {/* AI Insight Card */}
+        {aiSummary && (
+          <Card className="border-purple-500/20 bg-gradient-to-br from-purple-50/50 to-white shadow-sm ring-1 ring-purple-500/5 overflow-hidden">
+            <CardHeader className="pb-3 border-b border-purple-100/50 p-4">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-md bg-purple-100">
+                  <Bot className="h-4 w-4 text-purple-600" />
+                </div>
+                <CardTitle className="text-sm font-bold text-purple-900 uppercase tracking-wider">AI Industrial Insight</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              <p className="text-sm text-slate-700 leading-relaxed font-medium italic">
+                &quot;{aiSummary}&quot;
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {saveError && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive">
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive text-sm">
             {saveError}
           </div>
         )}
 
-        <Tabs value={mode} onValueChange={(v) => setMode(v as "form" | "sql")}>
-          <TabsList>
-            <TabsTrigger value="form">
-              <Database className="mr-2 h-4 w-4" />
-              Form Builder
-            </TabsTrigger>
-            <TabsTrigger value="sql">
-              <Code className="mr-2 h-4 w-4" />
-              SQL Editor
-            </TabsTrigger>
-          </TabsList>
+        <Tabs value={mode} onValueChange={(v) => setMode(v as "form" | "sql")} className="space-y-4">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <TabsList className="w-full sm:w-auto inline-flex">
+              <TabsTrigger value="form" className="gap-2 flex-1 sm:flex-none">
+                <Database className="h-4 w-4" />
+                Form Builder
+              </TabsTrigger>
+              <TabsTrigger value="sql" className="gap-2 flex-1 sm:flex-none">
+                <Code className="h-4 w-4" />
+                SQL Editor
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="form" className="space-y-4">
             {/* Basic Info */}
             <Card>
-              <CardHeader>
+              <CardHeader className="p-4 md:p-6">
                 <CardTitle>Basic Information</CardTitle>
                 <CardDescription>Stream name and source type</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
+              <CardContent className="p-4 md:p-6 pt-0 md:pt-0 space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="name">Stream Name</Label>
                     <Input
                       id="name"
                       placeholder="my_stream"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
                       disabled
+                      className="bg-muted"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Stream name cannot be changed. Create a new stream if you need a different name.
+                      Stream name cannot be changed
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -383,13 +544,161 @@ export default function EditStreamPage() {
               </CardContent>
             </Card>
 
+            {/* Connection Configuration */}
+            <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+              <CardHeader className="p-4 md:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Link2 className="h-5 w-5 text-primary" />
+                    <div>
+                      <CardTitle>Connection Configuration</CardTitle>
+                      <CardDescription>Use pre-defined configurations or shared connections</CardDescription>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={fetchConfKeys} disabled={loadingConfigs}>
+                    {loadingConfigs ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 md:p-6 pt-0 md:pt-0 space-y-6">
+                {/* Configuration Key */}
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="use-confkey"
+                        checked={useConfKey}
+                        onCheckedChange={(checked) => {
+                          setUseConfKey(checked);
+                          if (checked) setUseSharedConnection(false);
+                        }}
+                      />
+                      <Label htmlFor="use-confkey" className="cursor-pointer font-medium">
+                        Use Configuration Template
+                      </Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p>Select a pre-defined configuration key (CONF_KEY)</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    {useConfKey && (
+                      <Badge variant="secondary" className="gap-1 w-fit">
+                        <Settings2 className="h-3 w-3" />
+                        CONF_KEY
+                      </Badge>
+                    )}
+                  </div>
+
+                  {useConfKey && (
+                    <div className="sm:pl-8 space-y-2">
+                      <Label>Configuration Key</Label>
+                      {confKeys.length > 0 ? (
+                        <Select value={confKey} onValueChange={setConfKey}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a configuration..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {confKeys.map((key) => (
+                              <SelectItem key={key} value={key}>
+                                {key}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="text-sm text-muted-foreground p-3 rounded-lg bg-muted/50 border border-dashed">
+                          No configuration keys found for <strong>{sourceType}</strong>.
+                          <Button variant="link" className="px-1 h-auto" onClick={() => router.push("/connections")}>
+                            Create one in Connections
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Shared Connection */}
+                <div className="space-y-4 pt-4 border-t">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="use-shared"
+                        checked={useSharedConnection}
+                        disabled={true} // eKuiper does not support changing SHARED option after creation
+                        onCheckedChange={(checked) => {
+                          setUseSharedConnection(checked);
+                          if (checked) setUseConfKey(false);
+                        }}
+                      />
+                      <Label htmlFor="use-shared" className={cn("font-medium", "cursor-not-allowed opacity-70")}>
+                        Use Shared Connection
+                      </Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p>Use a shared connection (CONF_KEY + SHARED=true)</p>
+                            <p className="text-xs text-yellow-500 mt-1">Cannot be modified after creation</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    {useSharedConnection && (
+                      <Badge variant="secondary" className="gap-1 w-fit">
+                        <Link2 className="h-3 w-3" />
+                        SHARED
+                      </Badge>
+                    )}
+                  </div>
+
+                  {useSharedConnection && (
+                    <div className="sm:pl-8 space-y-2">
+                      <Label>Shared Connection</Label>
+                      {sharedConnections.length > 0 ? (
+                        <Select value={sharedConnection} onValueChange={setSharedConnection}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a connection..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sharedConnections.map((conn) => (
+                              <SelectItem key={conn.id} value={conn.id}>
+                                <div className="flex items-center gap-2">
+                                  <span>{conn.id}</span>
+                                  {conn.typ && <Badge variant="outline" className="text-xs">{conn.typ}</Badge>}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="text-sm text-muted-foreground p-3 rounded-lg bg-muted/50 border border-dashed">
+                          No shared connections found.
+                          <Button variant="link" className="px-1 h-auto" onClick={() => router.push("/connections")}>
+                            Create one in Connections
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Schema Definition */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="p-4 md:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <CardTitle>Schema Definition</CardTitle>
                   <CardDescription>
-                    Define the fields in your stream (optional - leave empty for schemaless)
+                    Define the fields in your stream (optional)
                   </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={addField}>
@@ -397,10 +706,10 @@ export default function EditStreamPage() {
                   Add Field
                 </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
                 {fields.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">
-                    No fields defined. Click &quot;Add Field&quot; to define a schema, or leave empty for a schemaless stream.
+                    No fields defined (schemaless stream).
                   </p>
                 ) : (
                   <div className="space-y-2">
@@ -416,7 +725,7 @@ export default function EditStreamPage() {
                           value={field.type}
                           onValueChange={(v) => updateField(index, "type", v)}
                         >
-                          <SelectTrigger className="w-40">
+                          <SelectTrigger className="w-28 sm:w-40">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -441,14 +750,14 @@ export default function EditStreamPage() {
               </CardContent>
             </Card>
 
-            {/* Options */}
+            {/* Stream Options */}
             <Card>
-              <CardHeader>
+              <CardHeader className="p-4 md:p-6">
                 <CardTitle>Stream Options</CardTitle>
                 <CardDescription>Configure stream source options</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
+              <CardContent className="p-4 md:p-6 pt-0 md:pt-0 space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="datasource">Data Source</Label>
                     <Input
@@ -465,10 +774,11 @@ export default function EditStreamPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="json">JSON</SelectItem>
-                        <SelectItem value="binary">Binary</SelectItem>
-                        <SelectItem value="protobuf">Protobuf</SelectItem>
-                        <SelectItem value="delimited">Delimited</SelectItem>
+                        {FORMAT_TYPES.map((fmt) => (
+                          <SelectItem key={fmt.value} value={fmt.value}>
+                            {fmt.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -479,12 +789,19 @@ export default function EditStreamPage() {
             {/* Preview SQL */}
             {name && (
               <Card>
-                <CardHeader>
-                  <CardTitle>Generated SQL</CardTitle>
+                <CardHeader className="p-4 md:p-6">
+                  <CardTitle className="flex items-center gap-2">
+                    <Code className="h-4 w-4" />
+                    Generated SQL
+                  </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <pre className="rounded-lg bg-muted p-4 text-sm overflow-x-auto">
-                    <code>{generateSQL()}</code>
+                <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
+                  <pre className="rounded-lg bg-muted p-4 text-sm overflow-x-auto font-mono">
+                    <code className={cn(
+                      "whitespace-pre-wrap break-all",
+                      useConfKey && confKey && "text-primary",
+                      useSharedConnection && sharedConnection && "text-green-600"
+                    )}>{generateSQL()}</code>
                   </pre>
                 </CardContent>
               </Card>
@@ -493,23 +810,23 @@ export default function EditStreamPage() {
 
           <TabsContent value="sql" className="space-y-4">
             <Card>
-              <CardHeader>
+              <CardHeader className="p-4 md:p-6">
                 <CardTitle>SQL Statement</CardTitle>
                 <CardDescription>
                   Edit the CREATE STREAM SQL statement directly
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
                 <textarea
-                  className="w-full h-48 rounded-lg border bg-muted p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full h-48 rounded-lg border bg-muted p-4 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-y"
                   placeholder={`CREATE STREAM my_stream (
   temperature float,
-  humidity float,
-  timestamp bigint
+  humidity float
 ) WITH (
   TYPE="mqtt",
   DATASOURCE="sensor/data",
-  FORMAT="json"
+  FORMAT="json",
+  CONF_KEY="my_config"
 );`}
                   value={sqlStatement}
                   onChange={(e) => setSqlStatement(e.target.value)}
@@ -520,8 +837,8 @@ export default function EditStreamPage() {
         </Tabs>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={() => router.push(`/streams/${streamName}`)}>
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
+          <Button variant="outline" onClick={() => router.push(`/streams/${encodeURIComponent(streamName)}`)}>
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={saving}>

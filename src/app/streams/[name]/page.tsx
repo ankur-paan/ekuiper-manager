@@ -16,14 +16,139 @@ import {
   Trash2,
   Copy,
   Code,
+  Sparkles,
+  Bot,
+  Loader2
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/common";
+import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 interface StreamDetails {
   Name: string;
   StreamFields: Array<{ Name: string; FieldType: string }> | null;
   Options: Record<string, unknown>;
   Statement?: string;
+}
+
+// Inferred schema type from /streams/{name}/schema endpoint
+interface StreamSchemaField {
+  type: string;
+  optional?: boolean;
+  properties?: Record<string, StreamSchemaField>;
+  items?: StreamSchemaField;
+}
+
+// Component to display inferred schema
+function InferredSchemaCard({ streamName, activeServer }: { streamName: string; activeServer: { url: string } | undefined }) {
+  const [schema, setSchema] = React.useState<Record<string, StreamSchemaField> | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const fetchSchema = React.useCallback(async () => {
+    if (!activeServer || !streamName) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/ekuiper/streams/${streamName}/schema`, {
+        headers: { "X-EKuiper-URL": activeServer.url },
+      });
+      if (!response.ok) {
+        if (response.status === 404) {
+          setError("Schema endpoint not available on this version");
+          return;
+        }
+        throw new Error(`Status ${response.status}`);
+      }
+      const data = await response.json();
+      setSchema(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch schema");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeServer, streamName]);
+
+  React.useEffect(() => {
+    fetchSchema();
+  }, [fetchSchema]);
+
+  // Get color for type
+  const getTypeColor = (type: string) => {
+    const colors: Record<string, string> = {
+      string: "bg-green-500/10 text-green-600 border-green-500/20",
+      bigint: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+      float: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20",
+      boolean: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+      datetime: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+      bytea: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+      array: "bg-pink-500/10 text-pink-600 border-pink-500/20",
+      struct: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+    };
+    return colors[type?.toLowerCase()] || "bg-gray-500/10 text-gray-600 border-gray-500/20";
+  };
+
+  // Render schema field recursively
+  const renderField = (name: string, field: StreamSchemaField, depth = 0) => {
+    if (!field) return null;
+    return (
+      <div key={name} className={cn("rounded-lg border p-3", depth > 0 && "ml-4 mt-2 border-dashed")}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{name}</span>
+            {field.optional && <span className="text-xs text-muted-foreground">(optional)</span>}
+          </div>
+          <Badge variant="outline" className={getTypeColor(field.type)}>
+            {field.type}
+          </Badge>
+        </div>
+        {field.properties && (
+          <div className="mt-2 space-y-2">
+            {Object.entries(field.properties).map(([k, v]) => renderField(k, v, depth + 1))}
+          </div>
+        )}
+        {field.items && (
+          <div className="mt-2 pl-4 border-l-2 border-dashed border-muted-foreground/30">
+            <span className="text-xs text-muted-foreground mb-1 block">Array items:</span>
+            {renderField("[]", field.items, depth + 1)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (error) return null; // Silently hide if not available
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Inferred Schema
+          <Badge variant="secondary" className="text-xs font-normal">Runtime</Badge>
+        </CardTitle>
+        <CardDescription>
+          Schema derived from physical and logical definitions at runtime
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading schema...</span>
+          </div>
+        ) : schema && Object.keys(schema).length > 0 ? (
+          <div className="space-y-2">
+            {Object.entries(schema).map(([name, field]) => renderField(name, field))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground">
+            No inferred schema available (schema-less stream)
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function StreamDetailPage() {
@@ -37,6 +162,51 @@ export default function StreamDetailPage() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [showDelete, setShowDelete] = React.useState(false);
+
+  // AI State
+  const [aiSummary, setAiSummary] = React.useState<string | null>(null);
+  const [explaining, setExplaining] = React.useState(false);
+  const [aiModels, setAiModels] = React.useState<{ id: string, name: string }[]>([]);
+  const [selectedModel, setSelectedModel] = React.useState("gemini-1.5-flash");
+
+  // Fetch AI Models on mount
+  React.useEffect(() => {
+    fetch('/api/ai/models')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setAiModels(data);
+          const flash = data.find(m => m.id.includes('flash')) || data[0];
+          if (flash) setSelectedModel(flash.id);
+        }
+      })
+      .catch(err => console.error("Failed to fetch AI models:", err));
+  }, []);
+
+  const handleExplain = async () => {
+    if (!stream) return;
+    setExplaining(true);
+    setAiSummary(null);
+    try {
+      const res = await fetch('/api/ai/stream-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          streamData: stream,
+          modelName: selectedModel
+        })
+      });
+
+      if (!res.ok) throw new Error("Explanation failed");
+      const data = await res.json();
+      setAiSummary(data.summary);
+      toast.success("AI Insights generated");
+    } catch (err) {
+      toast.error("Failed to explain stream");
+    } finally {
+      setExplaining(false);
+    }
+  };
 
   const fetchStream = React.useCallback(async () => {
     if (!activeServer || !streamName) return;
@@ -133,6 +303,34 @@ export default function StreamDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {aiModels.length > 0 && (
+              <Select value={selectedModel} onValueChange={setSelectedModel}>
+                <SelectTrigger className="w-[140px] h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {aiModels.map(m => (
+                    <SelectItem key={m.id} value={m.id} className="text-xs">
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              variant="outline"
+              onClick={handleExplain}
+              disabled={explaining}
+              className="gap-2 border-purple-200 hover:bg-purple-50 text-purple-700 transition-all shadow-sm"
+            >
+              {explaining ? (
+                <Loader2 className="h-4 w-4 animate-spin text-purple-600" />
+              ) : (
+                <Sparkles className="h-4 w-4 text-purple-600" />
+              )}
+              {explaining ? "Thinking..." : "Understand with AI"}
+            </Button>
+            <Separator orientation="vertical" className="h-6 mx-1" />
             <Button variant="outline" onClick={() => router.push(`/streams/${streamName}/edit`)}>
               <Pencil className="mr-2 h-4 w-4" />
               Edit
@@ -143,6 +341,25 @@ export default function StreamDetailPage() {
             </Button>
           </div>
         </div>
+
+        {/* AI Insight Card */}
+        {aiSummary && (
+          <Card className="border-purple-500/20 bg-gradient-to-br from-purple-50/50 to-white shadow-sm ring-1 ring-purple-500/5 overflow-hidden">
+            <CardHeader className="pb-3 border-b border-purple-100/50">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-md bg-purple-100">
+                  <Bot className="h-4 w-4 text-purple-600" />
+                </div>
+                <CardTitle className="text-sm font-bold text-purple-900 uppercase tracking-wider">AI Industrial Insight</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <p className="text-sm text-slate-700 leading-relaxed font-medium italic">
+                &quot;{aiSummary}&quot;
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Stream Schema */}
         <Card>
@@ -170,6 +387,9 @@ export default function StreamDetailPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Inferred Schema Card */}
+        <InferredSchemaCard streamName={streamName} activeServer={activeServer} />
 
         {/* Stream Options */}
         <Card>
