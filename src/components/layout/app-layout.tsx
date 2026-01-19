@@ -23,10 +23,11 @@ export function AppLayout({ children, title }: AppLayoutProps) {
   if (!mounted) {
     return (
       <div className="flex h-screen overflow-hidden bg-background">
-        <div className="w-64 border-r bg-background" />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="h-14 border-b bg-background" />
-          <main className="flex-1 overflow-auto p-6" />
+        {/* Sidebar skeleton - hidden on mobile */}
+        <div className="hidden md:block w-64 border-r bg-background shrink-0" />
+        <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+          <div className="h-14 border-b bg-background shrink-0" />
+          <main className="flex-1 overflow-auto p-4 md:p-6" />
         </div>
       </div>
     );
@@ -34,19 +35,22 @@ export function AppLayout({ children, title }: AppLayoutProps) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Sidebar */}
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onCollapsedChange={setSidebarCollapsed}
-      />
+      {/* Sidebar - Hidden on mobile, visible on md+ screens */}
+      <div className="hidden md:block shrink-0">
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
+        />
+      </div>
 
-      {/* Main Content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Main Content Area */}
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <Header title={title} />
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-4 md:p-6">
           {children}
         </main>
       </div>
+
       <UnifiedSearch />
     </div>
   );

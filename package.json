@@ -15,6 +15,7 @@
   "dependencies": {
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.2",
+    "@prisma/client": "^7.2.0",
     "@radix-ui/react-accordion": "^1.1.2",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-avatar": "^1.1.11",
@@ -47,8 +48,10 @@
     "next": "^16.1.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
     "reactflow": "^11.11.4",
     "recharts": "^3.6.0",
+    "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
     "swagger-ui-react": "^5.31.0",
     "tailwind-merge": "3.4.0",
@@ -62,11 +65,13 @@
     "@typescript-eslint/eslint-plugin": "^8.53.0",
     "@typescript-eslint/parser": "^8.53.0",
     "autoprefixer": "^10.4.16",
+    "dotenv": "^17.2.3",
     "eslint": "9.39.2",
     "eslint-config-next": "^16.1.2",
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
     "postcss": "^8.4.33",
+    "prisma": "^7.2.0",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3"
   }

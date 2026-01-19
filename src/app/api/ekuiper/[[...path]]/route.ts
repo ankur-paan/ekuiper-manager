@@ -50,7 +50,12 @@ async function proxyRequest(
   // Ensure baseUrl doesn't end with slash and path doesn't start with slash
   const cleanBaseUrl = baseUrl.replace(/\/$/, '');
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  const targetUrl = `${cleanBaseUrl}${cleanPath}`;
+
+  // Forward query parameters from the original request (excluding our internal ekuiper_url param)
+  const forwardParams = new URLSearchParams(request.nextUrl.searchParams);
+  forwardParams.delete("ekuiper_url"); // Remove our proxy-specific param
+  const queryString = forwardParams.toString() ? `?${forwardParams.toString()}` : "";
+  const targetUrl = `${cleanBaseUrl}${cleanPath}${queryString}`;
 
   try {
     // Get request body for non-GET requests
@@ -72,10 +77,11 @@ async function proxyRequest(
       method,
       headers: {
         "Content-Type": "application/json",
-        Accept: "application/json",
+        Accept: "*/*",
       },
       body: body || undefined,
       signal: controller.signal,
+      cache: "no-store",
     });
 
     clearTimeout(timeoutId);

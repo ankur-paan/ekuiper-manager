@@ -8,8 +8,9 @@ export interface SystemInfo {
   os: string;
   arch?: string;
   upTimeSeconds: number;
-  cpuUsage?: number;
-  memoryUsage?: number;
+  cpuUsage?: string | number;
+  memoryUsed?: string;
+  memoryTotal?: string;
 }
 
 interface UseSystemInfoOptions {
@@ -34,7 +35,7 @@ export function useSystemInfo(options: UseSystemInfoOptions = {}) {
       return;
     }
 
-    setIsLoading(true);
+    if (!data) setIsLoading(true);
     setError(null);
 
     try {

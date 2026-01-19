@@ -111,3 +111,12 @@
 .status-error {
   @apply bg-yellow-500/20 text-yellow-400 border-yellow-500/50;
 }
+
+.glass-morphism {
+  @apply backdrop-blur-xl bg-white/70;
+}
+
+[data-theme='dark'] .glass-morphism {
+  @apply bg-slate-900/80;
+}
+

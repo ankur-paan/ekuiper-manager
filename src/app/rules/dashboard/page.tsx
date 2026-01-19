@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useServerStore } from "@/stores/server-store";
 import { AppLayout } from "@/components/layout";
+import { ekuiperClient } from "@/lib/ekuiper/client";
 import { LoadingPage, ErrorState, EmptyState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,25 +57,16 @@ export default function RulesDashboardPage() {
 
     const fetchData = React.useCallback(async () => {
         if (!activeServer) return;
+        ekuiperClient.setBaseUrl(activeServer.url);
 
         try {
             // Fetch bulk status
-            const statusResponse = await fetch("/api/ekuiper/rules/status/all", {
-                headers: { "X-EKuiper-URL": activeServer.url },
-            });
-            if (statusResponse.ok) {
-                const statusData = await statusResponse.json();
-                setRulesStatus(statusData || {});
-            }
+            const statusData = await ekuiperClient.getAllRulesStatus();
+            setRulesStatus(statusData || {});
 
             // Fetch CPU usage
-            const cpuResponse = await fetch("/api/ekuiper/rules/usage/cpu", {
-                headers: { "X-EKuiper-URL": activeServer.url },
-            });
-            if (cpuResponse.ok) {
-                const cpuData = await cpuResponse.json();
-                setCpuUsage(cpuData || {});
-            }
+            const cpuData = await ekuiperClient.getRulesCPUUsage();
+            setCpuUsage(cpuData || {});
 
             setError(null);
         } catch (err) {

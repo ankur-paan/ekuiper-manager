@@ -38,7 +38,16 @@ export function CodeEditorImpl({ value, onChange, language = "javascript", readO
                 scrollBeyondLastLine: false,
                 fontSize: 14,
                 padding: { top: 16 },
+                // Disable workers to prevent "Unexpected usage" errors in Next.js/Turbopack
+                quickSuggestions: false,
+                renderValidationDecorations: "off",
+                hover: { enabled: false },
             });
+
+            // Disable diagnostics for json/javascript/typescript
+            monaco.languages.json.jsonDefaults.setDiagnosticsOptions({ validate: false });
+            monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
+            monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: true });
 
             editorRef.current = editor;
 
