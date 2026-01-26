@@ -5,7 +5,10 @@ import mqtt from 'mqtt';
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const topic = searchParams.get('topic');
-    const timeoutVal = parseInt(searchParams.get('timeout') || '5000');
+    let timeoutVal = parseInt(searchParams.get('timeout') || '5000');
+    // Security: Cap timeout to prevent resource exhaustion (DoS)
+    if (isNaN(timeoutVal) || timeoutVal <= 0) timeoutVal = 5000;
+    if (timeoutVal > 30000) timeoutVal = 30000;
 
     if (!topic) {
         return NextResponse.json({ error: 'Missing topic parameter' }, { status: 400 });
