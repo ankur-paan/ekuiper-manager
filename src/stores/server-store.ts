@@ -72,8 +72,42 @@ export const useServerStore = create<ServerState>()(
       fetchServers: async () => {
         const { storageMode, savedBrowserServers } = get();
 
+        // 1. Fetch Env Config to potentially seed default server
+        let envServer = null;
+        try {
+          const cfgRes = await fetch('/api/config');
+          if (cfgRes.ok) {
+            const config = await cfgRes.json();
+            if (config.ekuiper?.url) {
+              envServer = {
+                id: 'default-env',
+                name: 'Default Server',
+                url: config.ekuiper.url,
+                status: 'unknown' as ServerStatus,
+                createdAt: new Date(),
+              };
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to fetch env config", e);
+        }
+
         if (storageMode === 'browser') {
-          set({ servers: savedBrowserServers, isLoading: false, error: null });
+          // If no servers exist, add the Env server
+          let currentServers = savedBrowserServers;
+          if (currentServers.length === 0 && envServer) {
+            currentServers = [envServer];
+            // Update state immediately to reflect default
+            set({
+              savedBrowserServers: currentServers,
+              servers: currentServers,
+              activeServerId: envServer.id
+            });
+          } else {
+            set({ servers: currentServers });
+          }
+
+          set({ isLoading: false, error: null });
           return;
         }
 

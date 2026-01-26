@@ -1,0 +1,9 @@
+{
+    "id": "rule_test_val",
+    "sql": "SELECT * FROM sdm120_stream WHERE self = 'ON'",
+    "actions": [
+        {
+            "log": {}
+        }
+    ]
+}

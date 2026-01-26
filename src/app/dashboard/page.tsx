@@ -6,7 +6,6 @@ import { useSystemInfo } from "@/hooks/use-system-info";
 import { useHealthCheck } from "@/hooks/use-health-check";
 import { useServerStore } from "@/stores/server-store";
 import { ekuiperClient } from "@/lib/ekuiper/client";
-import { BatchRequestItem } from "@/lib/ekuiper/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -225,25 +224,20 @@ function ResourceSummary() {
 
     const fetchCounts = async () => {
       try {
-        const requests: BatchRequestItem[] = [
-          { method: "GET", path: "/streams" },
-          { method: "GET", path: "/rules" },
-          { method: "GET", path: "/tables" }
-        ];
-
-        const results = await ekuiperClient.batchRequest(requests);
-
-        const streams = Array.isArray(results[0]?.response) ? results[0].response : [];
-        const rules = Array.isArray(results[1]?.response) ? results[1].response : [];
-        const tables = Array.isArray(results[2]?.response) ? results[2].response : [];
+        const [streams, rules, tables] = await Promise.all([
+          ekuiperClient.listStreams(),
+          ekuiperClient.listRules(),
+          ekuiperClient.listTables(),
+        ]);
 
         setCounts({
-          streams: streams.length,
-          rules: rules.length,
-          tables: tables.length,
+          streams: streams?.length ?? 0,
+          rules: rules?.length ?? 0,
+          tables: tables?.length ?? 0,
         });
       } catch (e) {
         console.error("Failed to fetch counts", e);
+        setCounts({ streams: 0, rules: 0, tables: 0 });
       }
     };
     fetchCounts();

@@ -33,6 +33,11 @@ export async function POST(req: Request) {
         2. Prefer 'shared connections' if available, otherwise use a matching 'confKey' from the metadata.
         3. Explain the industrial logic clearly to the technician.
         4. Focus on 'Operational' relevance (filtering peaks, transforming protocol data).
+        5. For comparisons involving numbers (e.g., voltage < 250), always use proper type casting to avoid errors:
+           - For binary streams, the payload (self) is []byte, so use: CAST(CAST(self, 'string'), 'float')
+           - For numeric fields in JSON streams, use: CAST(field, 'float')
+           - For text/string comparisons, use: CAST(field, 'string') if needed, but prefer direct comparison.
+           - Always apply casting for any value comparison to ensure compatibility, as non-technical users may not specify types.
         
         OUTPUT FORMAT:
         Always return a JSON object with:

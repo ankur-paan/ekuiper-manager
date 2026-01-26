@@ -1,0 +1,9 @@
+{
+    "id": "rule_test_val",
+    "sql": "SELECT *, meta(topic) AS topic, event_time() AS timestamp FROM sdm120_stream AS t1 WHERE (meta(topic) = 'esp81b14a0256552a3731378c1974ce/switch/relay_2/state' AND CAST(self AS string) = 'ON')",
+    "actions": [
+        {
+            "log": {}
+        }
+    ]
+}

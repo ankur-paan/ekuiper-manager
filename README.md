@@ -39,13 +39,14 @@ This project aims to fill that gap with a **completely open-source, community-dr
 | **Rule Tracing & Debugging** | Real-time data flow tracing with span hierarchy and detailed message attributes. |
 | **Rule Topology** | Visual graph representation of the data flow from sources through operators to sinks. |
 | **Query Plan (Explain)** | Visualized execution plans and performance hints for eKuiper SQL queries. |
-| **AI Assistant** | Conversational agent, Rule/Stream generators, Analysis tools. (New in v1.1.0) |
+| **AI Assistant** | Conversational agent, Rule/Stream generators, Analysis tools. (New in v1.2.0) |
 | **Server Persistence** | Browser-based (Default) or SQLite (Experimental) storage for server configs. |
 
 ### 🔶 Partially Built (Functional but Incomplete)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
+| **Query Designer** | 30% | Visual builder for shop floor users. Node-based editor in progress. |
 | **Rule Management** | 90% | List, start, stop, tracing, topology, and explain working. Edit with SQL working. Create with UI logic in progress. |
 | **Dashboard Overview** | 70% | System info display, CPU/memory/uptime monitoring. Needs real-time refresh polish. |
 | **Rule Metrics** | 70% | Basic metrics and status display. Advanced historical charts pending. |
