@@ -16,4 +16,6 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Fixed memory leaks in development environment during compilation.
+- Fixed production build by forcing Webpack over Turbopack for custom configurations.
+- Fixed security vulnerability (js/resource-exhaustion) in MQTT debug API by capping timeouts.
 - Improved EMQX connection stability.
