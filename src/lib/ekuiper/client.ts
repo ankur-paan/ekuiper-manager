@@ -135,10 +135,21 @@ export class EKuiperClient {
       }
 
       if (!response.ok) {
-        const error: ApiError = await response.json().catch(() => ({
-          error: `HTTP ${response.status}: ${response.statusText}`,
-        }));
-        throw new Error(error.error || error.message || "Unknown error");
+        const text = await response.text().catch(() => "");
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+
+        try {
+          const errorJson = JSON.parse(text);
+          if (typeof errorJson === 'string') {
+            errorMessage = errorJson;
+          } else {
+            errorMessage = errorJson.error || errorJson.message || errorMessage;
+          }
+        } catch {
+          if (text) errorMessage = text;
+        }
+
+        throw new Error(errorMessage);
       }
 
       // Handle empty responses

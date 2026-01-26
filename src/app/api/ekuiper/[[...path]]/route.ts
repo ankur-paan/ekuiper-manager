@@ -31,7 +31,8 @@ function getEKuiperBaseUrl(request: NextRequest): string {
   }
 
   // Fall back to environment variable or default
-  const fallback = process.env.EKUIPER_URL || "http://localhost:9081";
+  const fallback = process.env.EKUIPER_URL || "http://127.0.0.1:9081";
+  // Actually, let's look for a better default or just trust the user will provide one.
   return normalizeUrl(fallback);
 }
 

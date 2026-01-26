@@ -59,6 +59,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { parseNodeId } from "@/lib/ekuiper/formatters";
 
 interface RuleDetails {
   id: string;
@@ -233,29 +234,23 @@ export default function RuleStatusPage() {
     Object.keys(statusData).forEach((key) => {
       if (!key.endsWith("_records_in_total")) return;
 
+      // Use Official Formatter
+      const info = parseNodeId(key);
+      if (seenPrefixes.has(info.rawId)) return;
+      seenPrefixes.add(info.rawId);
+
+      // Map back to Metrics naming conventions if needed, or just use info
+      // The original code detected type via prefix. Our parser does too.
+      // prefix here is actually the full metric ID prefix e.g. "op_filter_0"
+
+      // Wait, 'key' is "op_filter_0_records_in_total".
+      // Our parser expects "op_filter_0".
+
       const prefix = key.replace("_records_in_total", "");
-      if (seenPrefixes.has(prefix)) return;
-      seenPrefixes.add(prefix);
+      const { type, label, iconKey } = parseNodeId(prefix);
 
-      let type: "source" | "operator" | "sink" = "operator";
-      let name = prefix;
-      let displayName = prefix;
-
-      if (prefix.startsWith("source_")) {
-        type = "source";
-        name = prefix.replace("source_", "").replace(/_\d+$/, "");
-        displayName = name.replace(/_/g, " ");
-      } else if (prefix.startsWith("sink_")) {
-        type = "sink";
-        name = prefix.replace("sink_", "").replace(/_\d+$/, "");
-        displayName = name.replace(/_/g, " ");
-      } else if (prefix.startsWith("op_")) {
-        type = "operator";
-        const parts = prefix.replace("op_", "").split("_");
-        const meaningfulParts = parts.filter(p => isNaN(Number(p)));
-        displayName = meaningfulParts.join(" ");
-        name = meaningfulParts.join("_");
-      }
+      const displayName = label;
+      const name = prefix; // Keep original ID for detailed tracking if needed
 
       nodes.push({
         id: prefix,

@@ -19,6 +19,7 @@ import {
   Network,
   FileJson,
   BookOpen,
+  Wand2,
 } from "lucide-react";
 import {
   Collapsible,
@@ -67,6 +68,7 @@ export const navigationGroups: NavGroup[] = [
     icon: Workflow,
     items: [
       { title: "Rules", href: "/rules", icon: Workflow },
+      { title: "Query Designer", href: "/query-designer", icon: Wand2 },
       { title: "Functions", href: "/functions", icon: Code2 },
       { title: "Dependency Graph", href: "/graph", icon: Network },
     ],

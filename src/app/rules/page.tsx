@@ -45,6 +45,8 @@ import {
   MessageSquare,
   Tag,
   Filter,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -71,6 +73,7 @@ export default function RulesPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [deleteRule, setDeleteRule] = React.useState<string | null>(null);
   const [activeTag, setActiveTag] = React.useState<string | null>(null);
+  const [viewMode, setViewMode] = React.useState<'list' | 'grid'>('grid');
 
   const fetchRules = React.useCallback(async () => {
     if (!activeServer) {
@@ -129,7 +132,7 @@ export default function RulesPage() {
           };
         });
 
-        setRules(mergedRules);
+        setRules(mergedRules.filter(r => !r.tags?.includes("__test_sample__")));
 
       } catch (batchError) {
         console.warn("Batch request failed, falling back to basic list", batchError);
@@ -398,7 +401,7 @@ export default function RulesPage() {
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <Select value={activeTag || "all"} onValueChange={(v) => setActiveTag(v === "all" ? null : v)}>
-              <SelectTrigger className="w-[180px] h-8">
+              <SelectTrigger className="w-[180px] h-8 bg-background">
                 <SelectValue placeholder="All Tags" />
               </SelectTrigger>
               <SelectContent>
@@ -409,19 +412,126 @@ export default function RulesPage() {
               </SelectContent>
             </Select>
           </div>
+
+          <div className="flex bg-muted rounded-lg p-1 h-8 items-center">
+            <Button
+              variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setViewMode('grid')}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setViewMode('list')}
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
-        {/* Data Table */}
-        <DataTable
-          columns={columns}
-          data={activeTag ? rules.filter(r => r.tags?.includes(activeTag)) : rules}
-          searchKey="id"
-          searchPlaceholder="Search rules..."
-          loading={loading}
-          emptyMessage="No rules found"
-          emptyDescription="Create your first rule to start processing stream data."
-          onRefresh={fetchRules}
-        />
+        {/* List View */}
+        {viewMode === 'list' ? (
+          <DataTable
+            columns={columns}
+            data={activeTag ? rules.filter(r => r.tags?.includes(activeTag)) : rules}
+            searchKey="id"
+            searchPlaceholder="Search rules..."
+            loading={loading}
+            emptyMessage="No rules found"
+            emptyDescription="Create your first rule to start processing stream data."
+            onRefresh={fetchRules}
+          />
+        ) : (
+          /* Grid View */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in fade-in">
+            {(activeTag ? rules.filter(r => r.tags?.includes(activeTag)) : rules).map(rule => (
+              <div key={rule.id} className="group relative bg-card rounded-xl border shadow-sm hover:shadow-md hover:border-primary/20 transition-all overflow-hidden flex flex-col">
+                {/* Status Border */}
+                <div className={`absolute top-0 left-0 w-1 h-full ${(rule.status?.toLowerCase().includes("running")) ? "bg-green-500" :
+                  (rule.status?.toLowerCase().includes("fail")) ? "bg-red-500" : "bg-slate-300"
+                  }`} />
+
+                <div className="p-4 pl-5 space-y-3 flex-1">
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-sm truncate pr-2 max-w-[150px]" title={rule.id}>{rule.id}</h3>
+                      <div className="text-[10px] text-muted-foreground font-mono truncate max-w-[150px]">
+                        {getPipelineInfo(rule).sources[0] || "Unknown Source"}
+                      </div>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 -mt-1 -mr-2 text-muted-foreground">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => router.push(`/rules/${rule.id}`)}>Edit Rule</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push(`/rules/${rule.id}/status`)}>View Metrics</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push(`/rules/${rule.id}/topology`)}>View Topology</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive" onClick={() => setDeleteRule(rule.id)}>Delete</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  <div className="flex gap-2 flex-wrap min-h-[24px]">
+                    {rule.tags && rule.tags.length > 0 ? rule.tags.map(t => (
+                      <Badge key={t} variant="secondary" className="text-[10px] px-1 h-5 font-normal">{t}</Badge>
+                    )) : (
+                      <span className="text-[10px] text-muted-foreground/50 italic">No tags</span>
+                    )}
+                  </div>
+
+                  {/* Mini Sparkline Visualization (Fake for now, but placeholder for real metrics) */}
+                  <div className="h-10 w-full bg-slate-50 dark:bg-slate-900 rounded-md flex items-end gap-0.5 p-1 overflow-hidden opacity-80">
+                    {[...Array(20)].map((_, i) => (
+                      <div key={i} className="flex-1 bg-green-500/20 hover:bg-green-500/40 transition-colors rounded-t-sm"
+                        style={{ height: `${Math.random() * 100}%` }} />
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-2 border-t">
+                    <div className="flex flex-col">
+                      <span className="text-muted-foreground text-[10px]">IN</span>
+                      <span className="font-bold">{rule.metrics ? Object.values(rule.metrics).find((v, i, arr) => Object.keys(rule.metrics!)[i].includes("records_in")) || 0 : 0}</span>
+                    </div>
+                    <div className="flex flex-col text-right">
+                      <span className="text-muted-foreground text-[10px]">OUT</span>
+                      <span className="font-bold text-green-600">{rule.metrics ? Object.values(rule.metrics).find((v, i, arr) => Object.keys(rule.metrics!)[i].includes("records_out")) || 0 : 0}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-2 bg-muted/30 border-t flex justify-between items-center pl-5">
+                  <span className={`text-[10px] uppercase font-bold tracking-wider ${(rule.status?.toLowerCase().includes("running")) ? "text-green-600" : "text-muted-foreground"
+                    }`}>
+                    {rule.status?.split(':')[0] || "STOPPED"}
+                  </span>
+                  <Switch
+                    checked={rule.status?.toLowerCase().includes("running")}
+                    onCheckedChange={(c) => handleRuleAction(rule.id, c ? "start" : "stop")}
+                    className="scale-75"
+                  />
+                </div>
+              </div>
+            ))}
+
+            {/* Add New Card */}
+            <div
+              className="group relative bg-muted/20 rounded-xl border border-dashed hover:border-primary/50 hover:bg-muted/40 transition-all flex flex-col items-center justify-center cursor-pointer min-h-[220px] gap-3"
+              onClick={() => router.push("/rules/new")}
+            >
+              <div className="h-10 w-10 rounded-full bg-background border shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Plus className="h-5 w-5 text-muted-foreground group-hover:text-primary" />
+              </div>
+              <span className="text-sm font-medium text-muted-foreground">Create New Rule</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Delete Confirmation */}

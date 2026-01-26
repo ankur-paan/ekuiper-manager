@@ -15,6 +15,7 @@ import ReactFlow, {
     Position
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { parseNodeId } from "@/lib/ekuiper/formatters";
 
 import { useParams, useRouter } from "next/navigation";
 import { useServerStore } from "@/stores/server-store";
@@ -104,7 +105,9 @@ const OTNode = ({ data }: { data: any }) => {
                             </div>
                             <div className="flex flex-col text-left">
                                 <span className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">{opDescription}</span>
-                                <span className="font-bold text-sm text-foreground/80 break-all">{data.label}</span>
+                                <span className="font-bold text-sm text-foreground/80 break-all">
+                                    {parseNodeId(data.label).label}
+                                </span>
                             </div>
                         </div>
 

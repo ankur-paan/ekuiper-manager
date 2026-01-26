@@ -195,8 +195,9 @@ export interface LogSink extends SinkConfig {
 
 export interface MqttSink extends SinkConfig {
   mqtt: {
-    server: string;
+    server?: string;
     topic: string;
+    confKey?: string;
     qos?: 0 | 1 | 2;
     clientId?: string;
     username?: string;
