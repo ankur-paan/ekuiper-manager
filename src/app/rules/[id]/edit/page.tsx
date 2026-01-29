@@ -17,7 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { ArrowLeft, Plus, Trash2, Save, Workflow, Code, Settings, RefreshCw } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Workflow, Code, Settings, RefreshCw, Eye, EyeOff } from "lucide-react";
 import { LoadingSpinner, ErrorState, EmptyState } from "@/components/common";
 import { toast } from "sonner";
 
@@ -35,13 +35,39 @@ interface RuleDetails {
 }
 
 const SINK_TYPES = [
-  { value: "mqtt", label: "MQTT", fields: ["server", "topic"] },
+  { value: "mqtt", label: "MQTT", fields: ["connectionSelector", "server", "topic", "username", "password", "clientid", "qos", "retained", "insecureSkipVerify", "certificationPath", "privateKeyPath"] },
   { value: "log", label: "Log", fields: [] },
-  { value: "rest", label: "REST/HTTP", fields: ["url", "method"] },
-  { value: "memory", label: "Memory", fields: ["topic"] },
-  { value: "file", label: "File", fields: ["path"] },
+  { value: "rest", label: "REST/HTTP", fields: ["url", "method", "headers", "bodyType", "timeout", "insecureSkipVerify"] },
+  { value: "memory", label: "Memory", fields: ["topic", "keyField"] },
+  { value: "file", label: "File", fields: ["path", "fileType", "delimiter", "hasHeader"] },
+  { value: "influx", label: "InfluxDB", fields: ["addr", "measurement", "database", "username", "password", "precision"] },
+  { value: "influx2", label: "InfluxDB v2", fields: ["addr", "measurement", "bucket", "org", "token", "precision"] },
   { value: "nop", label: "Nop (No-op)", fields: [] },
 ];
+
+const PasswordInput = ({ value, onChange, placeholder }: { value: string, onChange: (e: React.ChangeEvent<HTMLInputElement>) => void, placeholder?: string }) => {
+  const [show, setShow] = React.useState(false);
+  return (
+    <div className="relative">
+      <Input
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className="pr-10"
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent text-muted-foreground"
+        onClick={() => setShow(!show)}
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </Button>
+    </div>
+  );
+};
 
 export default function EditRulePage() {
   const router = useRouter();
@@ -53,6 +79,8 @@ export default function EditRulePage() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [rule, setRule] = React.useState<RuleDetails | null>(null);
+  // Track if we have already loaded the rule to prevent overwriting edits on server refresh
+  const [initialLoadComplete, setInitialLoadComplete] = React.useState(false);
 
   const [sql, setSql] = React.useState("");
   const [actions, setActions] = React.useState<SinkAction[]>([{ type: "log", config: {} }]);
@@ -61,6 +89,7 @@ export default function EditRulePage() {
   const [qos, setQos] = React.useState("0");
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [connections, setConnections] = React.useState<any[]>([]);
 
   // Parse actions from rule data
   const parseActions = (ruleActions: Array<Record<string, unknown>>): SinkAction[] => {
@@ -68,7 +97,7 @@ export default function EditRulePage() {
       const type = Object.keys(action)[0];
       const configObj = action[type] as Record<string, unknown>;
       const config: Record<string, string> = {};
-      
+
       if (configObj && typeof configObj === "object") {
         Object.entries(configObj).forEach(([key, value]) => {
           if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -76,13 +105,14 @@ export default function EditRulePage() {
           }
         });
       }
-      
+
       return { type, config };
     });
   };
 
   const fetchRule = React.useCallback(async () => {
-    if (!activeServer) return;
+    // If we've already loaded the rule for this ID, don't re-fetch/overwrite
+    if (!activeServer || initialLoadComplete) return;
 
     setLoading(true);
     setError(null);
@@ -104,7 +134,7 @@ export default function EditRulePage() {
 
       // Initialize form fields from rule data
       setSql(data.sql || "");
-      
+
       // Parse actions
       if (data.actions && Array.isArray(data.actions)) {
         const parsedActions = parseActions(data.actions);
@@ -117,17 +147,50 @@ export default function EditRulePage() {
         if (data.options.isEventTime) setIsEventTime(true);
         if (data.options.qos) setQos(String(data.options.qos));
       }
+
+      setInitialLoadComplete(true);
     } catch (err) {
       console.error("Error fetching rule:", err);
       setError(err instanceof Error ? err.message : "Failed to load rule");
     } finally {
       setLoading(false);
     }
-  }, [activeServer, ruleId]);
+  }, [activeServer, ruleId, initialLoadComplete]);
 
   React.useEffect(() => {
     fetchRule();
+
+    // Reset load state if ruleId changes (navigating to different rule)
+    return () => {
+      // We don't reset here because unmount handles it, but if we stay on page and ID changes...
+    };
   }, [fetchRule]);
+
+  // Effect to reset initialLoad if ruleID changes drastically (though usually component remounts)
+  React.useEffect(() => {
+    setInitialLoadComplete(false);
+  }, [ruleId]);
+
+  // Fetch connections
+  React.useEffect(() => {
+    if (!activeServer) return;
+    const fetchConnections = async () => {
+      try {
+        const response = await fetch(`/api/ekuiper/connections`, {
+          headers: {
+            "X-EKuiper-URL": activeServer.url,
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setConnections(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch connections:", err);
+      }
+    };
+    fetchConnections();
+  }, [activeServer]);
 
   const addAction = () => {
     setActions([...actions, { type: "log", config: {} }]);
@@ -139,7 +202,14 @@ export default function EditRulePage() {
 
   const updateActionType = (index: number, type: string) => {
     const newActions = [...actions];
-    newActions[index] = { type, config: {} };
+    const config: Record<string, string> = {};
+
+    // Prefill server name for MQTT as requested
+    if (type === "mqtt") {
+      config.server = "sundar pichai";
+    }
+
+    newActions[index] = { type, config };
     setActions(newActions);
   };
 
@@ -432,18 +502,150 @@ export default function EditRulePage() {
                             </SelectContent>
                           </Select>
                         </div>
-                        {sinkDef?.fields.map((field) => (
-                          <div key={field} className="space-y-2">
-                            <Label className="capitalize">{field}</Label>
-                            <Input
-                              placeholder={`Enter ${field}...`}
-                              value={action.config[field] || ""}
-                              onChange={(e) =>
-                                updateActionConfig(index, field, e.target.value)
-                              }
-                            />
-                          </div>
-                        ))}
+
+                        {/* Standard Fields */}
+                        {sinkDef?.fields.map((field) => {
+                          const hasConnectionSelector = !!action.config.connectionSelector;
+                          const isAuthField = ["server", "username", "password", "clientid", "certificationPath", "privateKeyPath", "insecureSkipVerify"].includes(field);
+
+                          if (hasConnectionSelector && isAuthField) {
+                            return null;
+                          }
+
+                          const isPassword = field.toLowerCase().includes("password") || field.toLowerCase().includes("token") || field.toLowerCase().includes("key");
+                          const isBoolean = field === "retained" || field === "insecureSkipVerify" || field === "hasHeader" || field === "sendMetaToSink";
+                          const isSelect = field === "method" || field === "qos" || field === "precision";
+
+                          if (field === "connectionSelector") {
+                            const availableForType = connections.filter(c => c.typ === action.type);
+
+                            return (
+                              <div key={field} className="space-y-2">
+                                <Label className="capitalize text-blue-700 flex items-center gap-2">
+                                  Connection Profile
+                                  <span className="text-xs font-normal text-muted-foreground">(Optional)</span>
+                                </Label>
+                                <Select
+                                  value={action.config[field] || "none"}
+                                  onValueChange={(v) => {
+                                    const val = v === "none" ? "" : v;
+                                    updateActionConfig(index, field, val);
+                                  }}
+                                >
+                                  <SelectTrigger className="border-blue-200 focus-visible:ring-blue-500 bg-blue-50/10">
+                                    <SelectValue placeholder="Select a connection..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="none">
+                                      <span className="text-muted-foreground italic">No shared connection (Configure manually)</span>
+                                    </SelectItem>
+                                    {availableForType.map((conn) => (
+                                      <SelectItem key={conn.id} value={conn.id}>
+                                        <div className="flex flex-col text-left">
+                                          <span className="font-medium">{conn.id}</span>
+                                          {conn.props?.server && <span className="text-xs text-muted-foreground">{conn.props.server}</span>}
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {action.config[field] && (
+                                  <p className="text-xs text-blue-600/80">
+                                    Using shared connection profile. Server and credentials are managed centrally.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div key={field} className="space-y-2">
+                              <Label className="capitalize">{field.replace(/([A-Z])/g, ' $1').trim()}</Label>
+
+                              {isBoolean ? (
+                                <div className="flex items-center h-10">
+                                  <Switch
+                                    checked={action.config[field] === "true"}
+                                    onCheckedChange={(c) => updateActionConfig(index, field, String(c))}
+                                  />
+                                  <span className="ml-2 text-sm text-muted-foreground">{action.config[field] === "true" ? "Enabled" : "Disabled"}</span>
+                                </div>
+                              ) : isSelect ? (
+                                <Select
+                                  value={action.config[field] || (field === "qos" ? "0" : "")}
+                                  onValueChange={(v) => updateActionConfig(index, field, v)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder={`Select ${field}`} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {field === "method" && ["POST", "PUT", "GET", "DELETE"].map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                                    {field === "qos" && ["0", "1", "2"].map(q => <SelectItem key={q} value={q}>{q}</SelectItem>)}
+                                    {field === "precision" && ["ms", "s", "us", "ns"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                                  </SelectContent>
+                                </Select>
+                              ) : isPassword ? (
+                                <PasswordInput
+                                  value={action.config[field] || ""}
+                                  onChange={(e) => updateActionConfig(index, field, e.target.value)}
+                                  placeholder={`Enter ${field}...`}
+                                />
+                              ) : (
+                                <Input
+                                  type="text"
+                                  placeholder={`Enter ${field}...`}
+                                  value={action.config[field] || ""}
+                                  onChange={(e) => updateActionConfig(index, field, e.target.value)}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Custom/Extra Properties */}
+                        {Object.keys(action.config)
+                          .filter(key => !sinkDef?.fields.includes(key))
+                          .map(key => (
+                            <div key={key} className="space-y-2 relative group">
+                              <div className="flex justify-between">
+                                <Label className="capitalize text-blue-600">{key}</Label>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-4 w-4 text-destructive opacity-0 group-hover:opacity-100"
+                                  onClick={() => {
+                                    const newConfig = { ...action.config };
+                                    delete newConfig[key];
+                                    const newActions = [...actions];
+                                    newActions[index].config = newConfig;
+                                    setActions(newActions);
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                              <Input
+                                value={action.config[key] || ""}
+                                onChange={(e) => updateActionConfig(index, key, e.target.value)}
+                              />
+                            </div>
+                          ))
+                        }
+
+                        {/* Add Property Button */}
+                        <div className="col-span-full pt-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-muted-foreground dashed-border w-full"
+                            onClick={() => {
+                              const key = prompt("Enter property name:");
+                              if (key) updateActionConfig(index, key, "");
+                            }}
+                          >
+                            <Plus className="mr-2 h-3 w-3" /> Add Custom Property
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   );
