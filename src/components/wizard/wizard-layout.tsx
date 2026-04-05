@@ -1,7 +1,7 @@
 
 import * as React from "react";
 import { WizardStepper } from "./wizard-stepper";
-import { WizardOnboarding } from "./wizard-onboarding";
+
 import { useQueryWizardStore } from "@/stores/wizard-store";
 import { Button } from "@/components/ui/button";
 import { ChevronRight, ChevronLeft, RotateCcw } from "lucide-react";
@@ -18,7 +18,7 @@ export function WizardLayout({ children, onFinish }: { children: React.ReactNode
 
     return (
         <div className="flex flex-col h-[calc(100vh-4rem)] w-full bg-slate-50 dark:bg-slate-950/30">
-            <WizardOnboarding />
+
             {/* Top Stepper */}
             <div className="flex-none">
                 <WizardStepper />
