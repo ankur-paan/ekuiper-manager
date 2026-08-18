@@ -21,7 +21,7 @@ eKuiper Manager is a community-driven management workspace for the lightweight I
 
 ## 🎯 Why This Project?
 
-The eKuiper engine is open source, but operators still need an approachable way to install it, understand it, and manage its full lifecycle. Existing commercial management products are closed source and cannot serve as a community-owned foundation.
+The eKuiper engine is open source, but operators still need an approachable way to install it, understand it, and manage its full lifecycle. This project provides a community-owned foundation for that work.
 
 This project fills that gap with a manager that is:
 
@@ -235,8 +235,6 @@ The Manager obtains a migration lock and applies committed migrations before acc
 - [Interactive eKuiper v2.4.1 API reference](https://ankur-paan.github.io/ekuiper-manager/)
 - [Development plan and backlog](DEVELOPMENT_PLAN.md)
 - [AI Assistant and Operations Agent](docs/AI_ASSISTANT.md)
-- [Original eKuiper Manager UX audit](docs/ORIGINAL_MANAGER_UX_AUDIT.md)
-- [NeuronEX teardown analysis](docs/NEURONEX_TEARDOWN_ANALYSIS.md)
 - [Security policy](SECURITY.md)
 - [Contributing guide](CONTRIBUTING.md)
 

@@ -105,7 +105,7 @@ Priority meanings:
 | --- | --- | --- | --- | --- | --- | --- |
 | OPS-001 | P1 | Operators can maintain the installation. | Add manifest/version-checked backup, preflighted atomic restore, upgrade, rollback, rotate-key, reset-owner, bounded component logs, recursively redacted diagnostics bundle, and uninstall commands/runbooks. | Platform | DIST-001, DATA-001 | Not started |
 | NODE-001 | P1 | Connections are predictable and diagnosable. | Add node create/edit/delete/test, version/build/capability detection, TLS/JWT settings, component-aware readiness/degraded states, health history, and clear connection errors. | Full stack | SEC-002 | Core CRUD/probe/select complete; capabilities, health history, and readiness remain |
-| UX-001 | P1 | Common tasks are node-scoped, discoverable, and low-friction. | Apply the [original Manager UX audit](docs/ORIGINAL_MANAGER_UX_AUDIT.md) and [NeuronEX interaction analysis](docs/NEURONEX_TEARDOWN_ANALYSIS.md): persistent node context, capability gates, simplified navigation, in-context dependency creation, connector catalog, progressive forms, leave guards, and direct rule lifecycle controls. | Product/Frontend | NODE-001, API-001 | Navigation/workspaces complete; metadata forms, dependency creation, and leave guards remain |
+| UX-001 | P1 | Common tasks are node-scoped, discoverable, and low-friction. | Provide persistent node context, capability gates, simplified navigation, in-context dependency creation, a connector catalog, progressive forms, leave guards, and direct rule lifecycle controls. | Product/Frontend | NODE-001, API-001 | Navigation/workspaces complete; metadata forms, dependency creation, and leave guards remain |
 | RULE-001 | P1 | Rule lifecycle is complete. | Finish create/edit/validate/explain/test/start/stop/restart/delete; add duplicate, tag match/edit, bulk start/stop, reset state, schema, topology, trace, and truthful metrics. | Full stack | API-001 | Core lifecycle/workspace and safe duplicate complete; rule test, tags/bulk, and reset UI remain |
 | META-001 | P1 | Connector forms follow the installed eKuiper build. | Generate forms from official installed metadata/YAML rather than hard-coded field lists; support widget-vs-type, defaults, enums, hints, groups, recursive list/object/array/JSON controls, and connection-related fields; treat secrets as write-only. | Frontend | API-001, SEC-001 | Not started |
 | SCHEMA-001 | P1 | v2.4.1 schema lifecycle is usable. | Support protobuf/custom create, replace, delete, and multipart schema upload with validation and version display. | Full stack | API-002 | Core lifecycle complete; broader fixtures pending |
@@ -211,69 +211,41 @@ These journeys define the product slice more clearly than a list of screens. Eac
 | Move and recover configuration | Preview import, choose stop/partial behavior, monitor/cancel async work, export/download, back up, restore into a clean volume, verify health. | Backup/restore and import/export round-trip tests with redacted secrets. |
 | Upgrade the stack | Read compatibility result, create backup, pull pinned images, run migration, verify health/data, and roll back using documented commands. | CI upgrade matrix and a human-readable runbook tested on clean Linux. |
 
-### Original Manager adoption decisions
+### Product UX and operations decisions
 
-The legacy product is an evidence source, not a template to clone. The detailed basis is in [the live UX audit](docs/ORIGINAL_MANAGER_UX_AUDIT.md), the [1.9.5-plus-IEF Flow catalog](docs/ORIGINAL_MANAGER_PLUS_IEF_FLOW_CATALOG.md), and the [commercial feature teardown](docs/COMMERCIAL_FEATURE_TEARDOWN.md).
+| Product requirement | Target implementation |
+| --- | --- |
+| Keep node context visible and navigation task-focused. | Persistent node switcher plus health/version/capability badge; primary sections Overview, Data, Rules, Resources, Extensions, and Operations. |
+| Build connector forms from official eKuiper metadata. | Version-matched field types, widgets, choices, help, installed state, connection relationships, recursive validation, and write-only secrets. |
+| Make reusable dependencies first-class resources. | Testable source configuration keys and sink templates with references, encrypted secrets, versioned edits, affected-rule preview, and inline creation without losing drafts. |
+| Support visual and text authoring without semantic drift. | One canonical typed model, generated SQL/JSON preview, strict parsing, round-trip tests, and dirty-state warnings. |
+| Reconcile commands with authoritative runtime state. | Start/stop/restart enters a pending state, refreshes status, and keeps failures visible beside the control. |
+| Keep rule diagnostics together. | One workspace for definition, status, schema, explain, topology, trace, test output, metrics, and audit history. |
+| Manage files and plugins safely. | Checksums, compatibility details, references, guarded deletion, install progress, runtime status, rollback, and redacted diagnostics. |
+| Support every required transport deliberately. | Registered-node HTTP, download, multipart, SSE, and WebSocket policies with allowlists, limits, deadlines, cancellation, authentication, and audit. |
+| Preserve installation state safely. | Named volumes, version markers, idempotent migrations, interrupted-start recovery, and no silent overwrite. |
+| Gate unavailable features consistently. | One node capability model controls navigation, actions, errors, and remediation. |
+| Keep the first stable scope small. | One immutable owner capability plus ordinary users; optional integrations remain independently licensed and outside the base stack. |
+| Make operations recoverable and observable. | Bounded/redacted logs and diagnostics, restore preview, atomic apply, post-restore health verification, rollback, and audit. |
 
-| Legacy pattern | Decision | Target implementation |
-| --- | --- | --- |
-| Node-scoped shell with fast return to Services | Retain and simplify. | Persistent node switcher plus health/version/capability badge; primary sections Overview, Data, Rules, Resources, Extensions, Operations. |
-| Rich source/sink catalog driven by eKuiper metadata | Retain. | Use upstream Apache-2.0 metadata for field type, widget, choices, help, installed state, and connection relationship; add target-version matching. |
-| Reusable source configuration keys and sink templates | Retain and strengthen. | First-class resources with Test, references, encrypted secrets, versioned edits, affected-rule preview, and inline creation without losing draft state. |
-| Visual and text creation modes | Retain where both round-trip losslessly. | One canonical typed model; generated SQL/JSON preview; strict parsing; dirty-state and import compatibility warnings. |
-| Direct rule Start/Stop/Restart controls | Retain but make authoritative. | Command enters pending state, then refreshes runtime status; failures stay visible beside the control. |
-| Rule status drawer, topology, copy, ruleset transfer | Retain and integrate. | One rule workspace; copied rules always stopped; accessible topology plus text representation; import preview and validation. |
-| Managed file store | Retain and make safe. | Show size, type, checksum, creation time, references, scan/signature result, download, and guarded deletion. |
-| Declarative Flow node/property/port schema | Retain as a later authoring foundation. | Versioned schema with secret controls, conditional fields, compatibility ranges, localization fallback, validation, and migrations. |
-| Icon-only row operations and hover-only controls | Reject. | Labelled overflow menus, tooltips, keyboard access, and accessible names. |
-| Local-browser alarm clearing and optimistic rule state | Reject. | Server/audit-backed acknowledgement and authoritative runtime reconciliation. |
-| Old route-level Roles policy editor | Do not ship in first stable release. | One immutable owner capability plus ordinary users and explicit admin-only lifecycle endpoints. Revisit ownership/RBAC only as a separately designed phase. |
-| Plugin install from arbitrary URL with a success toast | Reject as-is. | Review source, checksum/signature, platform and compatibility; show progress, result, runtime status, rollback/uninstall. |
-| Per-second System polling and raw-only detail views | Reject. | Bounded visibility-aware refresh, manual refresh, useful summaries, expandable redacted raw diagnostics. |
-| Versionless documentation links | Reject. | Resolve official docs from detected engine version and feature metadata; show compatibility explicitly. |
+### UX quality safeguards
 
-### NeuronEX adoption decisions
-
-The dedicated [NeuronEX 3.9.2 teardown](docs/NEURONEX_TEARDOWN_ANALYSIS.md) decodes its image lifecycle,
-declarative gateway, complete SPA route tree, 112-path/164-operation embedded API, metadata controls,
-screen flows, and licence boundary. Its embedded eKuiper API is stale and must never feed the official
-Manager OpenAPI contract.
-
-| NeuronEX pattern | Decision | Target implementation |
-| --- | --- | --- |
-| One configured gateway supporting HTTP, downloads, multipart, SSE, and WebSocket | Retain the protocol model, not the all-in-one appliance. | Registered-node proxy records with per-transport allowlist, limits, deadlines, cancellation, auth, and audit policy. |
-| Per-component persistent roots with first-run seeding | Retain and strengthen. | Named Compose volumes, version markers, idempotent migrations, interrupted-seed recovery, and no silent overwrite. |
-| Feature/module unavailable states | Replace commercial/licence gates with detected capabilities. | One node capability model controls navigation, actions, errors, and remediation. |
-| Plugin metadata chooses text/password/radio/select/file/array/JSON controls | Retain from official eKuiper metadata. | Versioned renderer fixtures, recursive validation, connection reuse, and write-only secrets. |
-| Two-stage source/action creation and simulated rule test | Retain. | Select type/plugin, preserve the draft, configure/test dependency, run/stop test, then save and operate. |
-| Component logs, diagnostic archives, backup/restore, and audit report | Retain with security constraints. | Bounded/redacted exports, restore preflight and preview, atomic apply, health verification, rollback, and audit. |
-| Alerts, metrics, liveness, webhook, and syslog | Defer until observability is truthful. | `ALERT-001` after `OBS-001`, with outbound-target policy, retries, acknowledgement, and redaction. |
-| Neuron drivers, DataLayers, ECP, licences, SSO/RBAC, Node-RED, industrial scanners/simulators | Reject from first stable. | Keep the basic self-hosted eKuiper Manager scope; integrations must be optional and independently licensed. |
-
-The teardown's `NXREG-001` through `NXREG-012` scenarios are acceptance tests for proxy fidelity,
-capability gating, metadata controls, dirty-state protection, safe transfer, diagnostics, restore, rule
-testing, dependency warnings, and bounded logs.
-
-### Legacy defects that become target regression tests
-
-These were reproduced in the original Manager or verified in its shipped source maps. They are not bugs in this repository yet; they are tests the replacement must pass from day one.
-
-| Regression ID | Legacy defect | Target assertion |
-| --- | --- | --- |
-| UXREG-001 | Clean authenticated pages repeatedly show `Invalid token: token contains an invalid number of segments`. | No raw token/parser error is rendered; expired/invalid sessions have one intentional recovery flow. |
-| UXREG-002 | Binary Table field limits are bypassed because `tableFormat` is passed to a component expecting `streamFormat`. | Stream and Table formats share one typed constraint model and tests. |
-| UXREG-003 | Rule Start shows success and checked state even when runtime status immediately returns stopped/error. | UI waits for/reconciles authoritative state and presents the exception. |
-| UXREG-004 | `Clear Alarm` only writes a browser-local timestamp while implying a server action. | Labels and scope match the action; acknowledgements are auditable and shared when server-side. |
-| UXREG-005 | Rule View leaves Name enabled with no Save action. | Read-only state is consistent for every control. |
-| UXREG-006 | Key/value text mode displays a JSON placeholder but parses newline `key:value` pairs. | One documented serialization, parser, validation, and round-trip property test. |
-| UXREG-007 | Switching Protobuf Text to Custom leaves irrelevant Schema Content visible. | Conditional fields clear/hide atomically and excluded values cannot leak into payloads. |
-| UXREG-008 | Flow remains mostly Chinese in English mode and misspells False as `Flase`. | Every surface has a locale fallback and localization completeness test. |
-| UXREG-009 | Editing a user forces password replacement because shared create fields stay required. | Profile/role edit and password reset are separate operations. |
-| UXREG-010 | Source metadata exposes contradictory defaults/hints and numeric options without meaning. | UI distinguishes engine value from prose hint and supplies semantic labels without changing wire values. |
-| UXREG-011 | System reloads static version/OS/arch data every second. | Polling is bounded, visibility-aware, and limited to dynamic data. |
-| UXREG-012 | Secrets in several declarative property forms are ordinary text controls. | Secret classification overrides unsafe metadata, masks input, encrypts storage, and redacts all reads/logs/exports. |
-| UXREG-013 | Plugin ARM recommendation is generated by replacing `amd` with `arm` in a URL. | OS/architecture are structured compatibility fields, never string substitutions. |
-| UXREG-014 | Help and connector documentation use `master`/`latest` URLs unrelated to the connected engine. | Documentation URLs are version-matched or explicitly labelled unversioned. |
+| Safeguard ID | Target assertion |
+| --- | --- |
+| UXREG-001 | Raw token/parser errors never render; expired or invalid sessions have one intentional recovery flow. |
+| UXREG-002 | Stream and table formats share one typed constraint model and test suite. |
+| UXREG-003 | Command success is distinct from authoritative runtime state; exceptions remain visible. |
+| UXREG-004 | Labels and scope match the action; shared acknowledgements are server-backed and auditable. |
+| UXREG-005 | Read-only state is consistent for every control. |
+| UXREG-006 | Structured key/value input has one documented serialization, parser, validation path, and round-trip property test. |
+| UXREG-007 | Conditional fields clear and hide atomically; excluded values cannot leak into payloads. |
+| UXREG-008 | Every surface has a locale fallback and localization completeness test. |
+| UXREG-009 | User profile changes and password reset remain separate operations. |
+| UXREG-010 | Metadata forms distinguish engine values from prose hints and add semantic labels without changing wire values. |
+| UXREG-011 | Polling is bounded, visibility-aware, and limited to dynamic data. |
+| UXREG-012 | Secret classification overrides unsafe metadata and enforces masked input, encrypted storage, and redacted reads/logs/exports. |
+| UXREG-013 | Operating system and architecture are structured compatibility fields, never inferred through URL string replacement. |
+| UXREG-014 | Official documentation URLs match the connected engine version or are explicitly labelled unversioned. |
 
 ## 6. Manager bug backlog
 
@@ -378,10 +350,6 @@ CI order is: install → dependency audit → OpenAPI validation → lint → ty
 
 ## 10. Documentation set
 
-- [x] `docs/ORIGINAL_MANAGER_UX_AUDIT.md`: live screen-by-screen legacy UX inventory and adaptation decisions.
-- [x] `docs/ORIGINAL_MANAGER_PLUS_IEF_FLOW_CATALOG.md`: complete static catalog of 1.9.5-plus-IEF Flow nodes and property controls.
-- [x] `docs/COMMERCIAL_FEATURE_TEARDOWN.md`: later commercial architecture/features reconciled to the intentionally smaller open-source scope.
-- [x] `docs/NEURONEX_TEARDOWN_ANALYSIS.md`: NeuronEX 3.9.2 packaging, gateway, complete UI routes/flows, API drift, metadata controls, adoption boundary, and derived acceptance tests.
 - [x] `docs/RULE_DESIGNER.md`: complete visual/SQL/action/runtime flow, ESPHome inspiration, downstream-fork adoption map, fidelity rules, tests, and remaining gaps.
 - [x] `README.md`: product purpose, supported version, one-command Compose start, configuration, operations, and known limits.
 - [ ] `docs/installation.md`: prerequisites, ports, volumes, profiles, TLS, initial setup.
