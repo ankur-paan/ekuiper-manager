@@ -24,7 +24,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Replaced experimental browser/SQLite persistence and caller-selected targets with checked PostgreSQL migrations and registered-node routing.
 - Corrected rules, streams, tables, schemas, connections, plugins, functions, services, uploads, metadata, and import/export flows to the eKuiper 2.4.1 contract.
-- Simplified navigation and resource workspaces using the original eKuiper Manager and NeuronEX UX audits.
+- Simplified navigation and resource workspaces around node-scoped operator journeys and progressive resource forms.
 - Pinned production images and moved PostgreSQL behind the private Compose network.
 
 ### Security
