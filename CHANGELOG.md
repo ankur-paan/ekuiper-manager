@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-08-18
+
+### Added
+- Upgraded the page-aware assistant into a permission-aware read-only operations agent with parallel and iterative tool calling across sanitized Manager/PostgreSQL data and allowlisted selected-node eKuiper GET APIs.
+- Added a compact per-answer investigation timeline showing which read-only sources completed without exposing tool inputs or raw results.
+
+### Security
+- Added fixed parameterized database readers, owner-only user/session/audit/migration access, an explicit eKuiper GET route allowlist, recursive tool-result redaction, and per-call/aggregate/round/deadline budgets.
+
 ## [1.2.1] - 2026-08-18
 
 ### Added

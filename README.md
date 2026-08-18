@@ -39,7 +39,7 @@ Start it again with the same command. Users, node settings, eKuiper data, logs, 
 - Extensions: native and portable plugins, functions, and services.
 - Operations: eKuiper import and export.
 - Manager: add/check/select/delete nodes; add/reset/delete local users; change your password.
-- Assistant: open context-aware guidance from every authenticated page. It explains visible controls but never operates them.
+- Operations agent: investigate sanitized Manager/PostgreSQL state and the selected eKuiper node from every authenticated page. It can correlate multiple live reads but has no mutation tools.
 
 Owner accounts manage users and nodes. Ordinary users operate the selected eKuiper node. A password reset revokes all sessions and produces a one-time password that must be changed after sign-in.
 
@@ -62,8 +62,10 @@ The database password is passed as a discrete PostgreSQL setting, so punctuation
 Legacy experimental `DATABASE_URL=file:...` entries are deliberately ignored by Compose. Use
 `MANAGER_DATABASE_URL` only when intentionally replacing the bundled database.
 
-The optional human-in-the-loop assistant uses any OpenAI-compatible API base or chat-completions endpoint. It is
-off by default and adds no service to the base stack. To enable it, add these server-side values to
+The optional read-only operations agent uses an OpenAI-compatible Chat Completions endpoint with tool
+calling. It can correlate sanitized Manager records with live state from the selected eKuiper node over
+multiple reads, but has no write tools. It is off by default and adds no service to the base stack. To
+enable it, add these server-side values to
 `.env` and restart the Manager:
 
 ```dotenv
@@ -72,11 +74,15 @@ AI_API_URL=https://api.example.com/v1
 AI_API_KEY=replace-with-provider-key
 AI_MODEL=replace-with-provider-model-id
 AI_TIMEOUT_MS=30000
+AI_AGENT_TIMEOUT_MS=90000
 AI_MAX_TOKENS=1200
+AI_MAX_TOOL_ROUNDS=6
+AI_MAX_TOOL_CALLS=16
 ```
 
 `AI_API_KEY` may be empty for a trusted local endpoint that does not require authentication. The key,
-provider URL, prompts, and completions are never returned by the status API or written to the audit log.
+provider URL, prompts, tool arguments/results, and completions are never returned by the status API or
+written to the audit log.
 See [docs/AI_ASSISTANT.md](docs/AI_ASSISTANT.md) for the data boundary and deployment options.
 
 The Manager encryption key is generated on first startup and stored in the `manager_state` volume. Keep that volume with database backups; encrypted eKuiper Authorization values cannot be recovered without it.
@@ -121,7 +127,7 @@ The Manager obtains a migration lock and applies committed migrations before acc
 - Mutating browser requests require the configured same origin.
 - eKuiper destinations are DNS-checked on every request; redirects and unsafe address classes are rejected.
 - Connection and metadata responses are recursively redacted for common secret fields.
-- Assistant context is collected only when a user sends a message, bounded, and redacted again on the server; provider keys stay server-side.
+- Operations-agent context is collected only when a user sends a message. Page and tool data are bounded and recursively redacted; provider keys stay server-side, privileged Manager readers remain owner-only, and eKuiper access is restricted to an explicit GET allowlist.
 - The Manager container runs as a non-root user with a read-only filesystem and dropped capabilities.
 
 ## Development

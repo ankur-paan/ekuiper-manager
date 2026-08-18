@@ -1,5 +1,5 @@
 const SECRET_FIELD =
-  /password|passphrase|passwd|token|authorization|credential|client[_-]?secret|api[_-]?key|access[_-]?key|private[_-]?key/i;
+  /password|passphrase|passwd|token|authorization|credential|client[_-]?secret|api[_-]?key|access[_-]?key|private[_-]?key|ciphertext|encrypted[_-]?(?:value|secret|auth)/i;
 
 const JSON_SECRET =
   /("(?:password|passphrase|passwd|token|authorization|credential|client[_-]?secret|api[_-]?key|access[_-]?key|private[_-]?key)"\s*:\s*)"(?:\\.|[^"\\])*"/gi;
@@ -22,13 +22,13 @@ export function redactAssistantText(value: string): string {
     .replace(URL_CREDENTIAL, '$1[redacted]$3');
 }
 
-function redactStructure(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactStructure);
+export function redactAssistantData(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactAssistantData);
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, item]) => [
         key,
-        isSecretField(key) ? '[redacted]' : redactStructure(item),
+        isSecretField(key) ? '[redacted]' : redactAssistantData(item),
       ]),
     );
   }
@@ -39,7 +39,7 @@ export function redactAssistantValue(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return '';
   try {
-    return JSON.stringify(redactStructure(JSON.parse(trimmed)));
+    return JSON.stringify(redactAssistantData(JSON.parse(trimmed)));
   } catch {
     return redactAssistantText(trimmed);
   }

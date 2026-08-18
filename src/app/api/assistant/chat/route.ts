@@ -12,6 +12,7 @@ import {
   readAssistantConfig,
   requestAssistantCompletion,
 } from '@/lib/assistant/server';
+import { NODE_COOKIE } from '@/lib/nodes';
 import { consumeRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -36,18 +37,33 @@ export async function POST(request: NextRequest) {
 
     const { messages, context } = parseAssistantRequest(await readBoundedJsonObject(request, 64 * 1024));
     pagePath = context.path;
-    const completion = await requestAssistantCompletion(config, messages, context);
+    const completion = await requestAssistantCompletion(config, messages, context, {
+      toolContext: {
+        user,
+        selectedNodeId: request.cookies.get(NODE_COOKIE)?.value,
+      },
+    });
+    const toolNames = [...new Set(completion.activity.map((item) => item.tool))];
     recordAuditSafely({
       actorId,
       action: 'assistant.chat',
       resourceType: 'assistant',
       success: true,
-      metadata: { pagePath, model: completion.model },
+      metadata: {
+        pagePath,
+        model: completion.model,
+        rounds: completion.rounds,
+        toolCallCount: completion.toolCallCount,
+        toolNames,
+      },
     });
     return NextResponse.json({
       message: completion.content,
       model: completion.model,
       suggestions: completion.suggestions,
+      activity: completion.activity,
+      rounds: completion.rounds,
+      toolCallCount: completion.toolCallCount,
     });
   } catch (error) {
     recordAuditSafely({
