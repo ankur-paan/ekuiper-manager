@@ -2,45 +2,68 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  quality:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v6
-    
-    - name: Use Node.js
-      uses: actions/setup-node@v6
-      with:
-        node-version: '20.x'
-        cache: 'npm'
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.20.0'
+          cache: npm
+      - run: npm ci
+      - name: Audit dependency advisories
+        run: npm audit --audit-level=high
+      - name: Validate local eKuiper v2.4.1 contract
+        run: npm run validate:openapi -- --skip-official
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npm run test:coverage
+      - run: npm run build
 
-    - name: Validate eKuiper v2.4.1 OpenAPI contract
-      run: node scripts/validate-openapi.mjs
-        
-    - name: Install dependencies
-      run: npm ci
-      
-    - name: Lint
-      run: npm run lint
-
-    - name: Test with Coverage
-      run: npx jest --coverage --passWithNoTests
-
-    - name: Generate Prisma Client
-      run: npx prisma generate
-
-    - name: Build
-      run: npm run build
-
-    - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v5
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
+  integration:
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.20.0'
+          cache: npm
+      - run: npm ci
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - name: Start clean eKuiper Manager stack
+        env:
+          POSTGRES_PASSWORD: 'ci-test@:/#value'
+        run: docker compose up -d --build --wait
+      - name: Run browser lifecycle and navigation tests
+        env:
+          E2E_BASE_URL: http://localhost:3000
+        run: npm run test:e2e
+      - name: Verify persistence after restart
+        run: |
+          docker compose restart manager
+          timeout 120 sh -c 'until curl --fail --silent http://localhost:3000/health/ready; do sleep 2; done'
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+      - name: Show service logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose down -v

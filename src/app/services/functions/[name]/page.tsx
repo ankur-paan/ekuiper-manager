@@ -13,25 +13,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge, ErrorState, LoadingPage } from "@/components/common";
-import { ArrowLeft, Zap, Server, Code, FileCode } from "lucide-react";
+import { ArrowLeft, Zap, Server, FileCode } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { EKuiperClient } from "@/lib/ekuiper/client";
-import { Service } from "@/lib/ekuiper/types";
-
-interface FunctionDetailPageProps {
-    params: {
-        name: string;
-    };
-}
-
-interface FunctionDetails {
-    name: string;
-    serviceName: string;
-    interfaceName: string;
-    protocol: string;
-    address: string;
-    schemaType: string;
-}
+import { ekuiperClient } from "@/lib/ekuiper/client";
+import type { ExternalFunction } from "@/lib/ekuiper/types";
 
 export default function FunctionDetailPage() {
     const router = useRouter();
@@ -40,7 +25,7 @@ export default function FunctionDetailPage() {
     const { servers, activeServerId } = useServerStore();
     const activeServer = servers.find((s) => s.id === activeServerId);
 
-    const [details, setDetails] = React.useState<FunctionDetails | null>(null);
+    const [details, setDetails] = React.useState<ExternalFunction | null>(null);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState<string | null>(null);
 
@@ -51,46 +36,7 @@ export default function FunctionDetailPage() {
         setError(null);
 
         try {
-            const client = new EKuiperClient(activeServer.url);
-
-            // Since there's no direct API to get function details, we fetch all services
-            // and search for the function definition.
-            const serviceNames = await client.listServices();
-            const services = await Promise.all(
-                serviceNames.map((svcName) => client.getService(svcName))
-            );
-
-            let found: FunctionDetails | null = null;
-
-            for (const svc of services) {
-                if (!svc.interfaces) continue;
-
-                for (const [ifaceName, iface] of Object.entries(svc.interfaces)) {
-                    if (iface.functions) {
-                        const funcDef = iface.functions.find(f => f.name === name);
-                        if (funcDef) {
-                            found = {
-                                name: funcDef.name,
-                                serviceName: svc.name,
-                                interfaceName: ifaceName,
-                                protocol: iface.protocol,
-                                address: iface.address,
-                                schemaType: iface.schemaType,
-                            };
-                            break;
-                        }
-                    }
-                }
-                if (found) break;
-            }
-
-            if (found) {
-                setDetails(found);
-            } else {
-                // If not found in services, it might be a built-in or plugin function not exposed via services map
-                // But for "External Services", it should be here.
-                setError("Function definition not found in any registered service.");
-            }
+            setDetails(await ekuiperClient.getExternalFunction(name));
 
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to fetch function details");
@@ -134,7 +80,7 @@ export default function FunctionDetailPage() {
                     </div>
                     <ErrorState
                         title="Function Not Found"
-                        description={error || "Could not locate this function in any registered service."}
+                        description={error || "Could not load this external function."}
                         onRetry={fetchFunctionDetails}
                     />
                 </div>
@@ -174,11 +120,8 @@ export default function FunctionDetailPage() {
                                 <span className="text-muted-foreground">Name:</span>
                                 <span className="font-medium">{details.name}</span>
 
-                                <span className="text-muted-foreground">Protocol:</span>
-                                <Badge variant="outline">{details.protocol}</Badge>
-
-                                <span className="text-muted-foreground">Schema Type:</span>
-                                <Badge variant="secondary">{details.schemaType}</Badge>
+                                <span className="text-muted-foreground">Method:</span>
+                                <Badge variant="outline">{details.methodName || "Not reported"}</Badge>
                             </div>
                         </CardContent>
                     </Card>
@@ -193,7 +136,7 @@ export default function FunctionDetailPage() {
                         <CardContent className="space-y-4">
                             <div className="grid grid-cols-2 gap-2 text-sm">
                                 <span className="text-muted-foreground">Service:</span>
-                                <Button variant="link" className="p-0 h-auto font-medium justify-start" onClick={() => router.push(`/services/${details.serviceName}`)}>
+                                <Button variant="link" className="p-0 h-auto font-medium justify-start" onClick={() => router.push(`/services/${encodeURIComponent(details.serviceName)}`)}>
                                     {details.serviceName}
                                 </Button>
 
@@ -201,7 +144,7 @@ export default function FunctionDetailPage() {
                                 <span className="font-medium">{details.interfaceName}</span>
 
                                 <span className="text-muted-foreground">Address:</span>
-                                <span className="font-mono text-xs bg-muted p-1 rounded">{details.address}</span>
+                                <span className="font-mono text-xs bg-muted p-1 rounded">{details.address || "Not reported"}</span>
                             </div>
                         </CardContent>
                     </Card>

@@ -55,8 +55,6 @@ export default function FunctionsPage() {
 
         setLoading(true);
         setError(null);
-        ekuiperClient.setBaseUrl(activeServer.url);
-
         try {
             if (activeTab === "javascript") {
                 const data = await ekuiperClient.listJSUDFs();
@@ -120,13 +118,13 @@ export default function FunctionsPage() {
                 return (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
+                            <Button variant="ghost" size="icon" aria-label={`Actions for ${row.original.id}`}>
                                 <MoreHorizontal className="h-4 w-4" />
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuItem
-                                onClick={() => router.push(`/functions/javascript/${row.original.id}`)}
+                                onClick={() => router.push(`/functions/javascript/${encodeURIComponent(row.original.id)}`)}
                             >
                                 <FileCode className="mr-2 h-4 w-4" />
                                 Edit
@@ -173,7 +171,8 @@ export default function FunctionsPage() {
                 <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => router.push(`/services/functions/${row.original.name}`)}
+                    onClick={() => router.push(`/services/functions/${encodeURIComponent(row.original.name)}`)}
+                    aria-label={`View ${row.original.name}`}
                 >
                     <Eye className="h-4 w-4" />
                 </Button>

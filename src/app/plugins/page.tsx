@@ -2,11 +2,12 @@
 
 import * as React from "react";
 import { useServerStore } from "@/stores/server-store";
+import { ekuiperClient } from "@/lib/ekuiper/client";
+import type { PluginType } from "@/lib/ekuiper/types";
 import { AppLayout } from "@/components/layout";
 import { DataTable } from "@/components/common/data-table";
 import { StatusBadge, EmptyState, ErrorState, ConfirmDialog } from "@/components/common";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -24,7 +25,6 @@ import {
   ArrowUpDown,
   Code2,
   Box,
-  Download,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -34,20 +34,20 @@ interface Plugin {
   version?: string;
 }
 
-type PluginType = "sources" | "sinks" | "functions" | "portables" | "udfs";
+type InstallablePluginType = Exclude<PluginType, "udfs">;
 
 export default function PluginsPage() {
   const router = useRouter();
   const { servers, activeServerId } = useServerStore();
   const activeServer = servers.find((s) => s.id === activeServerId);
 
-  const [activeTab, setActiveTab] = React.useState<PluginType>("sources");
+  const [activeTab, setActiveTab] = React.useState<InstallablePluginType>("sources");
   const [plugins, setPlugins] = React.useState<Plugin[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [deletePlugin, setDeletePlugin] = React.useState<{ name: string; type: PluginType } | null>(null);
+  const [deletePlugin, setDeletePlugin] = React.useState<{ name: string; type: InstallablePluginType } | null>(null);
 
-  const fetchPlugins = React.useCallback(async (type: PluginType) => {
+  const fetchPlugins = React.useCallback(async (type: InstallablePluginType) => {
     if (!activeServer) {
       setError("No server selected");
       setLoading(false);
@@ -58,17 +58,7 @@ export default function PluginsPage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/ekuiper/plugins/${type}`, {
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch plugins: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = await ekuiperClient.listPlugins(type);
       const pluginList = Array.isArray(data)
         ? data.map((name: string) => ({ name }))
         : [];
@@ -88,16 +78,7 @@ export default function PluginsPage() {
     if (!deletePlugin || !activeServer) return;
 
     try {
-      const response = await fetch(`/api/ekuiper/plugins/${deletePlugin.type}/${deletePlugin.name}`, {
-        method: "DELETE",
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to delete plugin: ${response.status}`);
-      }
+      await ekuiperClient.deletePlugin(deletePlugin.type, deletePlugin.name);
 
       toast.success(`Plugin "${deletePlugin.name}" deleted successfully`);
       setDeletePlugin(null);
@@ -107,7 +88,7 @@ export default function PluginsPage() {
     }
   };
 
-  const getPluginIcon = (type: PluginType) => {
+  const getPluginIcon = (type: InstallablePluginType) => {
     switch (type) {
       case "sources":
         return <Plug className="h-4 w-4 text-blue-500" />;
@@ -117,8 +98,6 @@ export default function PluginsPage() {
         return <Code2 className="h-4 w-4 text-purple-500" />;
       case "portables":
         return <Box className="h-4 w-4 text-orange-500" />;
-      case "udfs":
-        return <Code2 className="h-4 w-4 text-yellow-500" />;
     }
   };
 
@@ -156,13 +135,13 @@ export default function PluginsPage() {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" aria-label={`Actions for ${plugin.name}`}>
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onClick={() => router.push(`/plugins/${activeTab}/${plugin.name}`)}
+                onClick={() => router.push(`/plugins/${activeTab}/${encodeURIComponent(plugin.name)}`)}
               >
                 <Eye className="mr-2 h-4 w-4" />
                 View Details
@@ -210,7 +189,7 @@ export default function PluginsPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as PluginType)}>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as InstallablePluginType)}>
           <TabsList>
             <TabsTrigger value="sources">
               <Plug className="mr-2 h-4 w-4" />
@@ -228,13 +207,9 @@ export default function PluginsPage() {
               <Box className="mr-2 h-4 w-4" />
               Portables
             </TabsTrigger>
-            <TabsTrigger value="udfs">
-              <Code2 className="mr-2 h-4 w-4" />
-              JS UDFs
-            </TabsTrigger>
           </TabsList>
 
-          {["sources", "sinks", "functions", "portables", "udfs"].map((type) => (
+          {(["sources", "sinks", "functions", "portables"] as InstallablePluginType[]).map((type) => (
             <TabsContent key={type} value={type}>
               {error ? (
                 <ErrorState

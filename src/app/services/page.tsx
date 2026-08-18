@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { useServerStore } from "@/stores/server-store";
+import { ekuiperClient } from "@/lib/ekuiper/client";
+import type { ExternalFunction } from "@/lib/ekuiper/types";
 import { AppLayout } from "@/components/layout";
 import { DataTable } from "@/components/common/data-table";
 import { StatusBadge, EmptyState, ErrorState, ConfirmDialog } from "@/components/common";
@@ -18,7 +20,6 @@ import {
   Plus,
   MoreHorizontal,
   Eye,
-  Edit,
   Trash2,
   Server,
   ArrowUpDown,
@@ -30,12 +31,6 @@ import { toast } from "sonner";
 interface Service {
   name: string;
   interfaces?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-interface ExternalFunction {
-  name: string;
-  serviceName?: string;
   [key: string]: unknown;
 }
 
@@ -62,17 +57,7 @@ export default function ServicesPage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/ekuiper/services`, {
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch services: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = await ekuiperClient.listServices();
       const serviceList = Array.isArray(data)
         ? data.map((name: string) => ({ name }))
         : [];
@@ -95,23 +80,8 @@ export default function ServicesPage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/ekuiper/services/functions`, {
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch functions: ${response.status}`);
-      }
-
-      const data = await response.json();
-      // Response can be an array of names or objects
-      const functionList = Array.isArray(data)
-        ? data.map((item: string | ExternalFunction) =>
-            typeof item === "string" ? { name: item } : item
-          )
-        : [];
+      const data = await ekuiperClient.listExternalFunctions();
+      const functionList = Array.isArray(data) ? data : [];
       setFunctions(functionList);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch functions");
@@ -132,16 +102,7 @@ export default function ServicesPage() {
     if (!deleteService || !activeServer) return;
 
     try {
-      const response = await fetch(`/api/ekuiper/services/${deleteService}`, {
-        method: "DELETE",
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to delete service: ${response.status}`);
-      }
+      await ekuiperClient.deleteService(deleteService);
 
       toast.success(`Service "${deleteService}" deleted successfully`);
       setDeleteService(null);
@@ -185,22 +146,16 @@ export default function ServicesPage() {
         return (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" aria-label={`Actions for ${service.name}`}>
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onClick={() => router.push(`/services/${service.name}`)}
+                onClick={() => router.push(`/services/${encodeURIComponent(service.name)}`)}
               >
                 <Eye className="mr-2 h-4 w-4" />
                 View Details
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => router.push(`/services/${service.name}/edit`)}
-              >
-                <Edit className="mr-2 h-4 w-4" />
-                Edit
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive"
@@ -253,7 +208,7 @@ export default function ServicesPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push(`/services/functions/${func.name}`)}
+            onClick={() => router.push(`/services/functions/${encodeURIComponent(func.name)}`)}
           >
             <Eye className="mr-2 h-4 w-4" />
             View

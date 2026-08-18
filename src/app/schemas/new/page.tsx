@@ -14,44 +14,24 @@ import { CodeEditor } from "@/components/ui/code-editor";
 import {
     ArrowLeft,
     Loader2,
-    Save,
     Plus,
     File,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 
 function CreateSchemaContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const initialType = searchParams.get("type") || "protobuf";
+    const initialType = searchParams.get("type") === "custom" ? "custom" : "protobuf";
 
     const { servers, activeServerId } = useServerStore();
     const activeServer = servers.find((s) => s.id === activeServerId);
 
-    const [type, setType] = React.useState(initialType);
+    const [type, setType] = React.useState<"protobuf" | "custom">(initialType);
     const [name, setName] = React.useState("");
     const [content, setContent] = React.useState("");
     const [saving, setSaving] = React.useState(false);
-
-    // Custom schema enhancement
-    const [uploads, setUploads] = React.useState<string[]>([]);
-    const [loadingUploads, setLoadingUploads] = React.useState(false);
-
-    React.useEffect(() => {
-        if (activeServer && type === "custom") {
-            setLoadingUploads(true);
-            ekuiperClient.setBaseUrl(activeServer.url);
-            ekuiperClient.listUploads()
-                .then(list => {
-                    const items = Array.isArray(list) ? list : [];
-                    setUploads(items);
-                })
-                .catch(() => toast.error("Failed to fetch uploads"))
-                .finally(() => setLoadingUploads(false));
-        }
-    }, [activeServer, type]);
 
     const handleSave = async () => {
         if (!activeServer) return;
@@ -67,8 +47,6 @@ function CreateSchemaContent() {
         }
 
         setSaving(true);
-        ekuiperClient.setBaseUrl(activeServer.url);
-
         try {
             await ekuiperClient.createSchema(type, name, content);
             toast.success(`Schema "${name}" created successfully`);
@@ -78,11 +56,6 @@ function CreateSchemaContent() {
         } finally {
             setSaving(false);
         }
-    };
-
-    const handleUploadSelect = (filename: string) => {
-        // Heuristic: typical eKuiper docker path
-        setContent(`file:///kuiper/data/uploads/${filename}`);
     };
 
     if (!activeServer) {
@@ -134,13 +107,12 @@ function CreateSchemaContent() {
                         <CardContent className="space-y-4">
                             <div className="space-y-2">
                                 <Label htmlFor="type">Schema Type</Label>
-                                <Select value={type} onValueChange={(v) => { setType(v); setContent(""); }}>
+                                <Select value={type} onValueChange={(v) => { setType(v as "protobuf" | "custom"); setContent(""); }}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Select type" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="protobuf">Protobuf</SelectItem>
-                                        <SelectItem value="avro">Avro</SelectItem>
                                         <SelectItem value="custom">Custom</SelectItem>
                                     </SelectContent>
                                 </Select>
@@ -156,29 +128,6 @@ function CreateSchemaContent() {
                                 />
                             </div>
 
-                            {type === "custom" && (
-                                <div className="space-y-2 pt-4 border-t">
-                                    <Label>Select Uploaded File</Label>
-                                    {loadingUploads ? (
-                                        <div className="text-xs text-muted-foreground">Loading files...</div>
-                                    ) : (
-                                        <Select onValueChange={handleUploadSelect}>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Select file..." />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {uploads.map(u => (
-                                                    <SelectItem key={u} value={u}>{u}</SelectItem>
-                                                ))}
-                                                {uploads.length === 0 && <div className="p-2 text-xs text-muted-foreground">No uploads found</div>}
-                                            </SelectContent>
-                                        </Select>
-                                    )}
-                                    <p className="text-[10px] text-muted-foreground">
-                                        Populates the file URL below.
-                                    </p>
-                                </div>
-                            )}
                         </CardContent>
                     </Card>
 
@@ -187,20 +136,21 @@ function CreateSchemaContent() {
                         {type === "custom" ? (
                             <div className="flex-1 border rounded-lg p-6 bg-card flex flex-col gap-4">
                                 <div className="space-y-2">
-                                    <Label>File URL</Label>
+                                    <Label htmlFor="schema-file-uri">Shared-library URI</Label>
                                     <Input
+                                        id="schema-file-uri"
                                         value={content}
                                         onChange={(e) => setContent(e.target.value)}
                                         placeholder="file:///path/to/schema.file"
                                     />
                                     <p className="text-sm text-muted-foreground">
-                                        Enter the absolute URL of the schema file (so/jar) on the eKuiper server.
-                                        Use the sidebar to auto-fill from uploads.
+                                        Enter the absolute path of the shared-library schema file on the eKuiper server.
+                                        This must be a URI the selected eKuiper node can access.
                                     </p>
                                 </div>
                                 <div className="flex items-center gap-2 text-muted-foreground bg-muted/20 p-4 rounded-md">
                                     <File className="h-5 w-5" />
-                                    <span className="text-sm">Custom schemas require a binary file (e.g. .so, .jar) accessible by the server.</span>
+                                    <span className="text-sm">Custom schemas require a shared-library file accessible by eKuiper.</span>
                                 </div>
                             </div>
                         ) : (

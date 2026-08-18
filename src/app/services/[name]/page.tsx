@@ -11,6 +11,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
@@ -31,10 +41,13 @@ import {
   Building,
   HelpCircle,
   Code,
+  Loader2,
+  Upload,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { EKuiperClient } from "@/lib/ekuiper/client";
+import { ekuiperClient } from "@/lib/ekuiper/client";
 import { Service } from "@/lib/ekuiper/types";
+import { toast } from "sonner";
 
 interface ServiceDetailPageProps {
   params: {
@@ -52,6 +65,9 @@ export default function ServiceDetailPage() {
   const [service, setService] = React.useState<Service | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [updateOpen, setUpdateOpen] = React.useState(false);
+  const [packageUri, setPackageUri] = React.useState("");
+  const [updating, setUpdating] = React.useState(false);
 
   const fetchService = React.useCallback(async () => {
     if (!activeServer) return;
@@ -60,8 +76,7 @@ export default function ServiceDetailPage() {
     setError(null);
 
     try {
-      const client = new EKuiperClient(activeServer.url);
-      const data = await client.getService(name);
+      const data = await ekuiperClient.getService(name);
       setService(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch service details");
@@ -73,6 +88,22 @@ export default function ServiceDetailPage() {
   React.useEffect(() => {
     fetchService();
   }, [fetchService]);
+
+  const updateService = async () => {
+    if (!packageUri.trim()) return;
+    setUpdating(true);
+    try {
+      await ekuiperClient.updateService(name, { name, file: packageUri.trim() });
+      toast.success(`Service "${name}" updated`);
+      setUpdateOpen(false);
+      setPackageUri("");
+      await fetchService();
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Failed to update service");
+    } finally {
+      setUpdating(false);
+    }
+  };
 
   if (!activeServer) {
     return (
@@ -143,7 +174,12 @@ export default function ServiceDetailPage() {
               External service integration
             </p>
           </div>
-          <StatusBadge status="info" label="Active" />
+          <div className="flex items-center gap-2">
+            <StatusBadge status="info" label="Registered" />
+            <Button variant="outline" onClick={() => setUpdateOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />Update package
+            </Button>
+          </div>
         </div>
 
         {/* About Card */}
@@ -333,6 +369,25 @@ export default function ServiceDetailPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={updateOpen} onOpenChange={setUpdateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update service package</DialogTitle>
+            <DialogDescription>Provide a new zip-package URI that the selected eKuiper node can read.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="service-package-uri">Service Package URI</Label>
+            <Input id="service-package-uri" value={packageUri} onChange={(event) => setPackageUri(event.target.value)} placeholder="https://example.com/my-service.zip" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpdateOpen(false)}>Cancel</Button>
+            <Button onClick={() => void updateService()} disabled={updating || !packageUri.trim()}>
+              {updating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update service
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

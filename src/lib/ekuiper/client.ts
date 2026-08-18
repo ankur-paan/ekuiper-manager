@@ -45,53 +45,34 @@ import {
   ConfKey,
 } from "./types";
 
+function normalizeExternalFunction(value: ExternalFunction | Record<string, unknown>): ExternalFunction {
+  const item = value as Record<string, unknown>;
+  return {
+    name: String(item.name ?? item.FuncName ?? ""),
+    serviceName: String(item.serviceName ?? item.ServiceName ?? ""),
+    interfaceName: String(item.interfaceName ?? item.InterfaceName ?? ""),
+    address: item.address != null || item.Addr != null ? String(item.address ?? item.Addr) : undefined,
+    methodName: item.methodName != null || item.MethodName != null ? String(item.methodName ?? item.MethodName) : undefined,
+  };
+}
+
 // =============================================================================
 // eKuiper API Client - Complete REST API wrapper
 // =============================================================================
 
 export class EKuiperClient {
   protected baseUrl: string;
-  private ekuiperUrl: string | null;
   private timeout: number;
 
-  /**
-   * Create an eKuiper client.
-   * @param baseUrlOrConnectionId - Either:
-   *   - A connection ID (e.g., "local") - will use /api/connections/{id}/ekuiper
-   *   - A path starting with "/" (e.g., "/api/ekuiper") - will be used directly with X-EKuiper-URL header
-   *   - A full eKuiper URL (e.g., "http://localhost:9081") - will proxy through /api/ekuiper
-   * @param ekuiperUrl - Optional direct eKuiper URL when using /api/ekuiper proxy
-   * @param timeout - Optional timeout
-   * @param isDirect - If true, use baseUrlOrConnectionId as the direct URL (no proxy)
-   */
-  constructor(baseUrlOrConnectionId?: string, ekuiperUrl?: string, timeout?: number, isDirect: boolean = false) {
-    // Determine how to route requests
-    if (isDirect && baseUrlOrConnectionId) {
-      this.baseUrl = baseUrlOrConnectionId;
-      this.ekuiperUrl = null;
-    } else if (!baseUrlOrConnectionId) {
-      // Default: use local API proxy
-      this.baseUrl = "/api/ekuiper";
-      this.ekuiperUrl = process.env.NEXT_PUBLIC_EKUIPER_URL || "http://localhost:9081";
-    } else if (baseUrlOrConnectionId.startsWith("/")) {
-      // Already a proxy path (e.g., /api/connections/xxx/ekuiper)
-      this.baseUrl = baseUrlOrConnectionId;
-      this.ekuiperUrl = ekuiperUrl || null;
-    } else if (baseUrlOrConnectionId.startsWith("http")) {
-      // Direct eKuiper URL - proxy through our API
-      this.baseUrl = "/api/ekuiper";
-      this.ekuiperUrl = baseUrlOrConnectionId;
-    } else {
-      // Connection ID - use connection-specific proxy
-      this.baseUrl = `/api/connections/${baseUrlOrConnectionId}/ekuiper`;
-      this.ekuiperUrl = null;
-    }
-
+  /** Create a client bound to the Manager's selected, registered eKuiper node. */
+  constructor(_baseUrl?: string, _ekuiperUrl?: string, timeout?: number, _isDirect = false) {
+    // Node selection and credentials are intentionally owned by the Manager server.
+    this.baseUrl = "/api/ekuiper";
     this.timeout = timeout || parseInt(process.env.EKUIPER_API_TIMEOUT || "30000");
   }
 
-  setBaseUrl(url: string) {
-    this.ekuiperUrl = url;
+  setBaseUrl(_url: string) {
+    // Kept as a compatibility no-op while older screens are consolidated.
   }
 
   // ---------------------------------------------------------------------------
@@ -106,17 +87,12 @@ export class EKuiperClient {
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
     try {
-      // Build headers with optional eKuiper URL
       const headers: Record<string, string> = {
         ...((options.headers as Record<string, string>) || {}),
       };
 
       if (!(options.body instanceof FormData)) {
         headers["Content-Type"] = "application/json";
-      }
-
-      if (this.ekuiperUrl) {
-        headers["X-EKuiper-URL"] = this.ekuiperUrl;
       }
 
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -131,7 +107,7 @@ export class EKuiperClient {
       // Check for proxy error (502)
       if (response.status === 502) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Cannot connect to eKuiper server`);
+        throw new Error(errorData.error?.message || `Cannot connect to eKuiper server`);
       }
 
       if (!response.ok) {
@@ -384,7 +360,7 @@ export class EKuiperClient {
   }
 
   async getRuleStatus(id: string): Promise<RuleMetrics> {
-    return this.request<RuleMetrics>(`/rules/${encodeURIComponent(id)}/status`);
+    return this.request<RuleMetrics>(`/v2/rules/${encodeURIComponent(id)}/status`);
   }
 
   async getRuleTopology(id: string): Promise<RuleTopology> {
@@ -431,37 +407,7 @@ export class EKuiperClient {
    * Get status of all rules in bulk
    */
   async getAllRulesStatus(): Promise<RuleBulkStatus> {
-    // Force iteration to get full metrics, as /rules/status/all only gives summary
-    try {
-      let rules: any = await this.listRules();
-      // Handle potential response wrappers (e.g. { rules: [...] } vs [...])
-      if (!Array.isArray(rules)) {
-        if (rules && Array.isArray(rules.rules)) {
-          rules = rules.rules;
-        } else if (rules && Array.isArray(rules.data)) {
-          rules = rules.data;
-        } else {
-          // Try to find any array property
-          const arr = Object.values(rules).find(v => Array.isArray(v));
-          if (arr) rules = arr;
-          else rules = [];
-        }
-      }
-      const statuses: RuleBulkStatus = {};
-      await Promise.all((rules as any[]).map(async (r) => {
-        try {
-          // Handle both object and string formats just in case
-          const ruleId = typeof r === 'string' ? r : r.id;
-          if (ruleId) {
-            const s = await this.getRuleStatus(ruleId);
-            statuses[ruleId] = s;
-          }
-        } catch { /* ignore individual failures */ }
-      }));
-      return statuses;
-    } catch {
-      return {};
-    }
+    return this.request<RuleBulkStatus>("/rules/status/all");
   }
 
   /**
@@ -494,10 +440,10 @@ export class EKuiperClient {
   /**
    * Delete specific tags from a rule
    */
-  async deleteRuleTags(id: string, keys: string[]): Promise<void> {
+  async deleteRuleTags(id: string, tags: string[]): Promise<void> {
     await this.request<void>(`/rules/${encodeURIComponent(id)}/tags`, {
       method: "DELETE",
-      body: JSON.stringify({ keys }),
+      body: JSON.stringify({ tags }),
     });
   }
 
@@ -505,9 +451,28 @@ export class EKuiperClient {
    * Query rules by tags
    */
   async getRulesByTags(tags: string[]): Promise<string[]> {
-    return this.request<string[]>("/rules/tags/match", {
-      method: "GET",
-      body: JSON.stringify({ keys: tags }),
+    const response = await fetch("/api/rule-tags/match", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tags }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error?.message ?? "Failed to match rule tags");
+    return result.rules;
+  }
+
+  async bulkStartRules(tags: string[]): Promise<Array<{ ruleId: string; success: boolean; error?: string }>> {
+    return this.request("/rules/bulkstart", { method: "POST", body: JSON.stringify({ tags }) });
+  }
+
+  async bulkStopRules(tags: string[]): Promise<Array<{ ruleId: string; success: boolean; error?: string }>> {
+    return this.request("/rules/bulkstop", { method: "POST", body: JSON.stringify({ tags }) });
+  }
+
+  async resetRuleState(id: string, streamName: string, input: Record<string, unknown>): Promise<void> {
+    await this.request(`/rules/${encodeURIComponent(id)}/reset_state`, {
+      method: "PUT",
+      body: JSON.stringify({ type: 1, params: { streamName, input } }),
     });
   }
 
@@ -706,8 +671,8 @@ export class EKuiperClient {
     return this.request<UserDefinedFunction>("/plugins/udfs/" + encodeURIComponent(name));
   }
 
-  async getPrebuiltPlugins(type: PluginType): Promise<string[]> {
-    return this.request<string[]>(`/plugins/${type}/prebuild`);
+  async getPrebuiltPlugins(type: PluginType): Promise<Record<string, string>> {
+    return this.request<Record<string, string>>(`/plugins/${type}/prebuild`);
   }
 
   async registerFunctions(pluginName: string, functions: string[]): Promise<void> {
@@ -754,11 +719,13 @@ export class EKuiperClient {
   }
 
   async listExternalFunctions(): Promise<ExternalFunction[]> {
-    return this.request<ExternalFunction[]>("/services/functions");
+    const functions = await this.request<Array<ExternalFunction | Record<string, unknown>>>("/services/functions");
+    return Array.isArray(functions) ? functions.map(normalizeExternalFunction) : [];
   }
 
   async getExternalFunction(name: string): Promise<ExternalFunction> {
-    return this.request<ExternalFunction>(`/services/functions/${encodeURIComponent(name)}`);
+    const fn = await this.request<ExternalFunction | Record<string, unknown>>(`/services/functions/${encodeURIComponent(name)}`);
+    return normalizeExternalFunction(fn);
   }
 
   // ---------------------------------------------------------------------------
@@ -800,7 +767,7 @@ export class EKuiperClient {
   // Configuration APIs (Phase 8)
   // ---------------------------------------------------------------------------
 
-  async listSchemas(type: "protobuf" | "avro" | "custom"): Promise<string[]> {
+  async listSchemas(type: "protobuf" | "custom"): Promise<string[]> {
     return this.request<string[]>(`/schemas/${type}`);
   }
 
@@ -811,7 +778,7 @@ export class EKuiperClient {
   async createSchema(type: string, name: string, content: string): Promise<void> {
     const payload: any = { name };
     if (type === "custom") {
-      payload.file = content;
+      payload.soFile = content;
     } else {
       payload.content = content;
     }
@@ -824,7 +791,7 @@ export class EKuiperClient {
   async updateSchema(type: string, name: string, content: string): Promise<void> {
     const payload: any = {};
     if (type === "custom") {
-      payload.file = content;
+      payload.soFile = content;
     } else {
       payload.content = content;
     }
@@ -841,41 +808,38 @@ export class EKuiperClient {
   }
 
   async listUploads(): Promise<string[]> {
-    return this.request<string[]>("/uploads");
+    return this.request<string[]>("/config/uploads");
   }
 
   async uploadFile(formData: FormData): Promise<void> {
-    await this.request<void>("/uploads", {
+    const payload = new FormData();
+    const file = formData.get("uploadFile") ?? formData.get("file");
+    if (file) payload.append("uploadFile", file);
+    await this.request<void>("/config/uploads", {
       method: "POST",
-      body: formData
+      body: payload
     });
   }
 
   async deleteUpload(name: string): Promise<void> {
-    await this.request<void>(`/uploads/${encodeURIComponent(name)}`, { method: "DELETE" });
+    await this.request<void>(`/config/uploads/${encodeURIComponent(name)}`, { method: "DELETE" });
+  }
+
+  async uploadSchema(type: "protobuf" | "custom", name: string, file: File, version?: string): Promise<void> {
+    const body = new FormData();
+    body.append("file", file);
+    if (version) body.append("version", version);
+    await this.request<void>(`/schemas/${type}/${encodeURIComponent(name)}/upload`, { method: "PUT", body });
   }
 
   async listConfKeys(category: "sources" | "sinks" | "connections", type: string): Promise<string[]> {
-    try {
-      // Try standard endpoint first
-      return await this.request<string[]>(`/metadata/${category}/${type}/confKeys`);
-    } catch {
-      // Fallback to YAML endpoint (returns dict of keys)
-      // /metadata/sources/yaml/{type}
-      const data = await this.request<any>(`/metadata/${category}/yaml/${type}`);
-      return data ? Object.keys(data) : [];
-    }
+    const data = await this.request<any>(`/metadata/${category}/yaml/${encodeURIComponent(type)}`);
+    return data ? Object.keys(data) : [];
   }
 
   async getConfKey(category: string, type: string, key: string): Promise<ConfKey> {
-    try {
-      const content = await this.request<any>(`/metadata/${category}/${type}/confKeys/${encodeURIComponent(key)}`);
-      return { name: key, content };
-    } catch {
-      // Fallback: fetch full yaml and pick key
-      const data = await this.request<any>(`/metadata/${category}/yaml/${type}`);
-      return { name: key, content: data?.[key] || {} };
-    }
+    const data = await this.request<any>(`/metadata/${category}/yaml/${encodeURIComponent(type)}`);
+    return { name: key, content: data?.[key] || {} };
   }
 
   /**
@@ -897,73 +861,12 @@ export class EKuiperClient {
   }
 
   async upsertConfKey(category: string, type: string, key: string, content: any): Promise<void> {
-    // Strategy: 
-    // 1. Try PUT to item resource (Standard Update/Upsert)
-    //    - If 400/404, verify if it was actually created
-    // 2. If verify fails, try POST to collection resource (Standard Create)
-    // 3. Verify again
-
     const itemUrl = `/metadata/${category}/${type}/confKeys/${encodeURIComponent(key)}`;
-    const collectionUrl = `/metadata/${category}/${type}/confKeys`;
-
-    try {
-      await this.request<void>(itemUrl, {
-        method: "PUT",
-        body: JSON.stringify(content)
-      });
-    } catch (putError) {
-      // First Verification: Check if it succeeded despite the error (common in eKuiper for creation via PUT)
-      try {
-        const current = await this.getConfKey(category, type, key);
-        // Canonical comparison (ignoring key order)
-        if (JSON.stringify(this.canonicalize(current.content)) === JSON.stringify(this.canonicalize(content))) {
-          return;
-        }
-      } catch { /* ignore verification error */ }
-
-      // Try POST creation if PUT failed and verify failed
-      try {
-        await this.request<void>(collectionUrl, {
-          method: "POST",
-          body: JSON.stringify({
-            name: key,
-            content: content
-          })
-        });
-      } catch (postError) {
-        // Final Verification
-        try {
-          const current = await this.getConfKey(category, type, key);
-          if (JSON.stringify(this.canonicalize(current.content)) === JSON.stringify(this.canonicalize(content))) {
-            return;
-          }
-        } catch { /* ignore verification error */ }
-
-        throw putError;
-      }
-    }
+    await this.request<void>(itemUrl, { method: "PUT", body: JSON.stringify(content) });
   }
 
   async deleteConfKey(category: string, type: string, key: string): Promise<void> {
-    try {
-      await this.request<void>(`/metadata/${category}/${type}/confKeys/${encodeURIComponent(key)}`, {
-        method: "DELETE"
-      });
-    } catch (granularError) {
-      // Verification: Check if gone
-      try {
-        const current = await this.getConfKey(category, type, key);
-        // If content is empty/undefined, it means deleted
-        if (!current.content || Object.keys(current.content).length === 0) {
-          return;
-        }
-      } catch {
-        // If getConfKey throws, assume it's gone
-        return;
-      }
-
-      throw granularError;
-    }
+    await this.request<void>(`/metadata/${category}/${type}/confKeys/${encodeURIComponent(key)}`, { method: "DELETE" });
   }
 
   async listMetadata(category: string): Promise<any> {
@@ -975,10 +878,7 @@ export class EKuiperClient {
   // ---------------------------------------------------------------------------
 
   async exportData(): Promise<Blob> {
-    const headers: Record<string, string> = {};
-    if (this.ekuiperUrl) headers["X-EKuiper-URL"] = this.ekuiperUrl;
-
-    const response = await fetch(`${this.baseUrl}/data/export`, { headers });
+    const response = await fetch(`${this.baseUrl}/data/export`);
     if (!response.ok) throw new Error("Failed to export data");
     return response.blob();
   }
@@ -1004,7 +904,6 @@ export class EKuiperClient {
 
   async exportRuleset(rules: string[]): Promise<Blob> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.ekuiperUrl) headers["X-EKuiper-URL"] = this.ekuiperUrl;
 
     // eKuiper expects POST /data/export with array body like ["rule1", "rule2"]
     const response = await fetch(`${this.baseUrl}/data/export`, {
@@ -1017,24 +916,29 @@ export class EKuiperClient {
   }
 
   async importRuleset(content: string): Promise<void> {
-    // Ruleset import uses the same endpoint as data import
-    await this.request<void>("/data/import?partial=1", {
+    await this.request<void>("/ruleset/import", {
       method: "POST",
       body: JSON.stringify({ content })
     });
   }
 
-  async importDataAsync(formData: FormData): Promise<string> {
-    // Assuming response has request_id or similar
-    const res = await this.request<{ request_id: string }>("/async/data/import", {
+  async importDataAsync(content: string, options?: { stop?: boolean; partial?: boolean }): Promise<string> {
+    const params = new URLSearchParams();
+    if (options?.stop) params.set("stop", "1");
+    if (options?.partial) params.set("partial", "1");
+    const res = await this.request<{ id: string }>(`/async/data/import?${params}`, {
       method: "POST",
-      body: formData
+      body: JSON.stringify({ content })
     });
-    return res.request_id;
+    return res.id;
   }
 
   async getAsyncTask(id: string): Promise<any> {
     return this.request<any>(`/async/task/${encodeURIComponent(id)}`);
+  }
+
+  async cancelAsyncTask(id: string): Promise<void> {
+    await this.request<void>(`/async/task/${encodeURIComponent(id)}/cancel`, { method: "POST" });
   }
 
   // ---------------------------------------------------------------------------

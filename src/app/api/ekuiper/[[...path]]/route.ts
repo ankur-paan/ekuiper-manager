@@ -1,192 +1,191 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server';
+import { ApiError, apiErrorResponse, assertSameOrigin, requireUser } from '@/lib/api';
+import { recordAuditSafely } from '@/lib/audit';
+import { assertSafeNodeDestination } from '@/lib/network';
+import { getNodeWithAuthorization, NODE_COOKIE } from '@/lib/nodes';
+import {
+  isSensitiveEKuiperPath,
+  parseEKuiperJson,
+  redactEKuiperSecrets,
+} from '@/lib/ekuiper/wire';
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-/**
- * Dynamic API route that proxies all requests to the eKuiper server.
- * This handles CORS issues and allows the frontend to communicate with eKuiper.
- * 
- * The eKuiper base URL is configured via:
- * 1. Query parameter: ?ekuiper_url=http://...
- * 2. Header: X-EKuiper-URL
- * 3. Environment variable: EKUIPER_URL
- * 4. Default: http://localhost:9081
- * 
- * NOTE: User-provided URLs are INTENTIONAL functionality for this eKuiper management tool.
- * Users need to specify which eKuiper server instance to connect to.
- * This is not an SSRF vulnerability - it's the core feature of the application.
- */
+const allowedRoots = new Set([
+  '',
+  'async',
+  'batch',
+  'config',
+  'configs',
+  'connections',
+  'data',
+  'metadata',
+  'metrics',
+  'ping',
+  'plugins',
+  'rules',
+  'ruleset',
+  'ruletest',
+  'schemas',
+  'scripts',
+  'services',
+  'stop',
+  'streamdetails',
+  'streams',
+  'tabledetails',
+  'tables',
+  'trace',
+  'tracer',
+  'udf',
+  'v2',
+]);
 
-function getEKuiperBaseUrl(request: NextRequest): string {
-  // Check query parameter first
-  const urlParam = request.nextUrl.searchParams.get("ekuiper_url");
-  if (urlParam) {
-    return normalizeUrl(urlParam);
+const requestHeaders = ['accept', 'content-type', 'content-language', 'range'];
+const responseHeaders = [
+  'accept-ranges',
+  'cache-control',
+  'content-disposition',
+  'content-language',
+  'content-range',
+  'content-type',
+  'etag',
+  'last-modified',
+  'location',
+];
+function validatesPath(parts: string[]): string {
+  if (parts.some((part) => !part || part === '.' || part === '..' || part.includes('/'))) {
+    throw new ApiError(400, 'Invalid eKuiper API path', 'INVALID_PROXY_PATH');
   }
-
-  // Check header
-  const headerUrl = request.headers.get("X-EKuiper-URL");
-  if (headerUrl) {
-    return normalizeUrl(headerUrl);
+  const root = parts[0] ?? '';
+  if (!allowedRoots.has(root)) {
+    throw new ApiError(404, 'That eKuiper API path is not exposed', 'PROXY_PATH_NOT_ALLOWED');
   }
-
-  // Fall back to environment variable or default
-  const fallback = process.env.EKUIPER_URL || "http://127.0.0.1:9081";
-  // Actually, let's look for a better default or just trust the user will provide one.
-  return normalizeUrl(fallback);
+  return parts.map(encodeURIComponent).join('/');
 }
 
-// Ensure URL has a protocol
-function normalizeUrl(url: string): string {
-  if (!url) return url;
-  // If URL doesn't start with http:// or https://, add https://
-  if (!url.match(/^https?:\/\//i)) {
-    return `https://${url}`;
-  }
-  return url;
-}
-
-async function proxyRequest(
+async function proxy(
   request: NextRequest,
-  method: string,
-  path: string
-): Promise<NextResponse> {
-  const baseUrl = getEKuiperBaseUrl(request);
-  // Ensure baseUrl doesn't end with slash and path doesn't start with slash
-  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-
-  // Forward query parameters from the original request (excluding our internal ekuiper_url param)
-  const forwardParams = new URLSearchParams(request.nextUrl.searchParams);
-  forwardParams.delete("ekuiper_url"); // Remove our proxy-specific param
-  const queryString = forwardParams.toString() ? `?${forwardParams.toString()}` : "";
-  const targetUrl = `${cleanBaseUrl}${cleanPath}${queryString}`;
-
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  parts: string[],
+): Promise<Response> {
   try {
-    // Get request body for non-GET requests
-    let body: string | undefined;
-    if (method !== "GET" && method !== "HEAD") {
-      try {
-        body = await request.text();
-      } catch {
-        // No body
-      }
+    const user = await requireUser(request);
+    if (method !== 'GET') assertSameOrigin(request);
+    const path = validatesPath(parts);
+    const selectedNodeId = request.cookies.get(NODE_COOKIE)?.value;
+    const { node, authorization } = await getNodeWithAuthorization(selectedNodeId);
+    const target = new URL(path ? `/${path}` : '/', node.baseUrl);
+    target.search = request.nextUrl.search;
+    await assertSafeNodeDestination(target);
+
+    const contentLength = Number(request.headers.get('content-length') ?? 0);
+    if (contentLength > 100 * 1024 * 1024) {
+      throw new ApiError(413, 'Request body exceeds 100 MB', 'BODY_TOO_LARGE');
     }
 
-    // Set a timeout for the fetch
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const headers = new Headers();
+    for (const name of requestHeaders) {
+      const value = request.headers.get(name);
+      if (value) headers.set(name, value);
+    }
+    if (authorization) headers.set('authorization', authorization);
 
-    // lgtm[js/request-forgery]
-    // CodeQL suppression: User-provided URLs are INTENTIONAL functionality.
-    // This is an eKuiper management tool - users must be able to specify
-    // which eKuiper server instance to connect to. This is the core feature.
-    const response = await fetch(targetUrl, {
+    const init: RequestInit & { duplex?: 'half' } = {
       method,
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "*/*",
-      },
-      body: body || undefined,
-      signal: controller.signal,
-      cache: "no-store",
-    });
-
-    clearTimeout(timeoutId);
-
-    // Get response data
-    const responseText = await response.text();
-    let responseData: any;
-    try {
-      responseData = responseText ? JSON.parse(responseText) : null;
-    } catch {
-      responseData = responseText;
+      headers,
+      cache: 'no-store',
+      redirect: 'manual',
+      signal: AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(Number(process.env.EKUIPER_API_TIMEOUT ?? 30_000)),
+      ]),
+    };
+    if (method !== 'GET' && request.body) {
+      init.body = request.body;
+      init.duplex = 'half';
     }
 
-    // Return the response with proper CORS headers
-    return NextResponse.json(responseData, {
-      status: response.status,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, X-EKuiper-URL",
-      },
+    const upstream = await fetch(target, init);
+    if (upstream.status >= 300 && upstream.status < 400) {
+      throw new ApiError(502, 'Unexpected redirect from eKuiper', 'UPSTREAM_REDIRECT');
+    }
+
+    const outgoingHeaders = new Headers();
+    for (const name of responseHeaders) {
+      const value = upstream.headers.get(name);
+      if (value) outgoingHeaders.set(name, value);
+    }
+    if (method !== 'GET') {
+      recordAuditSafely({
+        actorId: user.id,
+        nodeId: node.id,
+        action: `ekuiper.${method.toLowerCase()}`,
+        resourceType: 'ekuiper_api',
+        resourceId: `/${path}`,
+        success: upstream.ok,
+        metadata: { status: upstream.status },
+      });
+    }
+
+    if (isSensitiveEKuiperPath(path)) {
+      const payload = redactEKuiperSecrets(parseEKuiperJson(await upstream.text()));
+      outgoingHeaders.delete('content-length');
+      outgoingHeaders.set('content-type', 'application/json');
+      return new Response(JSON.stringify(payload), {
+        status: upstream.status,
+        headers: outgoingHeaders,
+      });
+    }
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: outgoingHeaders,
     });
   } catch (error) {
-    // Helper function to check if error is connection refused
-    const isConnectionError = (err: unknown): boolean => {
-      if (!(err instanceof Error)) return false;
-      // Check message
-      if (err.message.includes("ECONNREFUSED") || err.message.includes("fetch failed")) return true;
-      // Check cause (can be an AggregateError)
-      if (err.cause) {
-        if (typeof err.cause === "object" && "code" in err.cause && err.cause.code === "ECONNREFUSED") return true;
-        if (err.cause instanceof Error && err.cause.message?.includes("ECONNREFUSED")) return true;
-      }
-      return false;
-    };
-
-    const isConnErr = isConnectionError(error);
-
-    // Only log non-connection errors to avoid spam
-    if (!isConnErr) {
-      console.error('Error proxying request to %s:', targetUrl, error);
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      return NextResponse.json(
+        { error: { code: 'NODE_TIMEOUT', message: 'eKuiper did not respond in time' } },
+        { status: 504 },
+      );
     }
-
-    // Provide user-friendly error message
-    let userMessage = "Failed to connect to eKuiper";
-    if (isConnErr) {
-      userMessage = `Cannot connect to eKuiper at ${baseUrl}. Make sure eKuiper is running.`;
-    } else if (error instanceof Error && error.name === "AbortError") {
-      userMessage = `Connection to ${baseUrl} timed out.`;
+    // Next.js uses ResponseAborted as the request signal reason when a browser
+    // navigates away. It is normal cancellation, not a proxy or upstream fault.
+    if (
+      error instanceof Error &&
+      (error.name === 'AbortError' || error.name === 'ResponseAborted')
+    ) {
+      return new Response(null, { status: 499 });
     }
-
-    return NextResponse.json(
-      {
-        error: userMessage,
-        details: `Server: ${baseUrl}`,
-      },
-      {
-        status: 502,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-        },
-      }
-    );
+    if (error instanceof TypeError) {
+      return NextResponse.json(
+        { error: { code: 'NODE_UNREACHABLE', message: 'eKuiper could not be reached' } },
+        { status: 502 },
+      );
+    }
+    return apiErrorResponse(error);
   }
 }
 
-export async function GET(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
-  const params = await props.params;
-  const path = params.path ? params.path.join("/") : "";
-  return proxyRequest(request, "GET", path);
+type RouteContext = { params: Promise<{ path?: string[] }> };
+
+export async function GET(request: NextRequest, context: RouteContext) {
+  return proxy(request, 'GET', (await context.params).path ?? []);
 }
 
-export async function POST(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
-  const params = await props.params;
-  const path = params.path ? params.path.join("/") : "";
-  return proxyRequest(request, "POST", path);
+export async function POST(request: NextRequest, context: RouteContext) {
+  return proxy(request, 'POST', (await context.params).path ?? []);
 }
 
-export async function PUT(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
-  const params = await props.params;
-  const path = params.path ? params.path.join("/") : "";
-  return proxyRequest(request, "PUT", path);
+export async function PUT(request: NextRequest, context: RouteContext) {
+  return proxy(request, 'PUT', (await context.params).path ?? []);
 }
 
-export async function DELETE(request: NextRequest, props: { params: Promise<{ path?: string[] }> }) {
-  const params = await props.params;
-  const path = params.path ? params.path.join("/") : "";
-  return proxyRequest(request, "DELETE", path);
+export async function PATCH(request: NextRequest, context: RouteContext) {
+  return proxy(request, 'PATCH', (await context.params).path ?? []);
 }
 
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, X-EKuiper-URL",
-    },
-  });
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  return proxy(request, 'DELETE', (await context.params).path ?? []);
 }

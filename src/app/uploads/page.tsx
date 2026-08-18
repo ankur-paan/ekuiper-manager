@@ -20,9 +20,6 @@ import {
   Trash2,
   UploadCloud,
   ArrowUpDown,
-  Download,
-  Copy,
-  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -49,8 +46,6 @@ export default function UploadsPage() {
 
     setLoading(true);
     setError(null);
-    ekuiperClient.setBaseUrl(activeServer.url);
-
     try {
       const list = await ekuiperClient.listUploads();
       const items = Array.isArray(list) ? list.map(name => ({ name })) : [];
@@ -82,8 +77,6 @@ export default function UploadsPage() {
   const uploadFile = async (file: File) => {
     if (!activeServer) return;
     setUploading(true);
-    ekuiperClient.setBaseUrl(activeServer.url);
-
     const formData = new FormData();
     formData.append("file", file);
 
@@ -125,23 +118,6 @@ export default function UploadsPage() {
     }
   };
 
-  const handleDownload = (name: string) => {
-    if (!activeServer) return;
-    // Using window.open to trigger download from generic endpoint
-    // Adjust path if eKuiper exposes static files differently
-    const url = `${activeServer.url}/data/uploads/${name}`;
-    window.open(url, '_blank');
-  };
-
-  const handleCopyPath = (name: string) => {
-    const path = `data/uploads/${name}`;
-    navigator.clipboard.writeText(path);
-    toast.success("Path copied to clipboard", {
-      description: path,
-      icon: <CheckCircle2 className="h-4 w-4 text-green-500" />
-    });
-  };
-
   const columns: ColumnDef<UploadItem>[] = [
     {
       accessorKey: "name",
@@ -166,15 +142,9 @@ export default function UploadsPage() {
       header: "Actions",
       cell: ({ row }) => (
         <div className="flex justify-end gap-1">
-          <Button variant="ghost" size="icon" onClick={() => handleCopyPath(row.original.name)} title="Copy Path">
-            <Copy className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => handleDownload(row.original.name)} title="Download">
-            <Download className="h-4 w-4" />
-          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" aria-label={`Actions for ${row.original.name}`}>
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -206,7 +176,7 @@ export default function UploadsPage() {
       <div className="space-y-6">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">File Uploads</h2>
-          <p className="text-muted-foreground">Manage static assets, lookup tables, and custom plugins/schemas.</p>
+          <p className="text-muted-foreground">Upload and remove files stored by the selected eKuiper node.</p>
         </div>
 
         {/* Drag & Drop Zone */}
@@ -220,6 +190,16 @@ export default function UploadsPage() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => !uploading && fileInputRef.current?.click()}
+          onKeyDown={(event) => {
+            if (!uploading && (event.key === "Enter" || event.key === " ")) {
+              event.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          role="button"
+          tabIndex={uploading ? -1 : 0}
+          aria-label="Upload a file to eKuiper"
+          aria-disabled={uploading}
         >
           <input
             type="file"

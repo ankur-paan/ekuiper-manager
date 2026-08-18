@@ -45,6 +45,7 @@ export default function JSUDFEditorPage() {
 
     const isNew = params.id === "new";
     const [funcId, setFuncId] = React.useState("");
+    const [description, setDescription] = React.useState("");
     const [script, setScript] = React.useState(DEFAULT_SCRIPT);
     const [isAgg, setIsAgg] = React.useState(false);
 
@@ -58,15 +59,15 @@ export default function JSUDFEditorPage() {
             const id = decodeURIComponent(params.id);
             setFuncId(id);
             setLoading(true);
-            ekuiperClient.setBaseUrl(activeServer.url);
-
             try {
                 const data = await ekuiperClient.getJSUDF(id);
                 // If API returns plain text, wrap it (defensive coding)
                 if (typeof data === 'string') {
                     setScript(data);
+                    setDescription("");
                     setIsAgg(false); // Default if metadata missing
                 } else {
+                    setDescription(data.description || "");
                     setScript(data.script || "");
                     setIsAgg(!!data.isAgg);
                 }
@@ -93,12 +94,17 @@ export default function JSUDFEditorPage() {
             return;
         }
 
+        if (!description.trim()) {
+            toast.error("Description is required");
+            return;
+        }
+
         setSaving(true);
-        ekuiperClient.setBaseUrl(activeServer.url);
 
         try {
             const payload = {
                 id: funcId,
+                description,
                 script,
                 isAgg
             };
@@ -184,6 +190,16 @@ export default function JSUDFEditorPage() {
                                     placeholder="myCustomFunc"
                                 />
                                 {!isNew && <p className="text-xs text-muted-foreground">ID cannot be changed after creation</p>}
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="description">Description</Label>
+                                <Input
+                                    id="description"
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    placeholder="What this function returns"
+                                />
                             </div>
 
                             <div className="flex items-center justify-between rounded-lg border p-3 shadow-sm">

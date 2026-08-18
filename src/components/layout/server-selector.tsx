@@ -1,8 +1,10 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { useServerStore } from "@/stores/server-store";
-import { Button } from "@/components/ui/button";
+import Link from 'next/link';
+import { Check, ChevronDown, Plus, Server } from 'lucide-react';
+import { useServerStore } from '@/stores/server-store';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,184 +12,67 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Server,
-  Plus,
-  ChevronDown,
-  Check,
-  Trash2,
-  RefreshCw,
-  Settings,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+} from '@/components/ui/dropdown-menu';
 
 export function ServerSelector() {
-  const {
-    servers,
-    activeServerId,
-    addServer,
-    removeServer,
-    setActiveServer,
-  } = useServerStore();
-
-  const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
-  const [newServerName, setNewServerName] = React.useState("");
-  const [newServerUrl, setNewServerUrl] = React.useState("http://localhost:9081");
-
-  const activeServer = servers.find((s) => s.id === activeServerId);
-
-  const handleAddServer = () => {
-    if (newServerName && newServerUrl) {
-      addServer({
-        name: newServerName,
-        url: newServerUrl,
-      });
-      setNewServerName("");
-      setNewServerUrl("http://localhost:9081");
-      setIsAddDialogOpen(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "connected":
-        return "bg-green-500";
-      case "error":
-        return "bg-red-500";
-      default:
-        return "bg-yellow-500";
-    }
-  };
+  const { servers, activeServerId, setActiveServer } = useServerStore();
+  const active = servers.find((node) => node.id === activeServerId);
 
   return (
-    <div className="flex items-center gap-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="gap-2">
-            <Server className="h-4 w-4" />
-            <span className="max-w-[150px] truncate">
-              {activeServer?.name || "No Server"}
-            </span>
-            {activeServer && (
-              <span
-                className={cn(
-                  "h-2 w-2 rounded-full",
-                  getStatusColor(activeServer.status)
-                )}
-              />
-            )}
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-72">
-          <DropdownMenuLabel>eKuiper Servers</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {servers.length === 0 ? (
-            <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-              No servers configured
-            </div>
-          ) : (
-            servers.map((server) => (
-              <DropdownMenuItem
-                key={server.id}
-                className="flex items-center justify-between"
-                onClick={() => setActiveServer(server.id)}
-              >
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "h-2 w-2 rounded-full",
-                      getStatusColor(server.status)
-                    )}
-                  />
-                  <div className="flex flex-col">
-                    <span className="font-medium">{server.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {server.url}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  {server.id === activeServerId && (
-                    <Check className="h-4 w-4 text-primary" />
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeServer(server.id);
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              </DropdownMenuItem>
-            ))
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" className="max-w-[260px] gap-2" aria-label="Select eKuiper node">
+          <Server className="h-4 w-4 shrink-0" />
+          <span className="truncate">{active?.name ?? 'Select node'}</span>
+          {active?.version && (
+            <Badge variant="secondary" className="hidden font-normal lg:inline-flex">
+              {active.version}
+            </Badge>
           )}
-          <DropdownMenuSeparator />
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Server
-              </DropdownMenuItem>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add eKuiper Server</DialogTitle>
-                <DialogDescription>
-                  Add a new eKuiper server connection. The server must be running
-                  and accessible.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input
-                    id="name"
-                    placeholder="My eKuiper Server"
-                    value={newServerName}
-                    onChange={(e) => setNewServerName(e.target.value)}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="url">URL</Label>
-                  <Input
-                    id="url"
-                    placeholder="http://localhost:9081"
-                    value={newServerUrl}
-                    onChange={(e) => setNewServerUrl(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsAddDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={handleAddServer}>Add Server</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel>eKuiper node</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {servers.map((node) => (
+          <DropdownMenuItem
+            key={node.id}
+            onSelect={() => setActiveServer(node.id)}
+            className="flex items-start gap-3 py-2"
+          >
+            <span
+              aria-hidden="true"
+              className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                node.status === 'connected'
+                  ? 'bg-emerald-500'
+                  : node.status === 'error'
+                    ? 'bg-amber-500'
+                    : 'bg-slate-400'
+              }`}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">{node.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {node.version ? `eKuiper ${node.version}` : 'Version not detected'}
+              </span>
+            </span>
+            {node.id === activeServerId && <Check className="mt-1 h-4 w-4 text-primary" />}
+          </DropdownMenuItem>
+        ))}
+        {!servers.length && (
+          <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+            No eKuiper node is configured.
+          </div>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/nodes">
+            <Plus className="mr-2 h-4 w-4" />
+            Manage nodes
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

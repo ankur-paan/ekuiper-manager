@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { useServerStore } from "@/stores/server-store";
+import { ekuiperClient } from "@/lib/ekuiper/client";
+import type { PluginType } from "@/lib/ekuiper/types";
 import { AppLayout } from "@/components/layout";
 import { EmptyState } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -28,7 +30,13 @@ import {
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
 
-type PluginType = "sources" | "sinks" | "functions" | "portables" | "udfs";
+type InstallablePluginType = Exclude<PluginType, "udfs">;
+
+const installablePluginTypes: InstallablePluginType[] = ["sources", "sinks", "functions", "portables"];
+
+function isInstallablePluginType(value: string): value is InstallablePluginType {
+  return installablePluginTypes.includes(value as InstallablePluginType);
+}
 
 interface PrebuildPlugin {
   name: string;
@@ -38,7 +46,8 @@ interface PrebuildPlugin {
 export default function InstallPluginPage() {
   const router = useRouter();
   const params = useParams();
-  const type = params.type as PluginType;
+  const typeParam = String(params.type);
+  const type = isInstallablePluginType(typeParam) ? typeParam : null;
 
   const { servers, activeServerId } = useServerStore();
   const activeServer = servers.find((s) => s.id === activeServerId);
@@ -47,7 +56,6 @@ export default function InstallPluginPage() {
   const [pluginName, setPluginName] = React.useState("");
   const [fileUrl, setFileUrl] = React.useState("");
   const [shellPaths, setShellPaths] = React.useState("");
-  const [functions, setFunctions] = React.useState("");
   const [installing, setInstalling] = React.useState(false);
 
   const [prebuildPlugins, setPrebuildPlugins] = React.useState<PrebuildPlugin[]>([]);
@@ -57,25 +65,14 @@ export default function InstallPluginPage() {
   // Fetch prebuild plugins
   React.useEffect(() => {
     const fetchPrebuild = async () => {
-      if (!activeServer) return;
+      if (!activeServer || !type || type === "portables") return;
 
       setLoadingPrebuild(true);
       try {
-        const response = await fetch(`/api/ekuiper/plugins/${type}/prebuild`, {
-          headers: {
-            "X-EKuiper-URL": activeServer.url,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data && typeof data === "object") {
-            const plugins = Object.entries(data).map(([name, file]) => ({
-              name,
-              file: file as string,
-            }));
-            setPrebuildPlugins(plugins);
-          }
+        const data = await ekuiperClient.getPrebuiltPlugins(type);
+        if (data && typeof data === "object") {
+          const plugins = Object.entries(data).map(([name, file]) => ({ name, file }));
+          setPrebuildPlugins(plugins);
         }
       } catch (err) {
         console.error("Failed to fetch prebuild plugins:", err);
@@ -84,16 +81,15 @@ export default function InstallPluginPage() {
       }
     };
 
-    if (type !== "portables" && type !== "udfs") {
-      fetchPrebuild();
-    }
+    void fetchPrebuild();
   }, [activeServer, type]);
 
   const handleInstall = async () => {
-    if (!activeServer) return;
+    if (!activeServer || !type) return;
 
-    const name = installMethod === "prebuild" ? selectedPrebuild : pluginName;
-    const url = installMethod === "prebuild"
+    const method = type === "portables" ? "url" : installMethod;
+    const name = method === "prebuild" ? selectedPrebuild : pluginName;
+    const url = method === "prebuild"
       ? prebuildPlugins.find((p) => p.name === selectedPrebuild)?.file
       : fileUrl;
 
@@ -110,32 +106,12 @@ export default function InstallPluginPage() {
     setInstalling(true);
 
     try {
-      const body: Record<string, unknown> = {
+      const body = {
         name,
         file: url,
+        ...(shellPaths ? { shellParas: shellPaths.split(",").map((value) => value.trim()).filter(Boolean) } : {}),
       };
-
-      if (shellPaths) {
-        body.shellParas = shellPaths.split(",").map((s) => s.trim());
-      }
-
-      if (type === "portables" && functions) {
-        body.functions = functions.split(",").map((s) => s.trim());
-      }
-
-      const response = await fetch(`/api/ekuiper/plugins/${type}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-EKuiper-URL": activeServer.url,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to install plugin: ${response.status}`);
-      }
+      await ekuiperClient.createPlugin(type, body);
 
       toast.success(`Plugin "${name}" installed successfully`);
       router.push("/plugins");
@@ -156,10 +132,16 @@ export default function InstallPluginPage() {
         return <Code2 className="h-5 w-5 text-purple-500" />;
       case "portables":
         return <Box className="h-5 w-5 text-orange-500" />;
-      case "udfs":
-        return <Code2 className="h-5 w-5 text-yellow-500" />;
     }
   };
+
+  if (!type) {
+    return (
+      <AppLayout title="Install Plugin">
+        <EmptyState title="Unsupported plugin type" description="Install source, sink, function, or portable plugins here. JavaScript UDFs are managed under Functions." actionLabel="Back to plugins" onAction={() => router.push("/plugins")} />
+      </AppLayout>
+    );
+  }
 
   if (!activeServer) {
     return (
@@ -207,7 +189,7 @@ export default function InstallPluginPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Installation Method */}
-            {type !== "portables" && type !== "udfs" && (
+            {type !== "portables" && (
               <Tabs value={installMethod} onValueChange={(v) => setInstallMethod(v as "url" | "prebuild")}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="prebuild">
@@ -269,8 +251,8 @@ export default function InstallPluginPage() {
               </Tabs>
             )}
 
-            {/* UDF/Portable Plugin Form */}
-            {(type === "portables" || type === "udfs") && (
+            {/* Portable plugin form */}
+            {type === "portables" && (
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Plugin Name</Label>
@@ -278,41 +260,26 @@ export default function InstallPluginPage() {
                     id="name"
                     value={pluginName}
                     onChange={(e) => setPluginName(e.target.value)}
-                    placeholder={type === "udfs" ? "myUDF" : "myPortablePlugin"}
+                    placeholder="myPortablePlugin"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="url">Script URL</Label>
+                  <Label htmlFor="url">Plugin package URL</Label>
                   <Input
                     id="url"
                     value={fileUrl}
                     onChange={(e) => setFileUrl(e.target.value)}
-                    placeholder={type === "udfs" ? "file:///path/to/func.js" : "https://example.com/myPlugin.zip"}
+                    placeholder="https://example.com/myPlugin.zip"
                   />
                   <p className="text-sm text-muted-foreground">
-                    {type === "udfs" ? "URL to the JavaScript file (file:// or http://)" : "URL to the plugin zip file"}
+                    URL to the plugin zip file
                   </p>
                 </div>
-                {type === "portables" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="functions">Functions (comma-separated)</Label>
-                    <Input
-                      id="functions"
-                      value={functions}
-                      onChange={(e) => setFunctions(e.target.value)}
-                      placeholder="func1, func2, func3"
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      List of functions provided by this portable plugin
-                    </p>
-                  </div>
-                )}
               </div>
             )}
 
             {/* Advanced Options */}
-            {type !== "udfs" && (
-              <div className="space-y-2">
+            <div className="space-y-2">
                 <Label htmlFor="shell">Shell Parameters (optional)</Label>
                 <Input
                   id="shell"
@@ -323,8 +290,7 @@ export default function InstallPluginPage() {
                 <p className="text-sm text-muted-foreground">
                   Additional shell parameters for plugin installation
                 </p>
-              </div>
-            )}
+            </div>
 
             {/* Actions */}
             <div className="flex justify-end gap-2 pt-4">

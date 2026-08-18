@@ -1,0 +1,93 @@
+name: ekuiper-manager
+
+services:
+  database:
+    image: postgres:17.10-bookworm@sha256:9b18b78397054fce88a9552e9d5a3ad5bb7fd258c5b3cc1c5028e46373d6ea8f
+    environment:
+      POSTGRES_DB: ekuiper_manager
+      POSTGRES_USER: ekuiper_manager
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ekuiper-manager-internal}
+    volumes:
+      - database_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ekuiper_manager -d ekuiper_manager"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [manager_internal]
+
+  ekuiper:
+    image: lfedge/ekuiper:2.4.1-slim@sha256:f1a2294dc005deb5a6ad5055d33019750111dc1c56f5280adb96d77c1cd096ff
+    volumes:
+      - ekuiper_config:/kuiper/etc
+      - ekuiper_data:/kuiper/data
+      - ekuiper_logs:/kuiper/log
+      - ekuiper_plugins:/kuiper/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --output-document=- http://127.0.0.1:9081/ping >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    networks:
+      manager_internal:
+        aliases: [ekuiper-alt]
+      manager_outbound:
+
+  manager:
+    build: .
+    environment:
+      DATABASE_URL: ${MANAGER_DATABASE_URL:-}
+      PGHOST: database
+      PGPORT: 5432
+      PGDATABASE: ekuiper_manager
+      PGUSER: ekuiper_manager
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ekuiper-manager-internal}
+      DEFAULT_EKUIPER_URL: http://ekuiper:9081
+      MANAGER_ORIGIN: ${MANAGER_ORIGIN:-http://localhost:3000}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      EKUIPER_API_TIMEOUT: ${EKUIPER_API_TIMEOUT:-30000}
+      AI_ASSISTANT_ENABLED: ${AI_ASSISTANT_ENABLED:-false}
+      AI_API_URL: ${AI_API_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-30000}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-1200}
+    ports:
+      - "${MANAGER_PORT:-3000}:3000"
+    volumes:
+      - manager_state:/var/lib/ekuiper-manager
+    depends_on:
+      database:
+        condition: service_healthy
+      ekuiper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    networks: [manager_internal, manager_outbound]
+
+networks:
+  manager_internal:
+    internal: true
+  manager_outbound:
+
+volumes:
+  database_data:
+  manager_state:
+  ekuiper_config:
+  ekuiper_data:
+  ekuiper_logs:
+  ekuiper_plugins:

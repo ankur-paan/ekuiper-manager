@@ -1,16 +1,7 @@
-/**
- * Server Connection Store
- * Manages multiple eKuiper server connections with Hybrid Persistence (Browser vs Database)
- */
+import { create } from 'zustand';
 
-import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-
-// Simple unique ID generator (no external deps needed)
-const uuidv4 = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-export type ServerStatus = "connected" | "disconnected" | "error" | "unknown";
-export type StorageMode = "browser" | "database";
+export type ServerStatus = 'connected' | 'disconnected' | 'error' | 'unknown';
+export type StorageMode = 'database';
 
 export interface ServerConnection {
   id: string;
@@ -18,28 +9,45 @@ export interface ServerConnection {
   url: string;
   description?: string;
   status: ServerStatus;
+  version?: string;
+  isDefault?: boolean;
   createdAt: Date;
   updatedAt?: Date;
 }
 
+interface NodePayload {
+  id: string;
+  name: string;
+  baseUrl: string;
+  description: string | null;
+  status: 'UNKNOWN' | 'ONLINE' | 'OFFLINE' | 'INCOMPATIBLE';
+  version: string | null;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface NodeListPayload {
+  nodes: NodePayload[];
+  selectedNodeId: string | null;
+}
+
 interface ServerState {
-  // Config
   storageMode: StorageMode;
-
-  // Data
   servers: ServerConnection[];
-  savedBrowserServers: ServerConnection[]; // Specific storage for browser mode
+  savedBrowserServers: ServerConnection[];
   activeServerId: string | null;
-
-  // UI State
   isLoading: boolean;
   error: string | null;
   _hasHydrated: boolean;
-
-  // Actions
-  setStorageMode: (mode: StorageMode) => void;
+  setStorageMode: (_mode: StorageMode) => void;
   fetchServers: () => Promise<void>;
-  addServer: (server: { name: string; url: string; description?: string }) => Promise<void>;
+  addServer: (server: {
+    name: string;
+    url: string;
+    description?: string;
+    authorization?: string;
+  }) => Promise<void>;
   updateServer: (id: string, updates: Partial<ServerConnection>) => Promise<void>;
   removeServer: (id: string) => Promise<void>;
   setActiveServer: (id: string | null) => void;
@@ -47,216 +55,131 @@ interface ServerState {
   setHasHydrated: (state: boolean) => void;
 }
 
-export const useServerStore = create<ServerState>()(
-  persist(
-    (set, get) => ({
-      storageMode: 'browser', // Default to Browser (client-side) as DB is experimental
-      servers: [],
-      savedBrowserServers: [],
-      activeServerId: null,
-      isLoading: false,
-      error: null,
-      _hasHydrated: false,
+function mapNode(node: NodePayload): ServerConnection {
+  const status: ServerStatus =
+    node.status === 'ONLINE'
+      ? 'connected'
+      : node.status === 'OFFLINE'
+        ? 'disconnected'
+        : node.status === 'INCOMPATIBLE'
+          ? 'error'
+          : 'unknown';
+  return {
+    id: node.id,
+    name: node.name,
+    url: node.baseUrl,
+    description: node.description ?? undefined,
+    status,
+    version: node.version ?? undefined,
+    isDefault: node.isDefault,
+    createdAt: new Date(node.createdAt),
+    updatedAt: new Date(node.updatedAt),
+  };
+}
 
-      setHasHydrated: (state) => set({ _hasHydrated: state }),
+async function responseError(response: Response): Promise<string> {
+  const payload = await response.json().catch(() => null);
+  return payload?.error?.message ?? `Request failed (${response.status})`;
+}
 
-      setStorageMode: (mode) => {
-        set({ storageMode: mode });
-        if (mode === 'database') {
-          get().fetchServers();
-        } else {
-          set(state => ({ servers: state.savedBrowserServers }));
-        }
-      },
+export const useServerStore = create<ServerState>((set, get) => ({
+  storageMode: 'database',
+  servers: [],
+  savedBrowserServers: [],
+  activeServerId: null,
+  isLoading: false,
+  error: null,
+  _hasHydrated: true,
+  setStorageMode: () => undefined,
+  setHasHydrated: (state) => set({ _hasHydrated: state }),
 
-      fetchServers: async () => {
-        const { storageMode, savedBrowserServers } = get();
-
-        // 1. Fetch Env Config to potentially seed default server
-        let envServer = null;
-        try {
-          const cfgRes = await fetch('/api/config');
-          if (cfgRes.ok) {
-            const config = await cfgRes.json();
-            if (config.ekuiper?.url) {
-              envServer = {
-                id: 'default-env',
-                name: 'Default Server',
-                url: config.ekuiper.url,
-                status: 'unknown' as ServerStatus,
-                createdAt: new Date(),
-              };
-            }
-          }
-        } catch (e) {
-          console.warn("Failed to fetch env config", e);
-        }
-
-        if (storageMode === 'browser') {
-          // If no servers exist, add the Env server
-          let currentServers = savedBrowserServers;
-          if (currentServers.length === 0 && envServer) {
-            currentServers = [envServer];
-            // Update state immediately to reflect default
-            set({
-              savedBrowserServers: currentServers,
-              servers: currentServers,
-              activeServerId: envServer.id
-            });
-          } else {
-            set({ servers: currentServers });
-          }
-
-          set({ isLoading: false, error: null });
-          return;
-        }
-
-        set({ isLoading: true, error: null });
-        try {
-          const res = await fetch('/api/servers');
-          if (!res.ok) throw new Error('Failed to fetch servers');
-          const data = await res.json();
-
-          const servers = data.map((s: any) => ({
-            ...s,
-            createdAt: new Date(s.createdAt),
-            updatedAt: s.updatedAt ? new Date(s.updatedAt) : undefined,
-            status: s.status || "unknown"
-          }));
-          set({ servers, isLoading: false });
-        } catch (err: any) {
-          set({ error: err.message, isLoading: false });
-        }
-      },
-
-      addServer: async (serverData) => {
-        const { storageMode } = get();
-        set({ isLoading: true, error: null });
-
-        if (storageMode === 'browser') {
-          const newServer: ServerConnection = {
-            id: `local-${Date.now()}`,
-            ...serverData,
-            status: 'unknown',
-            createdAt: new Date()
-          };
-          set(state => ({
-            servers: [...state.servers, newServer],
-            savedBrowserServers: [...state.savedBrowserServers, newServer],
-            activeServerId: state.activeServerId || newServer.id,
-            isLoading: false
-          }));
-          return;
-        }
-
-        try {
-          const res = await fetch('/api/servers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(serverData)
-          });
-          if (!res.ok) throw new Error('Failed to create server');
-          const raw = await res.json();
-          const newServer: ServerConnection = {
-            ...raw,
-            createdAt: new Date(raw.createdAt),
-            updatedAt: raw.updatedAt ? new Date(raw.updatedAt) : undefined,
-            status: "unknown"
-          };
-
-          set((state) => ({
-            servers: [...state.servers, newServer],
-            activeServerId: state.activeServerId || newServer.id,
-            isLoading: false
-          }));
-        } catch (err: any) {
-          set({ error: err.message, isLoading: false });
-        }
-      },
-
-      updateServer: async (id, updates) => {
-        const { storageMode } = get();
-
-        if (storageMode === 'browser') {
-          set(state => {
-            const updatedServers = state.servers.map(s => s.id === id ? { ...s, ...updates } : s);
-            return {
-              servers: updatedServers,
-              savedBrowserServers: updatedServers // Sync backup
-            };
-          });
-          return;
-        }
-
-        try {
-          set({ isLoading: true });
-          const res = await fetch(`/api/servers/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updates)
-          });
-          if (!res.ok) throw new Error('Failed to update server');
-          const raw = await res.json();
-          set((state) => ({
-            servers: state.servers.map((s) =>
-              s.id === id ? { ...s, ...raw, createdAt: new Date(raw.createdAt) } : s
-            ),
-            isLoading: false
-          }));
-        } catch (err: any) {
-          set({ error: err.message, isLoading: false });
-        }
-      },
-
-      removeServer: async (id) => {
-        const { storageMode } = get();
-
-        if (storageMode === 'browser') {
-          set(state => {
-            const remaining = state.servers.filter(s => s.id !== id);
-            return {
-              servers: remaining,
-              savedBrowserServers: remaining,
-              activeServerId: state.activeServerId === id
-                ? (remaining[0]?.id || null)
-                : state.activeServerId
-            };
-          });
-          return;
-        }
-
-        try {
-          await fetch(`/api/servers/${id}`, { method: 'DELETE' });
-          set((state) => ({
-            servers: state.servers.filter((s) => s.id !== id),
-            activeServerId:
-              state.activeServerId === id
-                ? (state.servers.find((s) => s.id !== id)?.id || null)
-                : state.activeServerId,
-          }));
-        } catch (err: any) {
-          set({ error: err.message });
-        }
-      },
-
-      setActiveServer: (id) => set({ activeServerId: id }),
-
-      getActiveServer: () => {
-        const { servers, activeServerId } = get();
-        return servers.find((s) => s.id === activeServerId) || null;
-      },
-    }),
-    {
-      name: "ekuiper-store-v3-hybrid",
-      partialize: (state) => ({
-        storageMode: state.storageMode,
-        savedBrowserServers: state.savedBrowserServers,
-        activeServerId: state.activeServerId
-      }),
-      storage: createJSONStorage(() => localStorage),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
-      },
+  fetchServers: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch('/api/nodes', { cache: 'no-store' });
+      if (!response.ok) throw new Error(await responseError(response));
+      const payload = (await response.json()) as NodeListPayload;
+      const servers = payload.nodes.map(mapNode);
+      const activeServerId =
+        servers.find((node) => node.id === payload.selectedNodeId)?.id ??
+        servers.find((node) => node.isDefault)?.id ??
+        servers[0]?.id ??
+        null;
+      set({ servers, activeServerId, isLoading: false });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to load eKuiper nodes',
+        isLoading: false,
+      });
     }
-  )
-);
+  },
+
+  addServer: async (server) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch('/api/nodes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: server.name,
+          baseUrl: server.url,
+          description: server.description,
+          authorization: server.authorization,
+        }),
+      });
+      if (!response.ok) throw new Error(await responseError(response));
+      await get().fetchServers();
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to add eKuiper node',
+        isLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  updateServer: async (id, updates) => {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: updates.name,
+        baseUrl: updates.url,
+        description: updates.description,
+      }),
+    });
+    if (!response.ok) throw new Error(await responseError(response));
+    await get().fetchServers();
+  },
+
+  removeServer: async (id) => {
+    const response = await fetch(`/api/nodes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error(await responseError(response));
+    await get().fetchServers();
+  },
+
+  setActiveServer: (id) => {
+    if (!id) {
+      set({ activeServerId: null });
+      return;
+    }
+    set({ error: null });
+    void fetch(`/api/nodes/${encodeURIComponent(id)}/select`, {
+      method: 'POST',
+      headers: { Origin: window.location.origin },
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await responseError(response));
+        set({ activeServerId: id });
+        window.location.reload();
+      })
+      .catch((error) => {
+        set({ error: error instanceof Error ? error.message : 'Failed to select eKuiper node' });
+      });
+  },
+
+  getActiveServer: () => {
+    const state = get();
+    return state.servers.find((server) => server.id === state.activeServerId) ?? null;
+  },
+}));

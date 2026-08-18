@@ -32,7 +32,6 @@ export default function DataExportPage() {
     const fetchRules = React.useCallback(async () => {
         if (!activeServer) return;
         setLoading(true);
-        ekuiperClient.setBaseUrl(activeServer.url);
         try {
             const list = await ekuiperClient.listRules();
             setRules(list);
@@ -50,11 +49,10 @@ export default function DataExportPage() {
     const handleFullExport = async () => {
         if (!activeServer) return;
         setExportingFull(true);
-        ekuiperClient.setBaseUrl(activeServer.url);
         try {
             const blob = await ekuiperClient.exportData();
             downloadBlob(blob, `ekuiper-data-${new Date().toISOString().slice(0, 10)}.json`);
-            toast.success("Full export completed");
+            toast.success("Configuration export completed");
         } catch (err) {
             toast.error(`Export failed: ${err instanceof Error ? err.message : "Error"}`);
         } finally {
@@ -69,7 +67,6 @@ export default function DataExportPage() {
             return;
         }
         setExportingPartial(true);
-        ekuiperClient.setBaseUrl(activeServer.url);
         try {
             const blob = await ekuiperClient.exportRuleset(selectedRules);
             downloadBlob(blob, `ekuiper-ruleset-${new Date().toISOString().slice(0, 10)}.json`);
@@ -121,8 +118,8 @@ export default function DataExportPage() {
         <AppLayout title="Data Export">
             <div className="space-y-6">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">Data Export</h2>
-                    <p className="text-muted-foreground">Backup your configuration or export specific rulesets.</p>
+                    <h2 className="text-2xl font-bold tracking-tight">Export eKuiper configuration</h2>
+                    <p className="text-muted-foreground">Download configuration from the selected node. Manager users and registered nodes are not included.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -131,18 +128,17 @@ export default function DataExportPage() {
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                                 <Archive className="h-5 w-5" />
-                                Full System Backup
+                                Configuration Export
                             </CardTitle>
                             <CardDescription>
-                                Export all streams, tables, rules, plugins, and settings into a single file.
-                                Use this for disaster recovery or migration.
+                                Export the configuration returned by eKuiper into a single JSON file for migration or reuse.
                             </CardDescription>
                         </CardHeader>
                         <CardContent>
                             <div className="h-32 flex items-center justify-center bg-muted/20 rounded-md border border-dashed">
                                 <div className="text-center text-sm text-muted-foreground">
                                     <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500/50" />
-                                    Includes all configuration
+                                    Selected node configuration
                                 </div>
                             </div>
                         </CardContent>
@@ -150,7 +146,7 @@ export default function DataExportPage() {
                             <Button className="w-full" onClick={handleFullExport} disabled={exportingFull}>
                                 {exportingFull && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 <Download className="mr-2 h-4 w-4" />
-                                Download Full Backup
+                                Download Configuration
                             </Button>
                         </CardFooter>
                     </Card>
@@ -163,8 +159,7 @@ export default function DataExportPage() {
                                 Selective Ruleset Export
                             </CardTitle>
                             <CardDescription>
-                                Export specific rules along with their dependent streams and tables.
-                                Useful for sharing specific logic.
+                                Export the selected rules using eKuiper&apos;s selective data export endpoint.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="flex-1 min-h-0 flex flex-col">

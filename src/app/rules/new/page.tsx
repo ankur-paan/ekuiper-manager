@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { RuleDesigner } from '@/components/rules/rule-designer';
 
 export default function NewRulePage() {
-  redirect("/query-designer");
+  return <RuleDesigner />;
 }

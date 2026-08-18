@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { useServerStore } from "@/stores/server-store";
+import { ekuiperClient } from "@/lib/ekuiper/client";
+import type { PluginType } from "@/lib/ekuiper/types";
 import { AppLayout } from "@/components/layout";
 import { EmptyState, LoadingSpinner, ConfirmDialog } from "@/components/common";
 import { Button } from "@/components/ui/button";
@@ -47,13 +49,14 @@ interface PluginDetails {
   [key: string]: unknown;
 }
 
-type PluginType = "sources" | "sinks" | "functions" | "portables" | "udfs";
+const pluginTypes: PluginType[] = ["sources", "sinks", "functions", "portables", "udfs"];
 
 export default function PluginDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const type = params.type as PluginType;
-  const name = params.name as string;
+  const typeParam = String(params.type);
+  const type = pluginTypes.includes(typeParam as PluginType) ? typeParam as PluginType : null;
+  const name = decodeURIComponent(String(params.name));
 
   const { servers, activeServerId } = useServerStore();
   const activeServer = servers.find((s) => s.id === activeServerId);
@@ -76,7 +79,7 @@ export default function PluginDetailPage() {
   const [registering, setRegistering] = React.useState(false);
 
   const fetchPluginDetails = React.useCallback(async () => {
-    if (!activeServer) {
+    if (!activeServer || !type) {
       setError("No server selected");
       setLoading(false);
       return;
@@ -86,23 +89,17 @@ export default function PluginDetailPage() {
     setError(null);
 
     try {
-      const response = await fetch(`/api/ekuiper/plugins/${type}/${name}`, {
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch plugin details: ${response.status}`);
-      }
-
       if (type === "udfs") {
-        // UDF endpoint returns the script content as text
-        const content = await response.text();
-        setPlugin({ name, content });
+        const udf = await ekuiperClient.getUDF(name);
+        setPlugin({ ...udf, name });
       } else {
-        const data = await response.json();
-        setPlugin(data);
+        const data = await ekuiperClient.getPlugin(type, name);
+        if (type === "portables") {
+          const status = await ekuiperClient.getPortablePluginStatus(name).catch(() => null);
+          setPlugin({ ...data, ...(status ?? {}) });
+        } else {
+          setPlugin({ ...data });
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch plugin details");
@@ -116,21 +113,11 @@ export default function PluginDetailPage() {
   }, [fetchPluginDetails]);
 
   const handleDelete = async () => {
-    if (!activeServer) return;
+    if (!activeServer || !type || type === "udfs") return;
     setDeleting(true);
 
     try {
-      const stopParam = stopRulesOnDelete ? "?stop=1" : "";
-      const response = await fetch(`/api/ekuiper/plugins/${type}/${name}${stopParam}`, {
-        method: "DELETE",
-        headers: {
-          "X-EKuiper-URL": activeServer.url,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to delete plugin: ${response.status}`);
-      }
+      await ekuiperClient.deletePlugin(type, name, stopRulesOnDelete);
 
       toast.success(`Plugin "${name}" deleted successfully`);
       router.push("/plugins");
@@ -142,25 +129,14 @@ export default function PluginDetailPage() {
   };
 
   const handleUpdate = async () => {
-    if (!activeServer || !updateUrl) {
+    if (!activeServer || !type || type === "udfs" || !updateUrl) {
       toast.error("Please provide a plugin URL");
       return;
     }
     setUpdating(true);
 
     try {
-      const response = await fetch(`/api/ekuiper/plugins/${type}/${name}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "X-EKuiper-URL": activeServer.url,
-        },
-        body: JSON.stringify({ name, file: updateUrl }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to update plugin: ${response.status}`);
-      }
+      await ekuiperClient.updatePlugin(type, name, updateUrl);
 
       toast.success(`Plugin "${name}" updated successfully. Restart eKuiper for native plugins.`);
       setShowUpdateDialog(false);
@@ -174,7 +150,7 @@ export default function PluginDetailPage() {
   };
 
   const handleRegisterFunctions = async () => {
-    if (!activeServer || !functionsToRegister.trim()) {
+    if (!activeServer || type !== "functions" || !functionsToRegister.trim()) {
       toast.error("Please provide function names");
       return;
     }
@@ -182,18 +158,7 @@ export default function PluginDetailPage() {
 
     try {
       const functions = functionsToRegister.split(",").map((f) => f.trim()).filter(Boolean);
-      const response = await fetch(`/api/ekuiper/plugins/functions/${name}/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-EKuiper-URL": activeServer.url,
-        },
-        body: JSON.stringify({ functions }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to register functions: ${response.status}`);
-      }
+      await ekuiperClient.registerFunctions(name, functions);
 
       toast.success(`Functions registered for plugin "${name}"`);
       setShowRegisterDialog(false);
@@ -218,6 +183,8 @@ export default function PluginDetailPage() {
         return <Box className="h-6 w-6 text-orange-500" />;
       case "udfs":
         return <Code2 className="h-6 w-6 text-yellow-500" />;
+      default:
+        return <Plug className="h-6 w-6 text-muted-foreground" />;
     }
   };
 
@@ -234,6 +201,14 @@ export default function PluginDetailPage() {
       </Badge>
     );
   };
+
+  if (!type) {
+    return (
+      <AppLayout title="Plugin">
+        <EmptyState title="Unsupported plugin type" description="This plugin category is not supported." actionLabel="Back to plugins" onAction={() => router.push("/plugins")} />
+      </AppLayout>
+    );
+  }
 
   if (!activeServer) {
     return (
@@ -301,20 +276,19 @@ export default function PluginDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={fetchPluginDetails}>
+            <Button variant="outline" size="icon" onClick={fetchPluginDetails} aria-label="Refresh plugin">
               <RefreshCw className="h-4 w-4" />
             </Button>
-            <Button variant="outline" onClick={() => setShowUpdateDialog(true)}>
-              <Upload className="mr-2 h-4 w-4" />
-              Update
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => setShowDeleteDialog(true)}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete
-            </Button>
+            {type !== "udfs" && <>
+              <Button variant="outline" onClick={() => setShowUpdateDialog(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Update
+              </Button>
+              <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </Button>
+            </>}
           </div>
         </div>
 
@@ -409,15 +383,9 @@ export default function PluginDetailPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {type === "udfs" ? (
-              <pre className="bg-muted rounded-lg p-4 overflow-x-auto text-sm font-mono whitespace-pre-wrap">
-                {plugin?.content as string}
-              </pre>
-            ) : (
-              <pre className="bg-muted rounded-lg p-4 overflow-x-auto text-sm">
-                {JSON.stringify(plugin, null, 2)}
-              </pre>
-            )}
+            <pre className="bg-muted rounded-lg p-4 overflow-x-auto text-sm">
+              {JSON.stringify(plugin, null, 2)}
+            </pre>
           </CardContent>
         </Card>
       </div>

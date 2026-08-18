@@ -39,8 +39,6 @@ export default function SchemaDetailPage() {
     const fetchData = React.useCallback(async () => {
         if (!activeServer) return;
         setLoading(true);
-        ekuiperClient.setBaseUrl(activeServer.url);
-
         try {
             const data = await ekuiperClient.getSchema(type, name);
             setSchema(data);

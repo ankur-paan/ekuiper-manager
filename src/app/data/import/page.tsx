@@ -5,12 +5,11 @@ import { useServerStore } from "@/stores/server-store";
 import { ekuiperClient } from "@/lib/ekuiper/client";
 import { ImportStatus } from "@/lib/ekuiper/types";
 import { AppLayout } from "@/components/layout";
-import { EmptyState, LoadingSpinner } from "@/components/common";
+import { EmptyState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import {
     Card,
     CardContent,
-    CardDescription,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
@@ -23,7 +22,6 @@ import {
     FileJson,
     AlertTriangle,
     Loader2,
-    CheckCircle2,
     XCircle
 } from "lucide-react";
 import { toast } from "sonner";
@@ -76,8 +74,6 @@ export default function DataImportPage() {
 
         setUploading(true);
         setImportStatus({ status: "running", message: "Starting upload...", progress: 0 });
-        ekuiperClient.setBaseUrl(activeServer.url);
-
         const pollInterval = setInterval(async () => {
             try {
                 const status = await ekuiperClient.getImportStatus();
@@ -101,7 +97,7 @@ export default function DataImportPage() {
 
             if (activeTab === "data") {
                 await ekuiperClient.importData(fileContent, { stop: optionStop, partial: optionPartial });
-                toast.success("System data restored successfully");
+                toast.success("eKuiper configuration imported successfully");
             } else {
                 await ekuiperClient.importRuleset(fileContent);
                 toast.success("Ruleset imported successfully");
@@ -135,13 +131,13 @@ export default function DataImportPage() {
         <AppLayout title="Data Import">
             <div className="max-w-3xl mx-auto space-y-6">
                 <div className="space-y-2">
-                    <h1 className="text-3xl font-bold">Import Data</h1>
-                    <p className="text-muted-foreground">Restore system data or import rulesets from JSON files.</p>
+                    <h1 className="text-3xl font-bold">Import eKuiper configuration</h1>
+                    <p className="text-muted-foreground">Import configuration or a ruleset into the selected node. Manager users and nodes are not included.</p>
                 </div>
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="grid w-full grid-cols-2">
-                        <TabsTrigger value="data">System Data (Backup)</TabsTrigger>
+                        <TabsTrigger value="data">Configuration</TabsTrigger>
                         <TabsTrigger value="rules">Ruleset Only</TabsTrigger>
                     </TabsList>
 
@@ -168,12 +164,21 @@ export default function DataImportPage() {
                                     onDragLeave={handleDragLeave}
                                     onDrop={handleDrop}
                                     onClick={() => fileInputRef.current?.click()}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter" || event.key === " ") {
+                                            event.preventDefault();
+                                            fileInputRef.current?.click();
+                                        }
+                                    }}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Select ${activeTab === "data" ? "configuration" : "ruleset"} JSON file`}
                                 >
                                     <div className="p-4 rounded-full bg-primary/10 mb-4">
                                         {activeTab === 'data' ? <UploadCloud className="h-8 w-8 text-primary" /> : <FileJson className="h-8 w-8 text-primary" />}
                                     </div>
                                     <h3 className="text-lg font-semibold mb-1">
-                                        Drag & drop {activeTab === 'data' ? 'backup' : 'ruleset'} file
+                                        Drag & drop {activeTab === 'data' ? 'configuration' : 'ruleset'} file
                                     </h3>
                                     <p className="text-muted-foreground text-sm mb-4">
                                         or click to browse from your computer

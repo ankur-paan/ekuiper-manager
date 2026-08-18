@@ -173,6 +173,7 @@ export interface RuleOptions {
     maxDelay?: number;
     jitterFactor?: number;
   };
+  [key: string]: unknown;
 }
 
 export interface SinkConfig {
@@ -237,8 +238,14 @@ export type Sink = LogSink | MqttSink | RestSink | MemorySink | NopSink | Record
 
 export interface Rule {
   id: string;
-  sql: string;
+  name?: string;
+  version?: number;
+  temp?: boolean;
+  sql?: string;
+  graph?: Record<string, unknown>;
   actions: Sink[];
+  /** eKuiper defaults this to true when omitted. */
+  triggered?: boolean;
   options?: RuleOptions;
   tags?: string[];
 }
@@ -246,6 +253,10 @@ export interface Rule {
 export interface RuleListItem {
   id: string;
   status: RuleStatus;
+  name?: string;
+  version?: number;
+  trace?: boolean;
+  tags?: string[];
 }
 
 export interface RuleMetrics {
@@ -422,7 +433,6 @@ export interface PluginCreateRequest {
   name: string;
   file: string;
   shellParas?: string[];
-  functions?: string[];
 }
 
 // -----------------------------------------------------------------------------
@@ -474,12 +484,15 @@ export interface ExternalFunction {
   name: string;
   serviceName: string;
   interfaceName: string;
+  address?: string;
+  methodName?: string;
 }
 
 export interface JSUDF {
   id: string;
+  description: string;
   script: string;
-  isAgg?: boolean;
+  isAgg: boolean;
 }
 
 // -----------------------------------------------------------------------------
@@ -537,7 +550,7 @@ export interface HttpPullSourceConfig {
 }
 
 // -----------------------------------------------------------------------------
-// Decision Tree / Pipeline Types (Custom for SOTA Playground)
+// Query composition types retained for compatibility with saved definitions.
 // -----------------------------------------------------------------------------
 
 export interface DecisionTreeNode {

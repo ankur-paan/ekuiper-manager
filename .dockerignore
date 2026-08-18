@@ -1,0 +1,11 @@
+.git
+.github
+.next
+.claude
+.data
+coverage
+node_modules
+*.log
+.env*
+docs
+doc

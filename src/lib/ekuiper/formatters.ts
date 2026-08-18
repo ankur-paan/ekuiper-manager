@@ -45,7 +45,7 @@ export function parseNodeId(rawId: string) {
     }
 
     // 2. Strip Auto-generated Suffixes (_0, _1)
-    // SOTA Logic: Remove trailing numbers, but keep meaningful numbers if part of name
+    // Remove generated trailing numbers while retaining meaningful numeric names.
     // e.g. "my_stream_2" -> "my stream"
     const parts = label.split('_');
     const meaningfulParts = parts.filter(p => isNaN(Number(p)));

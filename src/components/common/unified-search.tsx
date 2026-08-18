@@ -3,17 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
-    Calculator,
-    Calendar,
-    CreditCard,
-    Settings,
-    Smile,
-    User,
     Database,
     Workflow,
     Server,
-    Plug,
-    FileJson,
     Upload,
 } from "lucide-react";
 
@@ -25,16 +17,14 @@ import {
     CommandItem,
     CommandList,
     CommandSeparator,
-    CommandShortcut,
 } from "@/components/ui/command";
 import { ekuiperClient } from "@/lib/ekuiper/client";
 import { useServerStore } from "@/stores/server-store";
-import { toast } from "sonner";
 
 interface SearchItem {
     id: string;
     title: string;
-    type: "stream" | "table" | "rule" | "page" | "plugin";
+    type: "stream" | "table" | "rule";
     href: string;
 }
 
@@ -62,30 +52,24 @@ export function UnifiedSearch() {
     const fetchData = React.useCallback(async () => {
         if (!activeServer) return;
         setLoading(true);
-        ekuiperClient.setBaseUrl(activeServer.url);
-
         const newItems: SearchItem[] = [];
 
         try {
             // Parallel fetch
-            const [streams, tables, rules, plugins] = await Promise.allSettled([
+            const [streams, tables, rules] = await Promise.allSettled([
                 ekuiperClient.listStreams(),
                 ekuiperClient.listTables(),
                 ekuiperClient.listRules(),
-                ekuiperClient.listPlugins("portables"), // Just one type for now or add native too
             ]);
 
             if (streams.status === "fulfilled") {
-                streams.value.forEach(s => newItems.push({ id: `stream-${s.name}`, title: s.name, type: "stream", href: `/streams/${s.name}` }));
+                streams.value.forEach(s => newItems.push({ id: `stream-${s.name}`, title: s.name, type: "stream", href: `/streams/${encodeURIComponent(s.name)}` }));
             }
             if (tables.status === "fulfilled") {
-                tables.value.forEach(t => newItems.push({ id: `table-${t.name}`, title: t.name, type: "table", href: `/tables/${t.name}` }));
+                tables.value.forEach(t => newItems.push({ id: `table-${t.name}`, title: t.name, type: "table", href: `/tables/${encodeURIComponent(t.name)}` }));
             }
             if (rules.status === "fulfilled") {
-                rules.value.forEach(r => newItems.push({ id: `rule-${r.id}`, title: r.id, type: "rule", href: `/rules/${r.id}/topo` })); // Jump to topo
-            }
-            if (plugins.status === "fulfilled") {
-                plugins.value.forEach(p => newItems.push({ id: `plugin-${p}`, title: p, type: "plugin", href: `/plugins` }));
+                rules.value.forEach(r => newItems.push({ id: `rule-${r.id}`, title: r.id, type: "rule", href: `/rules/${encodeURIComponent(r.id)}` }));
             }
 
         } catch (err) {
@@ -109,9 +93,8 @@ export function UnifiedSearch() {
 
     return (
         <>
-            <p className="fixed bottom-0 left-0 right-0 hidden"></p>
             <CommandDialog open={open} onOpenChange={setOpen}>
-                <CommandInput placeholder="Type a command or search..." />
+                <CommandInput placeholder={loading ? "Loading node resources…" : "Type a command or search…"} />
                 <CommandList>
                     <CommandEmpty>No results found.</CommandEmpty>
 
@@ -130,7 +113,7 @@ export function UnifiedSearch() {
                         </CommandItem>
                         <CommandItem onSelect={() => runCommand(() => router.push("/data/import"))}>
                             <Upload className="mr-2 h-4 w-4" />
-                            <span>Import Data</span>
+                            <span>Import configuration</span>
                         </CommandItem>
                     </CommandGroup>
 

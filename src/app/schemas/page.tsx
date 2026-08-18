@@ -18,7 +18,6 @@ import { type ColumnDef } from "@tanstack/react-table";
 import {
   Plus,
   MoreHorizontal,
-  FileJson,
   Trash2,
   FileCode,
   ArrowUpDown,
@@ -36,7 +35,7 @@ export default function SchemasPage() {
   const { servers, activeServerId } = useServerStore();
   const activeServer = servers.find((s) => s.id === activeServerId);
 
-  const [activeTab, setActiveTab] = React.useState<"protobuf" | "avro" | "custom">("protobuf");
+  const [activeTab, setActiveTab] = React.useState<"protobuf" | "custom">("protobuf");
   const [data, setData] = React.useState<SchemaItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -47,8 +46,6 @@ export default function SchemasPage() {
 
     setLoading(true);
     setError(null);
-    ekuiperClient.setBaseUrl(activeServer.url);
-
     try {
       const list = await ekuiperClient.listSchemas(activeTab);
       const items = Array.isArray(list) ? list.map(name => ({ name })) : [];
@@ -102,13 +99,13 @@ export default function SchemasPage() {
       cell: ({ row }) => (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label={`Actions for ${row.original.name}`}>
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
-              onClick={() => router.push(`/schemas/${activeTab}/${row.original.name}`)}
+              onClick={() => router.push(`/schemas/${activeTab}/${encodeURIComponent(row.original.name)}`)}
             >
               <FileType className="mr-2 h-4 w-4" />
               View / Edit
@@ -141,7 +138,7 @@ export default function SchemasPage() {
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Schemas</h2>
             <p className="text-muted-foreground">
-              Manage data schemas (Protobuf, Avro)
+              Manage Protobuf and custom schemas
             </p>
           </div>
           <Button onClick={() => router.push(`/schemas/new?type=${activeTab}`)}>
@@ -153,7 +150,6 @@ export default function SchemasPage() {
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
           <TabsList>
             <TabsTrigger value="protobuf">Protobuf</TabsTrigger>
-            <TabsTrigger value="avro">Avro</TabsTrigger>
             <TabsTrigger value="custom">Custom</TabsTrigger>
           </TabsList>
 

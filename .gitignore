@@ -12,12 +12,20 @@ dist/
 # Local database
 .data/
 
-# Documentation (local only)
+# Local-only documentation (selected product/audit documents are tracked)
 doc/
-docs/
+docs/*
+!docs/COMMERCIAL_FEATURE_TEARDOWN.md
+!docs/NEURONEX_TEARDOWN_ANALYSIS.md
+!docs/ORIGINAL_MANAGER_UX_AUDIT.md
+!docs/ORIGINAL_MANAGER_PLUS_IEF_FLOW_CATALOG.md
+!docs/AI_ASSISTANT.md
+!docs/RULE_DESIGNER.md
 
 # Testing
 coverage/
+playwright-report/
+test-results/
 
 # Environment files
 .env
@@ -48,25 +56,13 @@ next-env.d.ts
 # Misc
 *.log
 .vercel
+/.claude/
 
 # AI Planning Docs
 IMPLEMENTATION_PLAN.md
-
-# Generated Prisma client
-/src/generated/prisma
 
 # Build logs and temporary files
 build_log.txt
 build_output.txt
 body.json
 response.txt
-
-# SQLite databases (local development)
-*.db
-*.db-journal
-*.sqlite
-*.sqlite3
-
-# Prisma local development files
-prisma/migrations/
-prisma.config.ts
