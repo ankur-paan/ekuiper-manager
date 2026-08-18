@@ -97,7 +97,7 @@ Priority meanings:
 | TEST-001 | P0 | Regressions are caught before merge. | Add unit, API contract, integration, and Playwright smoke tests against an official pinned eKuiper container. | Quality | DIST-001, API-001 | Complete for release-candidate slice; broader matrix remains P1 |
 | DEP-001 | P0 | Dependency risk is understood and reduced. | Run the live advisory audit; update vulnerable direct dependencies and scoped transitives; document any accepted risk. | Maintainer | TEST-001 | Complete; zero audit findings |
 | CLEAN-001 | P1 | The repository contains no environment-specific defaults. | Remove environment-specific hosts, credentials, and test assumptions; keep only sanitized fixtures. | Maintainer | TEST-001 | Complete for tracked production/test files |
-| AI-001 | P1 | Operators can understand every screen without surrendering control. | Provide a global context-aware assistant with a server-selected OpenAI-compatible provider, bounded/redacted page context, per-user rate limits, audit metadata, page-specific guidance, and no mutation tools. | Full stack/Security | SEC-001, SEC-003 | Complete; provider is optional and off by default |
+| AI-001 | P1 | Operators can understand and investigate every screen without surrendering control. | Provide a global read-only operations agent with a server-selected OpenAI-compatible provider, bounded/redacted page and tool context, permission-aware fixed database readers, allowlisted selected-node GETs, iterative/parallel tool calling, per-user rate limits, audit metadata, and no mutation tools. | Full stack/Security | SEC-001, SEC-003 | Complete; provider is optional and off by default |
 
 ### Next — complete the self-hosted lifecycle and core eKuiper workflows
 

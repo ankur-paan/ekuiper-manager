@@ -2,7 +2,18 @@
 
 import * as React from 'react';
 import { usePathname } from 'next/navigation';
-import { Bot, Loader2, Send, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
+import {
+  AlertCircle,
+  Bot,
+  CheckCircle2,
+  Database,
+  Loader2,
+  Search,
+  Send,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
@@ -29,6 +40,16 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   suggestions?: string[];
+  activity?: AssistantActivity[];
+  rounds?: number;
+}
+
+interface AssistantActivity {
+  tool: string;
+  label: string;
+  status: 'completed' | 'failed';
+  round: number;
+  durationMs: number;
 }
 
 interface AssistantStatus {
@@ -37,9 +58,9 @@ interface AssistantStatus {
 }
 
 const QUICK_PROMPTS = [
-  'Explain this page',
-  'What should I configure next?',
-  'Review the visible values',
+  'Summarize this stack from live data',
+  'Find unhealthy or misconfigured resources',
+  'What is running on the selected node?',
 ];
 
 function isVisible(element: HTMLElement): boolean {
@@ -169,6 +190,37 @@ function AssistantMarkdown({ content }: { content: string }) {
   );
 }
 
+function Investigation({ activity, rounds }: { activity: AssistantActivity[]; rounds?: number }) {
+  const completed = activity.filter((item) => item.status === 'completed').length;
+  return (
+    <details className="mb-2 rounded-md border border-border/70 bg-background/60 text-xs">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-medium">
+        <Search className="h-3.5 w-3.5 text-primary" />
+        Investigated {activity.length} read-only source{activity.length === 1 ? '' : 's'}
+        {rounds && rounds > 1 ? ` over ${rounds} reasoning rounds` : ''}
+      </summary>
+      <div className="border-t px-3 py-2 text-muted-foreground">
+        <p className="mb-2">{completed} reads completed. Tool inputs and raw results stay server-side.</p>
+        <ul className="space-y-1.5">
+          {activity.map((item, index) => (
+            <li key={`${item.tool}-${item.round}-${index}`} className="flex items-start gap-2">
+              {item.status === 'completed' ? (
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+              )}
+              <span>
+                {item.label}
+                <span className="ml-1 text-[10px] opacity-70">round {item.round}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
 export function Assistant({ pageTitle }: AssistantProps) {
   const pathname = usePathname();
   const activeServer = useServerStore((state) => state.getActiveServer());
@@ -236,7 +288,12 @@ export function Assistant({ pageTitle }: AssistantProps) {
           }),
         });
         if (!response.ok) throw new Error(await responseError(response));
-        const payload = (await response.json()) as { message: string; suggestions?: string[] };
+        const payload = (await response.json()) as {
+          message: string;
+          suggestions?: string[];
+          activity?: AssistantActivity[];
+          rounds?: number;
+        };
         setMessages((current) => [
           ...current,
           {
@@ -244,6 +301,8 @@ export function Assistant({ pageTitle }: AssistantProps) {
             role: 'assistant',
             content: payload.message,
             suggestions: payload.suggestions?.slice(0, 3),
+            activity: payload.activity?.slice(0, 32),
+            rounds: payload.rounds,
           },
         ]);
       } catch (caught) {
@@ -275,17 +334,17 @@ export function Assistant({ pageTitle }: AssistantProps) {
           <SheetHeader className="border-b p-5 pr-12 text-left">
             <div className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-primary" />
-              <SheetTitle>Operator assistant</SheetTitle>
+              <SheetTitle>Operations agent</SheetTitle>
             </div>
             <SheetDescription>
-              Context-aware help for {pageTitle}. It advises; you review and operate every control.
+              Read-only investigation for {pageTitle}. It correlates live state; you control every change.
             </SheetDescription>
           </SheetHeader>
 
           <div className="flex items-center justify-between border-b px-5 py-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Visible secrets are redacted
+              Read-only tools · secrets redacted
             </span>
             {messages.length > 0 && (
               <Button
@@ -325,10 +384,13 @@ export function Assistant({ pageTitle }: AssistantProps) {
               {status?.enabled && messages.length === 0 && (
                 <div className="space-y-3">
                   <div className="rounded-lg bg-muted/60 p-4 text-sm">
-                    <p className="font-medium">Ask about any visible option</p>
+                    <p className="flex items-center gap-2 font-medium">
+                      <Database className="h-4 w-4 text-primary" /> Ask about the actual stack
+                    </p>
                     <p className="mt-1 text-muted-foreground">
-                      I receive a redacted snapshot of this page only when you send a message. I cannot
-                      click, save, start, stop, or delete resources.
+                      I can inspect permission-appropriate Manager data and the selected eKuiper node,
+                      follow related resources over multiple reads, and explain what I find. I cannot
+                      create, change, start, stop, or delete anything.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -360,7 +422,12 @@ export function Assistant({ pageTitle }: AssistantProps) {
                     )}
                   >
                     {message.role === 'assistant' ? (
-                      <AssistantMarkdown content={message.content} />
+                      <>
+                        {message.activity && message.activity.length > 0 && (
+                          <Investigation activity={message.activity} rounds={message.rounds} />
+                        )}
+                        <AssistantMarkdown content={message.content} />
+                      </>
                     ) : (
                       message.content
                     )}
@@ -392,7 +459,7 @@ export function Assistant({ pageTitle }: AssistantProps) {
               ))}
               {sending && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
+                  <Loader2 className="h-4 w-4 animate-spin" /> Investigating live Manager and eKuiper data…
                 </div>
               )}
               {error && (
@@ -419,7 +486,7 @@ export function Assistant({ pageTitle }: AssistantProps) {
                 id="assistant-message"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder={status?.enabled ? 'Ask about this page…' : 'Assistant is not configured'}
+                placeholder={status?.enabled ? 'Ask about this page or live stack…' : 'Assistant is not configured'}
                 maxLength={4_000}
                 rows={3}
                 disabled={!status?.enabled || sending}
@@ -440,7 +507,7 @@ export function Assistant({ pageTitle }: AssistantProps) {
               </Button>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              AI can be wrong. Review generated SQL, JSON, and operational advice before acting.
+              AI can be wrong. Its tools are read-only; review generated SQL, JSON, and advice before acting.
             </p>
           </form>
         </SheetContent>
