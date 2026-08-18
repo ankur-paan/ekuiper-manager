@@ -6,6 +6,8 @@ on:
     paths:
       - 'docs-site/**'
       - 'public/ekuiper-openapi.json'
+      - 'scripts/validate-openapi.mjs'
+      - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -26,9 +28,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20.x'
+
+      - name: Validate eKuiper v2.4.1 OpenAPI contract
+        run: node scripts/validate-openapi.mjs
       
       - name: Copy latest OpenAPI spec
         run: cp public/ekuiper-openapi.json docs-site/ekuiper-openapi.json
+
+      - name: Verify deployed contract matches canonical contract
+        run: cmp public/ekuiper-openapi.json docs-site/ekuiper-openapi.json
       
       - name: Setup Pages
         uses: actions/configure-pages@v5

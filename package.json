@@ -10,7 +10,8 @@
     "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit",
     "test": "jest --passWithNoTests",
-    "test:coverage": "jest --coverage --passWithNoTests"
+    "test:coverage": "jest --coverage --passWithNoTests",
+    "validate:openapi": "node scripts/validate-openapi.mjs"
   },
   "dependencies": {
     "@eslint/eslintrc": "^3.3.3",

@@ -35,7 +35,7 @@ This project aims to fill that gap with a **completely open-source, community-dr
 
 | Feature | Description |
 |---------|-------------|
-| **Swagger API Playground** | Complete interactive API documentation with live "Try It Out" functionality. Full OpenAPI 3.0 spec with 70+ endpoints. |
+| **Swagger API Playground** | Interactive API documentation with live "Try It Out" functionality. The OpenAPI 3.0 contract covers all 140 management operations registered by eKuiper v2.4.1. |
 | **Rule Tracing & Debugging** | Real-time data flow tracing with span hierarchy and detailed message attributes. |
 | **Rule Topology** | Visual graph representation of the data flow from sources through operators to sinks. |
 | **Query Plan (Explain)** | Visualized execution plans and performance hints for eKuiper SQL queries. |
@@ -232,7 +232,7 @@ src/
 │       ├── manager-client.ts  # Extended manager client
 │       └── manager-types.ts   # TypeScript interfaces
 └── public/
-    └── ekuiper-openapi.json   # Complete OpenAPI spec
+    └── ekuiper-openapi.json   # eKuiper v2.4.1 OpenAPI contract (140 operations)
 ```
 
 ---
