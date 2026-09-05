@@ -176,4 +176,129 @@ describe('validateFlowStructure', () => {
 
     expect(JSON.stringify(doc)).toBe(snapshot);
   });
+
+  it('accepts an acyclic A->B->C chain without cycle diagnostics', () => {
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({ id: 'node-a', type: 'test-source', name: 'A' }),
+        createFlowNode({ id: 'node-b', type: 'test-transform', name: 'B' }),
+        createFlowNode({ id: 'node-c', type: 'test-sink', name: 'C' }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-ab',
+          sourceNodeId: 'node-a',
+          targetNodeId: 'node-b',
+        }),
+        createFlowEdge({
+          id: 'edge-bc',
+          sourceNodeId: 'node-b',
+          targetNodeId: 'node-c',
+        }),
+      ],
+    });
+
+    const diagnostics = validateFlowStructure(doc);
+
+    expect(
+      diagnostics.filter((item) => item.code === 'FLOW_CYCLE_UNSUPPORTED'),
+    ).toEqual([]);
+    expect(diagnostics).toEqual([]);
+  });
+
+  it('reports exactly one FLOW_CYCLE_UNSUPPORTED diagnostic for A->B->C->A', () => {
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({ id: 'node-a', type: 'test-source', name: 'A' }),
+        createFlowNode({ id: 'node-b', type: 'test-transform', name: 'B' }),
+        createFlowNode({ id: 'node-c', type: 'test-sink', name: 'C' }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-ab',
+          sourceNodeId: 'node-a',
+          targetNodeId: 'node-b',
+        }),
+        createFlowEdge({
+          id: 'edge-bc',
+          sourceNodeId: 'node-b',
+          targetNodeId: 'node-c',
+        }),
+        createFlowEdge({
+          id: 'edge-ca',
+          sourceNodeId: 'node-c',
+          targetNodeId: 'node-a',
+        }),
+      ],
+    });
+
+    const diagnostics = validateFlowStructure(doc);
+    const matches = diagnostics.filter(
+      (item) => item.code === 'FLOW_CYCLE_UNSUPPORTED',
+    );
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.severity).toBe('error');
+  });
+
+  it('reports no cycle diagnostics for disconnected acyclic components', () => {
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({ id: 'node-a', type: 'test-source', name: 'A' }),
+        createFlowNode({ id: 'node-b', type: 'test-sink', name: 'B' }),
+        createFlowNode({ id: 'node-c', type: 'test-source', name: 'C' }),
+        createFlowNode({ id: 'node-d', type: 'test-sink', name: 'D' }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-ab',
+          sourceNodeId: 'node-a',
+          targetNodeId: 'node-b',
+        }),
+        createFlowEdge({
+          id: 'edge-cd',
+          sourceNodeId: 'node-c',
+          targetNodeId: 'node-d',
+        }),
+      ],
+    });
+
+    expect(
+      validateFlowStructure(doc).filter(
+        (item) => item.code === 'FLOW_CYCLE_UNSUPPORTED',
+      ),
+    ).toEqual([]);
+  });
+
+  it('ignores edges with missing endpoints during cycle detection', () => {
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({ id: 'node-a', type: 'test-source', name: 'A' }),
+        createFlowNode({ id: 'node-b', type: 'test-sink', name: 'B' }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-ab',
+          sourceNodeId: 'node-a',
+          targetNodeId: 'node-b',
+        }),
+        createFlowEdge({
+          id: 'edge-dangling',
+          sourceNodeId: 'node-does-not-exist',
+          targetNodeId: 'node-a',
+        }),
+      ],
+    });
+
+    const diagnostics = validateFlowStructure(doc);
+
+    expect(
+      diagnostics.filter((item) => item.code === 'FLOW_CYCLE_UNSUPPORTED'),
+    ).toEqual([]);
+    expect(
+      diagnostics.filter(
+        (item) => item.code === 'FLOW_EDGE_SOURCE_MISSING',
+      ),
+    ).toHaveLength(1);
+  });
 });
