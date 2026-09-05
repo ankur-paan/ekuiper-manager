@@ -1,5 +1,7 @@
 import type { FlowDiagnostic } from '../model/diagnostic';
 import {
+  FLOW_NO_SINK,
+  FLOW_NO_SOURCE,
   FLOW_PORT_INCOMPATIBLE,
   FLOW_PORT_SOURCE_MISSING,
   FLOW_PORT_TARGET_MISSING,
@@ -147,6 +149,63 @@ export function validateFlowEdgePorts(
         edgeId: edge.id,
       });
     }
+  }
+
+  return diagnostics;
+}
+
+/**
+ * Registry-aware source/sink presence validation for v1alpha1 Flow
+ * documents.
+ *
+ * Counts known node definitions (exact type + typeVersion resolution) by
+ * registry category. At least one known `source` and at least one known
+ * `sink` are required. Missing sources produce one FLOW_NO_SOURCE
+ * diagnostic; missing sinks produce one FLOW_NO_SINK diagnostic;
+ * independently, so a flow with neither produces both. Unknown node types
+ * satisfy neither requirement. Returns every diagnostic in one pass. Never
+ * throws for well-typed input and never mutates its input or the registry.
+ */
+export function validateFlowSourceSinkPresence(
+  document: FlowDocument,
+  registry: NodeRegistry,
+): FlowDiagnostic[] {
+  const diagnostics: FlowDiagnostic[] = [];
+
+  const nodes = Array.isArray(document?.spec?.nodes)
+    ? document.spec.nodes
+    : [];
+
+  let hasSource = false;
+  let hasSink = false;
+
+  for (const node of nodes) {
+    const definition = registry.get(node.type, node.typeVersion);
+    if (definition === undefined) {
+      continue;
+    }
+    if (definition.category === 'source') {
+      hasSource = true;
+    }
+    if (definition.category === 'sink') {
+      hasSink = true;
+    }
+  }
+
+  if (!hasSource) {
+    diagnostics.push({
+      code: FLOW_NO_SOURCE,
+      severity: 'error',
+      message: 'Flow has no source node.',
+    });
+  }
+
+  if (!hasSink) {
+    diagnostics.push({
+      code: FLOW_NO_SINK,
+      severity: 'error',
+      message: 'Flow has no sink node.',
+    });
   }
 
   return diagnostics;
