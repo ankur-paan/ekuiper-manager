@@ -7,6 +7,7 @@ import {
 } from '@/lib/flows/testing/flow-fixtures';
 import {
   validateFlowEdgePorts,
+  validateFlowSourceSinkPresence,
   validateFlowUnknownNodeTypes,
 } from '@/lib/flows/validation/registry-validation';
 
@@ -285,5 +286,175 @@ describe('validateFlowEdgePorts', () => {
     expect(matches[0]?.severity).toBe('error');
     expect(matches[0]?.message).toContain('stream');
     expect(matches[0]?.message).toContain('table');
+  });
+});
+
+describe('validateFlowSourceSinkPresence', () => {
+  function buildCategorizedRegistry(): NodeRegistry {
+    const registry = new NodeRegistry();
+    registry.register(
+      buildDefinition({ type: 'test-source', version: 1, category: 'source' }),
+    );
+    registry.register(
+      buildDefinition({ type: 'test-sink', version: 1, category: 'sink' }),
+    );
+    registry.register(
+      buildDefinition({ type: 'test-filter', version: 1, category: 'transform' }),
+    );
+    return registry;
+  }
+
+  it('passes when the flow has one source and one sink', () => {
+    const registry = buildCategorizedRegistry();
+    const doc = createMinimalFlowDocument();
+
+    expect(validateFlowSourceSinkPresence(doc, registry)).toEqual([]);
+  });
+
+  it('passes for multi-source and multi-sink flows', () => {
+    const registry = buildCategorizedRegistry();
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-source-1',
+          type: 'test-source',
+          typeVersion: 1,
+          name: 'Source 1',
+        }),
+        createFlowNode({
+          id: 'node-source-2',
+          type: 'test-source',
+          typeVersion: 1,
+          name: 'Source 2',
+        }),
+        createFlowNode({
+          id: 'node-sink-1',
+          type: 'test-sink',
+          typeVersion: 1,
+          name: 'Sink 1',
+        }),
+        createFlowNode({
+          id: 'node-sink-2',
+          type: 'test-sink',
+          typeVersion: 1,
+          name: 'Sink 2',
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowSourceSinkPresence(doc, registry)).toEqual([]);
+  });
+
+  it('reports FLOW_NO_SOURCE when no known source is present', () => {
+    const registry = buildCategorizedRegistry();
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-filter-1',
+          type: 'test-filter',
+          typeVersion: 1,
+          name: 'Filter',
+        }),
+        createFlowNode({
+          id: 'node-sink-1',
+          type: 'test-sink',
+          typeVersion: 1,
+          name: 'Sink',
+        }),
+      ],
+      edges: [],
+    });
+
+    const diagnostics = validateFlowSourceSinkPresence(doc, registry);
+    const matches = diagnostics.filter(
+      (item) => item.code === 'FLOW_NO_SOURCE',
+    );
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.severity).toBe('error');
+    expect(diagnostics.some((item) => item.code === 'FLOW_NO_SINK')).toBe(
+      false,
+    );
+  });
+
+  it('reports FLOW_NO_SINK when no known sink is present', () => {
+    const registry = buildCategorizedRegistry();
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-source-1',
+          type: 'test-source',
+          typeVersion: 1,
+          name: 'Source',
+        }),
+        createFlowNode({
+          id: 'node-filter-1',
+          type: 'test-filter',
+          typeVersion: 1,
+          name: 'Filter',
+        }),
+      ],
+      edges: [],
+    });
+
+    const diagnostics = validateFlowSourceSinkPresence(doc, registry);
+    const matches = diagnostics.filter((item) => item.code === 'FLOW_NO_SINK');
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.severity).toBe('error');
+    expect(diagnostics.some((item) => item.code === 'FLOW_NO_SOURCE')).toBe(
+      false,
+    );
+  });
+
+  it('reports both FLOW_NO_SOURCE and FLOW_NO_SINK independently when neither is present', () => {
+    const registry = buildCategorizedRegistry();
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-filter-1',
+          type: 'test-filter',
+          typeVersion: 1,
+          name: 'Filter',
+        }),
+      ],
+      edges: [],
+    });
+
+    const diagnostics = validateFlowSourceSinkPresence(doc, registry);
+
+    expect(diagnostics.map((item) => item.code).sort()).toEqual([
+      'FLOW_NO_SINK',
+      'FLOW_NO_SOURCE',
+    ]);
+  });
+
+  it('does not count unknown node types toward source or sink', () => {
+    const registry = buildCategorizedRegistry();
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-mystery-source',
+          type: 'not-registered',
+          typeVersion: 1,
+          name: 'Mystery source',
+        }),
+        createFlowNode({
+          id: 'node-mystery-sink',
+          type: 'also-not-registered',
+          typeVersion: 1,
+          name: 'Mystery sink',
+        }),
+      ],
+      edges: [],
+    });
+
+    const diagnostics = validateFlowSourceSinkPresence(doc, registry);
+
+    expect(diagnostics.map((item) => item.code).sort()).toEqual([
+      'FLOW_NO_SINK',
+      'FLOW_NO_SOURCE',
+    ]);
   });
 });
