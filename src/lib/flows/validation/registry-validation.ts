@@ -1,11 +1,13 @@
 import type { FlowDiagnostic } from '../model/diagnostic';
 import {
+  FLOW_PORT_INCOMPATIBLE,
   FLOW_PORT_SOURCE_MISSING,
   FLOW_PORT_TARGET_MISSING,
   FLOW_UNKNOWN_NODE_TYPE,
 } from '../model/diagnostic';
 import type { FlowDocument } from '../model/flow-document';
 import type { NodeRegistry } from '../registry/node-registry';
+import { canConnect } from './port-compatibility';
 
 /**
  * Registry-aware unknown node type validation for v1alpha1 Flow documents.
@@ -41,13 +43,16 @@ export function validateFlowUnknownNodeTypes(
 }
 
 /**
- * Registry-aware edge port existence validation for v1alpha1 Flow documents.
+ * Registry-aware edge port existence and kind compatibility validation for
+ * v1alpha1 Flow documents.
  *
  * For each edge whose source and target nodes exist in the document and
  * whose node definitions resolve in the supplied registry, validates
  * sourcePortId against the source definition outputs and targetPortId
  * against the target definition inputs. Missing ports produce one
  * FLOW_PORT_SOURCE_MISSING or FLOW_PORT_TARGET_MISSING diagnostic each.
+ * When both ports resolve, their kinds are checked with canConnect; an
+ * incompatible pair produces one FLOW_PORT_INCOMPATIBLE diagnostic.
  * Edges referencing missing nodes or unknown node definitions are skipped
  * for that side; they are owned by structural or unknown-type validation.
  * Returns every diagnostic in one pass. Never throws for well-typed input
@@ -72,16 +77,21 @@ export function validateFlowEdgePorts(
     const sourceNode = nodesById.get(edge.sourceNodeId);
     const targetNode = nodesById.get(edge.targetNodeId);
 
+    let sourcePortKind: string | undefined;
+    let targetPortKind: string | undefined;
+    let sourcePortId: string | undefined;
+    let targetPortId: string | undefined;
+
     if (sourceNode !== undefined) {
       const sourceDefinition = registry.get(
         sourceNode.type,
         sourceNode.typeVersion,
       );
       if (sourceDefinition !== undefined) {
-        const hasSourcePort = sourceDefinition.outputs.some(
+        const sourcePort = sourceDefinition.outputs.find(
           (port) => port.id === edge.sourcePortId,
         );
-        if (!hasSourcePort) {
+        if (sourcePort === undefined) {
           diagnostics.push({
             code: FLOW_PORT_SOURCE_MISSING,
             severity: 'error',
@@ -89,6 +99,9 @@ export function validateFlowEdgePorts(
             nodeId: sourceNode.id,
             edgeId: edge.id,
           });
+        } else {
+          sourcePortKind = sourcePort.kind;
+          sourcePortId = sourcePort.id;
         }
       }
     }
@@ -99,10 +112,10 @@ export function validateFlowEdgePorts(
         targetNode.typeVersion,
       );
       if (targetDefinition !== undefined) {
-        const hasTargetPort = targetDefinition.inputs.some(
+        const targetPort = targetDefinition.inputs.find(
           (port) => port.id === edge.targetPortId,
         );
-        if (!hasTargetPort) {
+        if (targetPort === undefined) {
           diagnostics.push({
             code: FLOW_PORT_TARGET_MISSING,
             severity: 'error',
@@ -110,8 +123,29 @@ export function validateFlowEdgePorts(
             nodeId: targetNode.id,
             edgeId: edge.id,
           });
+        } else {
+          targetPortKind = targetPort.kind;
+          targetPortId = targetPort.id;
         }
       }
+    }
+
+    if (
+      sourcePortKind !== undefined &&
+      targetPortKind !== undefined &&
+      sourcePortId !== undefined &&
+      targetPortId !== undefined &&
+      !canConnect(
+        sourcePortKind as Parameters<typeof canConnect>[0],
+        targetPortKind as Parameters<typeof canConnect>[1],
+      )
+    ) {
+      diagnostics.push({
+        code: FLOW_PORT_INCOMPATIBLE,
+        severity: 'error',
+        message: `Flow edge "${edge.id}" connects incompatible ports: source port "${sourcePortId}" kind "${sourcePortKind}" cannot connect to target port "${targetPortId}" kind "${targetPortKind}".`,
+        edgeId: edge.id,
+      });
     }
   }
 

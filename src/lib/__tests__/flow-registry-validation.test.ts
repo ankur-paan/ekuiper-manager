@@ -234,4 +234,56 @@ describe('validateFlowEdgePorts', () => {
 
     expect(validateFlowEdgePorts(doc, registry)).toEqual([]);
   });
+
+  it('passes when resolved port kinds are compatible', () => {
+    const registry = new NodeRegistry();
+    registry.register(
+      buildDefinition({
+        type: 'test-source',
+        version: 1,
+        outputs: [{ id: 'out', kind: 'stream' }],
+      }),
+    );
+    registry.register(
+      buildDefinition({
+        type: 'test-sink',
+        version: 1,
+        inputs: [{ id: 'in', kind: 'stream' }],
+      }),
+    );
+    const doc = createMinimalFlowDocument();
+
+    expect(validateFlowEdgePorts(doc, registry)).toEqual([]);
+  });
+
+  it('reports FLOW_PORT_INCOMPATIBLE for an incompatible port kind pair', () => {
+    const registry = new NodeRegistry();
+    registry.register(
+      buildDefinition({
+        type: 'test-source',
+        version: 1,
+        outputs: [{ id: 'out', kind: 'stream' }],
+      }),
+    );
+    registry.register(
+      buildDefinition({
+        type: 'test-sink',
+        version: 1,
+        inputs: [{ id: 'in', kind: 'table' }],
+      }),
+    );
+    const doc = createMinimalFlowDocument();
+
+    const diagnostics = validateFlowEdgePorts(doc, registry);
+    const matches = diagnostics.filter(
+      (item) => item.code === 'FLOW_PORT_INCOMPATIBLE',
+    );
+
+    expect(matches).toHaveLength(1);
+    expect(diagnostics).toHaveLength(1);
+    expect(matches[0]?.edgeId).toBe('edge-1');
+    expect(matches[0]?.severity).toBe('error');
+    expect(matches[0]?.message).toContain('stream');
+    expect(matches[0]?.message).toContain('table');
+  });
 });
