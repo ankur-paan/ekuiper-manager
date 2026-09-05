@@ -1,0 +1,43 @@
+export type FlowDiagnosticSeverity = 'error' | 'warning' | 'info';
+
+export interface FlowDiagnostic {
+  code: string;
+  severity: FlowDiagnosticSeverity;
+  message: string;
+  nodeId?: string;
+  edgeId?: string;
+  propertyPath?: string;
+}
+
+export const FLOW_DUPLICATE_NODE_ID = 'FLOW_DUPLICATE_NODE_ID' as const;
+export const FLOW_DUPLICATE_EDGE_ID = 'FLOW_DUPLICATE_EDGE_ID' as const;
+export const FLOW_EDGE_SOURCE_MISSING = 'FLOW_EDGE_SOURCE_MISSING' as const;
+export const FLOW_EDGE_TARGET_MISSING = 'FLOW_EDGE_TARGET_MISSING' as const;
+export const FLOW_SELF_EDGE_UNSUPPORTED = 'FLOW_SELF_EDGE_UNSUPPORTED' as const;
+export const FLOW_CYCLE_UNSUPPORTED = 'FLOW_CYCLE_UNSUPPORTED' as const;
+export const FLOW_UNKNOWN_NODE_TYPE = 'FLOW_UNKNOWN_NODE_TYPE' as const;
+export const FLOW_PORT_SOURCE_MISSING = 'FLOW_PORT_SOURCE_MISSING' as const;
+export const FLOW_PORT_TARGET_MISSING = 'FLOW_PORT_TARGET_MISSING' as const;
+export const FLOW_PORT_INCOMPATIBLE = 'FLOW_PORT_INCOMPATIBLE' as const;
+export const FLOW_REQUIRED_PROPERTY_MISSING =
+  'FLOW_REQUIRED_PROPERTY_MISSING' as const;
+export const FLOW_CAPABILITY_UNAVAILABLE = 'FLOW_CAPABILITY_UNAVAILABLE' as const;
+export const FLOW_NO_SOURCE = 'FLOW_NO_SOURCE' as const;
+export const FLOW_NO_SINK = 'FLOW_NO_SINK' as const;
+
+export const FLOW_DIAGNOSTIC_CODES = Object.freeze({
+  FLOW_DUPLICATE_NODE_ID,
+  FLOW_DUPLICATE_EDGE_ID,
+  FLOW_EDGE_SOURCE_MISSING,
+  FLOW_EDGE_TARGET_MISSING,
+  FLOW_SELF_EDGE_UNSUPPORTED,
+  FLOW_CYCLE_UNSUPPORTED,
+  FLOW_UNKNOWN_NODE_TYPE,
+  FLOW_PORT_SOURCE_MISSING,
+  FLOW_PORT_TARGET_MISSING,
+  FLOW_PORT_INCOMPATIBLE,
+  FLOW_REQUIRED_PROPERTY_MISSING,
+  FLOW_CAPABILITY_UNAVAILABLE,
+  FLOW_NO_SOURCE,
+  FLOW_NO_SINK,
+} as const);
