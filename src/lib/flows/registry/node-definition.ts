@@ -7,6 +7,8 @@ export type FlowNodeCategory =
 
 export type FlowPortKind = 'stream' | 'collection' | 'table' | 'any';
 
+export type FlowIrNodeKind = 'source' | 'operator' | 'sink';
+
 export interface FlowPortDefinition {
   id: string;
   label?: string;
@@ -41,4 +43,16 @@ export interface FlowNodeDefinition {
   inputs: FlowPortDefinition[];
   outputs: FlowPortDefinition[];
   properties: FlowPropertyDefinition[];
+  /**
+   * Internal-only runtime metadata consumed by the Flow-to-IR builder.
+   *
+   * Not part of the authoring contract: no target-specific property
+   * mapping belongs here. `runtimeKind` is the IR node kind
+   * (source/operator/sink) and `operation` names the runtime operation.
+   * Optional so definitions that only participate in validation can omit
+   * them; the IR builder reports a diagnostic instead of emitting a
+   * partial unknown operation when they are absent.
+   */
+  runtimeKind?: FlowIrNodeKind;
+  operation?: string;
 }
