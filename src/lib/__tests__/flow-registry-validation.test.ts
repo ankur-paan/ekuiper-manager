@@ -1,10 +1,14 @@
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
 import { NodeRegistry } from '@/lib/flows/registry/node-registry';
 import {
+  createFlowEdge,
   createFlowNode,
   createMinimalFlowDocument,
 } from '@/lib/flows/testing/flow-fixtures';
-import { validateFlowUnknownNodeTypes } from '@/lib/flows/validation/registry-validation';
+import {
+  validateFlowEdgePorts,
+  validateFlowUnknownNodeTypes,
+} from '@/lib/flows/validation/registry-validation';
 
 function buildDefinition(
   overrides: Partial<FlowNodeDefinition> & { type: string; version: number },
@@ -117,5 +121,117 @@ describe('validateFlowUnknownNodeTypes', () => {
       'node-a',
       'node-b',
     ]);
+  });
+});
+
+describe('validateFlowEdgePorts', () => {
+  it('passes when every edge port ID exists on its node definition', () => {
+    const registry = buildRegistry();
+    const doc = createMinimalFlowDocument();
+
+    expect(validateFlowEdgePorts(doc, registry)).toEqual([]);
+  });
+
+  it('reports FLOW_PORT_SOURCE_MISSING for an unknown source port', () => {
+    const registry = buildRegistry();
+    const doc = createMinimalFlowDocument({
+      edges: [
+        createFlowEdge({
+          id: 'edge-1',
+          sourceNodeId: 'node-source-1',
+          sourcePortId: 'no-such-output',
+          targetNodeId: 'node-sink-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    const diagnostics = validateFlowEdgePorts(doc, registry);
+    const matches = diagnostics.filter(
+      (item) => item.code === 'FLOW_PORT_SOURCE_MISSING',
+    );
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.edgeId).toBe('edge-1');
+    expect(matches[0]?.nodeId).toBe('node-source-1');
+    expect(matches[0]?.severity).toBe('error');
+  });
+
+  it('reports FLOW_PORT_TARGET_MISSING for an unknown target port', () => {
+    const registry = buildRegistry();
+    const doc = createMinimalFlowDocument({
+      edges: [
+        createFlowEdge({
+          id: 'edge-1',
+          sourceNodeId: 'node-source-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-sink-1',
+          targetPortId: 'no-such-input',
+        }),
+      ],
+    });
+
+    const diagnostics = validateFlowEdgePorts(doc, registry);
+    const matches = diagnostics.filter(
+      (item) => item.code === 'FLOW_PORT_TARGET_MISSING',
+    );
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.edgeId).toBe('edge-1');
+    expect(matches[0]?.nodeId).toBe('node-sink-1');
+    expect(matches[0]?.severity).toBe('error');
+  });
+
+  it('reports both sides when source and target ports are missing', () => {
+    const registry = buildRegistry();
+    const doc = createMinimalFlowDocument({
+      edges: [
+        createFlowEdge({
+          id: 'edge-1',
+          sourceNodeId: 'node-source-1',
+          sourcePortId: 'no-such-output',
+          targetNodeId: 'node-sink-1',
+          targetPortId: 'no-such-input',
+        }),
+      ],
+    });
+
+    const diagnostics = validateFlowEdgePorts(doc, registry);
+
+    expect(diagnostics.map((item) => item.code).sort()).toEqual([
+      'FLOW_PORT_SOURCE_MISSING',
+      'FLOW_PORT_TARGET_MISSING',
+    ]);
+  });
+
+  it('does not report port errors for an unknown node definition', () => {
+    const registry = buildRegistry();
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-source-1',
+          type: 'not-registered',
+          typeVersion: 1,
+          name: 'Source',
+        }),
+        createFlowNode({
+          id: 'node-sink-1',
+          type: 'test-sink',
+          typeVersion: 1,
+          name: 'Sink',
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-1',
+          sourceNodeId: 'node-source-1',
+          sourcePortId: 'anything',
+          targetNodeId: 'node-sink-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    expect(validateFlowEdgePorts(doc, registry)).toEqual([]);
   });
 });
