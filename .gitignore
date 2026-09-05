@@ -21,6 +21,7 @@ docs/*
 !docs/ORIGINAL_MANAGER_PLUS_IEF_FLOW_CATALOG.md
 !docs/AI_ASSISTANT.md
 !docs/RULE_DESIGNER.md
+!docs/FLOW_STUDIO_ARCHITECTURE.md
 
 # Testing
 coverage/
