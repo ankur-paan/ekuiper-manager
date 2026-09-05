@@ -1,3 +1,4 @@
+export { NodeRegistry } from './node-registry';
 export type {
   FlowNodeCategory,
   FlowNodeDefinition,
