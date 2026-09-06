@@ -3,7 +3,10 @@ import {
   compileFlowToEkuiperGraph,
   toSafeRuleId,
 } from '@/lib/flows/compiler/ekuiper/compile-graph';
-import { isEkuiperGraphRule } from '@/lib/flows/compiler/ekuiper/graph-types';
+import {
+  isEkuiperGraphNode,
+  isEkuiperGraphRule,
+} from '@/lib/flows/compiler/ekuiper/graph-types';
 import { createRuntimeId } from '@/lib/flows/compiler/runtime-id';
 import { FLOW_COMPILER_VERSION } from '@/lib/flows/compiler/types';
 import { hashFlowSemantic } from '@/lib/flows/hashing/flow-hash';
@@ -91,7 +94,6 @@ describe('flow eKuiper compiler (memory source -> memory sink)', () => {
           sources: [sourceRuntimeId],
           edges: {
             [sourceRuntimeId]: [sinkRuntimeId],
-            [sinkRuntimeId]: [],
           },
         },
       },
@@ -101,6 +103,19 @@ describe('flow eKuiper compiler (memory source -> memory sink)', () => {
       [SINK_FLOW_ID]: sinkRuntimeId,
     });
     expect(result.diagnostics).toEqual([]);
+  });
+
+  it('emits no edges entry for sinks (the engine rejects any sink entry)', () => {
+    const result = compileFlowToEkuiperGraph(buildMemoryFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as unknown as {
+      topo: { edges: Record<string, unknown> };
+    };
+
+    expect(sinkRuntimeId in graph.topo.edges).toBe(false);
   });
 
   it('maps the Flow topic config to datasource/topic props', () => {
@@ -370,7 +385,6 @@ describe('flow eKuiper compiler (filter and pick operators)', () => {
             [sourceRuntimeId]: [filterRuntimeId],
             [filterRuntimeId]: [pickRuntimeId],
             [pickRuntimeId]: [sinkRuntimeId],
-            [sinkRuntimeId]: [],
           },
         },
       },
@@ -588,7 +602,6 @@ describe('flow eKuiper compiler (window and aggregate operators)', () => {
             [sourceRuntimeId]: [windowRuntimeId],
             [windowRuntimeId]: [aggregateRuntimeId],
             [aggregateRuntimeId]: [sinkRuntimeId],
-            [sinkRuntimeId]: [],
           },
         },
       },
@@ -829,7 +842,6 @@ describe('flow eKuiper compiler (group-by operator)', () => {
             [windowRuntimeId]: [groupByRuntimeId],
             [groupByRuntimeId]: [aggregateRuntimeId],
             [aggregateRuntimeId]: [sinkRuntimeId],
-            [sinkRuntimeId]: [],
           },
         },
       },
@@ -896,6 +908,669 @@ describe('flow eKuiper compiler (group-by operator)', () => {
     );
     expect(result.diagnostics[0]?.nodeId).toBe(GROUP_BY_FLOW_ID);
     expect(result.diagnostics[0]?.propertyPath).toBe('keys');
+  });
+});
+
+describe('flow eKuiper compiler (switch operator)', () => {
+  const SWITCH_FLOW_ID = 'node-switch-1';
+  const SINK_A_FLOW_ID = 'node-sink-a';
+  const SINK_B_FLOW_ID = 'node-sink-b';
+  const SINK_A_TOPIC = 'alerts/high';
+  const SINK_B_TOPIC = 'alerts/low';
+  const SWITCH_CASES = 'temperature > 20, temperature <= 20';
+
+  function buildSwitchFlow(): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-switch-demo', name: 'Switch Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: SWITCH_FLOW_ID,
+            type: 'switch',
+            typeVersion: 1,
+            name: 'Switch',
+            config: { cases: SWITCH_CASES },
+          },
+          {
+            id: SINK_A_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'High Sink',
+            config: { topic: SINK_A_TOPIC },
+          },
+          {
+            id: SINK_B_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Low Sink',
+            config: { topic: SINK_B_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: SWITCH_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-2',
+            sourceNodeId: SWITCH_FLOW_ID,
+            sourcePortId: 'branch-1',
+            targetNodeId: SINK_A_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-3',
+            sourceNodeId: SWITCH_FLOW_ID,
+            sourcePortId: 'branch-2',
+            targetNodeId: SINK_B_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [SWITCH_FLOW_ID]: { x: 160, y: 0 },
+          [SINK_A_FLOW_ID]: { x: 320, y: -60 },
+          [SINK_B_FLOW_ID]: { x: 320, y: 60 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected switch nodeType/props and two-dimensional branch edges', () => {
+    const result = compileFlowToEkuiperGraph(buildSwitchFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const switchRuntimeId = createRuntimeId('switch', SWITCH_FLOW_ID);
+    const sinkARuntimeId = createRuntimeId('sink', SINK_A_FLOW_ID);
+    const sinkBRuntimeId = createRuntimeId('sink', SINK_B_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [switchRuntimeId]: {
+            type: 'operator',
+            nodeType: 'switch',
+            props: {
+              cases: ['temperature > 20', 'temperature <= 20'],
+              stopAtFirstMatch: true,
+            },
+          },
+          [sinkARuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_A_TOPIC },
+          },
+          [sinkBRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_B_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [switchRuntimeId],
+            [switchRuntimeId]: [[sinkARuntimeId], [sinkBRuntimeId]],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [SWITCH_FLOW_ID]: switchRuntimeId,
+      [SINK_A_FLOW_ID]: sinkARuntimeId,
+      [SINK_B_FLOW_ID]: sinkBRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('maps branches by stable port ID independent of edge insertion order', () => {
+    const baseline = compileFlowToEkuiperGraph(buildSwitchFlow());
+    const reordered = buildSwitchFlow();
+    reordered.spec.edges.reverse();
+    const recompiled = compileFlowToEkuiperGraph(reordered);
+
+    expect(baseline.ok).toBe(true);
+    expect(recompiled.ok).toBe(true);
+    if (!baseline.ok || !recompiled.ok) return;
+
+    // Only the compiled definition is compared: the semantic hash
+    // intentionally covers the raw spec (including array order), while the
+    // compiled graph must not depend on edge insertion order.
+    expect(canonicalJson(recompiled.artifact.ruleDefinition)).toBe(
+      canonicalJson(baseline.artifact.ruleDefinition),
+    );
+    const graph = recompiled.artifact.ruleDefinition.graph as {
+      nodes: Record<string, unknown>;
+      topo: { edges: Record<string, unknown> };
+    };
+    const switchRuntimeId = createRuntimeId('switch', SWITCH_FLOW_ID);
+    const sinkARuntimeId = createRuntimeId('sink', SINK_A_FLOW_ID);
+    const sinkBRuntimeId = createRuntimeId('sink', SINK_B_FLOW_ID);
+    expect(graph.topo.edges[switchRuntimeId]).toEqual([
+      [sinkARuntimeId],
+      [sinkBRuntimeId],
+    ]);
+  });
+
+  it('emits node entries that satisfy the audited graph node envelope', () => {
+    const result = compileFlowToEkuiperGraph(buildSwitchFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, unknown>;
+    };
+
+    // The FS-0073 `isEkuiperGraphRule` helper predates switch
+    // two-dimensional edges, so the switch graph asserts the node envelope
+    // per entry plus exact topology instead of the whole-rule check.
+    expect(Object.values(graph.nodes).every(isEkuiperGraphNode)).toBe(true);
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildSwitchFlow());
+    const second = compileFlowToEkuiperGraph(buildSwitchFlow());
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('fails with a structured diagnostic when the switch cases are missing', () => {
+    const document = buildSwitchFlow();
+    document.spec.nodes[1]!.config = {};
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(SWITCH_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('cases');
+  });
+
+  it('fails with a structured diagnostic when cases do not hold two branch conditions', () => {
+    const document = buildSwitchFlow();
+    document.spec.nodes[1]!.config = { cases: 'temperature > 20' };
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(SWITCH_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('cases');
+  });
+
+  it('fails with a structured diagnostic when the default output is connected', () => {
+    const document = buildSwitchFlow();
+    document.spec.nodes.push({
+      id: 'node-sink-default',
+      type: 'memory-sink',
+      typeVersion: 1,
+      name: 'Default Sink',
+      config: { topic: 'alerts/default' },
+    });
+    document.spec.edges.push({
+      id: 'edge-default',
+      sourceNodeId: SWITCH_FLOW_ID,
+      sourcePortId: 'default',
+      targetNodeId: 'node-sink-default',
+      targetPortId: 'in',
+    });
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe('FLOW_UNKNOWN_NODE_TYPE');
+    expect(result.diagnostics[0]?.nodeId).toBe(SWITCH_FLOW_ID);
+  });
+});
+
+describe('flow eKuiper compiler (sort operator)', () => {
+  const WINDOW_FLOW_ID = 'node-window-1';
+  const SORT_FLOW_ID = 'node-sort-1';
+  const ORDER_BY = 'avg_temp DESC';
+
+  function buildSortFlow(orderBy: string): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-sort-demo', name: 'Sort Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: WINDOW_FLOW_ID,
+            type: 'window',
+            typeVersion: 1,
+            name: 'Window',
+            config: { length: 10, timeUnit: 'ss' },
+          },
+          {
+            id: SORT_FLOW_ID,
+            type: 'sort',
+            typeVersion: 1,
+            name: 'Sort',
+            config: { orderBy },
+          },
+          {
+            id: SINK_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Sink',
+            config: { topic: SINK_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: WINDOW_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-2',
+            sourceNodeId: WINDOW_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: SORT_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-3',
+            sourceNodeId: SORT_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [WINDOW_FLOW_ID]: { x: 160, y: 0 },
+          [SORT_FLOW_ID]: { x: 320, y: 0 },
+          [SINK_FLOW_ID]: { x: 480, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected orderby nodeType/props for source->window->sort->sink', () => {
+    const result = compileFlowToEkuiperGraph(buildSortFlow(ORDER_BY));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const windowRuntimeId = createRuntimeId('window', WINDOW_FLOW_ID);
+    const sortRuntimeId = createRuntimeId('orderby', SORT_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [windowRuntimeId]: {
+            type: 'operator',
+            nodeType: 'window',
+            props: { type: 'tumblingwindow', unit: 'ss', size: 10 },
+          },
+          [sortRuntimeId]: {
+            type: 'operator',
+            nodeType: 'orderby',
+            props: { sorts: [{ field: 'avg_temp', desc: true }] },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [windowRuntimeId],
+            [windowRuntimeId]: [sortRuntimeId],
+            [sortRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [WINDOW_FLOW_ID]: windowRuntimeId,
+      [SORT_FLOW_ID]: sortRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('parses sort direction per key defaulting to ascending', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildSortFlow('temperature, humidity DESC'),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sortRuntimeId = createRuntimeId('orderby', SORT_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+
+    expect(graph.nodes[sortRuntimeId]?.props).toEqual({
+      sorts: [
+        { field: 'temperature', desc: false },
+        { field: 'humidity', desc: true },
+      ],
+    });
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildSortFlow(ORDER_BY));
+    const second = compileFlowToEkuiperGraph(buildSortFlow(ORDER_BY));
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces a graph that satisfies the audited eKuiper envelope', () => {
+    const result = compileFlowToEkuiperGraph(buildSortFlow(ORDER_BY));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      isEkuiperGraphRule(result.artifact.ruleDefinition.graph),
+    ).toBe(true);
+  });
+
+  it('fails with a structured diagnostic when the orderBy is missing', () => {
+    const document = buildSortFlow(ORDER_BY);
+    document.spec.nodes[2]!.config = {};
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(SORT_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('orderBy');
+  });
+});
+
+describe('flow eKuiper compiler (join operator)', () => {
+  const LEFT_SOURCE_FLOW_ID = 'node-source-left';
+  const RIGHT_SOURCE_FLOW_ID = 'node-source-right';
+  const JOIN_FLOW_ID = 'node-join-1';
+  const LEFT_TOPIC = 'devices/left';
+  const RIGHT_TOPIC = 'devices/right';
+  const JOIN_CONDITION = 'leftStream.id = rightStream.id';
+
+  function buildJoinFlow(options?: {
+    leftSource?: string;
+    rightSource?: string;
+  }): FlowDocument {
+    const leftSource = options?.leftSource ?? LEFT_SOURCE_FLOW_ID;
+    const rightSource = options?.rightSource ?? RIGHT_SOURCE_FLOW_ID;
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-join-demo', name: 'Join Demo' },
+      spec: {
+        nodes: [
+          {
+            id: LEFT_SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Left Source',
+            config: { topic: LEFT_TOPIC },
+          },
+          {
+            id: RIGHT_SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Right Source',
+            config: { topic: RIGHT_TOPIC },
+          },
+          {
+            id: JOIN_FLOW_ID,
+            type: 'join',
+            typeVersion: 1,
+            name: 'Join',
+            config: { condition: JOIN_CONDITION },
+          },
+          {
+            id: SINK_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Sink',
+            config: { topic: SINK_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-left',
+            sourceNodeId: leftSource,
+            sourcePortId: 'out',
+            targetNodeId: JOIN_FLOW_ID,
+            targetPortId: 'left',
+          },
+          {
+            id: 'edge-right',
+            sourceNodeId: rightSource,
+            sourcePortId: 'out',
+            targetNodeId: JOIN_FLOW_ID,
+            targetPortId: 'right',
+          },
+          {
+            id: 'edge-out',
+            sourceNodeId: JOIN_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [LEFT_SOURCE_FLOW_ID]: { x: 0, y: -60 },
+          [RIGHT_SOURCE_FLOW_ID]: { x: 0, y: 60 },
+          [JOIN_FLOW_ID]: { x: 200, y: 0 },
+          [SINK_FLOW_ID]: { x: 400, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected join nodeType/props with left mapped to from and right to joins', () => {
+    const result = compileFlowToEkuiperGraph(buildJoinFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const leftRuntimeId = createRuntimeId('source', LEFT_SOURCE_FLOW_ID);
+    const rightRuntimeId = createRuntimeId('source', RIGHT_SOURCE_FLOW_ID);
+    const joinRuntimeId = createRuntimeId('join', JOIN_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [leftRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: LEFT_TOPIC },
+          },
+          [rightRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: RIGHT_TOPIC },
+          },
+          [joinRuntimeId]: {
+            type: 'operator',
+            nodeType: 'join',
+            props: {
+              from: leftRuntimeId,
+              joins: [
+                { name: rightRuntimeId, type: 'inner', on: JOIN_CONDITION },
+              ],
+            },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [leftRuntimeId, rightRuntimeId].sort(),
+          edges: {
+            [leftRuntimeId]: [joinRuntimeId],
+            [rightRuntimeId]: [joinRuntimeId],
+            [joinRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [LEFT_SOURCE_FLOW_ID]: leftRuntimeId,
+      [RIGHT_SOURCE_FLOW_ID]: rightRuntimeId,
+      [JOIN_FLOW_ID]: joinRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('preserves left/right identity when the feeds are swapped', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildJoinFlow({
+        leftSource: RIGHT_SOURCE_FLOW_ID,
+        rightSource: LEFT_SOURCE_FLOW_ID,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const leftRuntimeId = createRuntimeId('source', LEFT_SOURCE_FLOW_ID);
+    const rightRuntimeId = createRuntimeId('source', RIGHT_SOURCE_FLOW_ID);
+    const joinRuntimeId = createRuntimeId('join', JOIN_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+
+    expect(graph.nodes[joinRuntimeId]?.props).toEqual({
+      from: rightRuntimeId,
+      joins: [{ name: leftRuntimeId, type: 'inner', on: JOIN_CONDITION }],
+    });
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildJoinFlow());
+    const second = compileFlowToEkuiperGraph(buildJoinFlow());
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces a graph that satisfies the audited eKuiper envelope', () => {
+    const result = compileFlowToEkuiperGraph(buildJoinFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      isEkuiperGraphRule(result.artifact.ruleDefinition.graph),
+    ).toBe(true);
+  });
+
+  it('fails with a structured diagnostic when the join condition is missing', () => {
+    const document = buildJoinFlow();
+    document.spec.nodes[2]!.config = {};
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(JOIN_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('condition');
+  });
+
+  it('fails with a structured diagnostic when the left input is missing', () => {
+    const document = buildJoinFlow();
+    document.spec.edges = document.spec.edges.filter(
+      (edge) => edge.targetPortId !== 'left',
+    );
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+    expect(
+      result.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === 'FLOW_PORT_TARGET_MISSING' ||
+          diagnostic.nodeId === JOIN_FLOW_ID,
+      ),
+    ).toBe(true);
   });
 });
 
