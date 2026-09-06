@@ -90,11 +90,35 @@ export async function PUT(
       );
     }
 
+    // Optimistic-concurrency predicate (R3). Callers may send the hashes of
+    // the draft they based their edits on; the repository rejects a stale
+    // write with 409 instead of silently replacing newer edits. Hashes are
+    // never authoritative for the stored row: the repository recomputes the
+    // new hashes server-side and only uses these for the WHERE predicate.
+    const expectedSemanticHashRaw = body['expectedSemanticHash'];
+    const expectedLayoutHashRaw = body['expectedLayoutHash'];
+    let expectedSemanticHash: string | undefined;
+    let expectedLayoutHash: string | undefined;
+    if (expectedSemanticHashRaw !== undefined) {
+      if (typeof expectedSemanticHashRaw !== 'string' || expectedSemanticHashRaw.trim().length === 0) {
+        throw new ApiError(400, 'Flow draft expectedSemanticHash is invalid', 'INVALID_FLOW_DRAFT');
+      }
+      expectedSemanticHash = expectedSemanticHashRaw.trim();
+    }
+    if (expectedLayoutHashRaw !== undefined) {
+      if (typeof expectedLayoutHashRaw !== 'string' || expectedLayoutHashRaw.trim().length === 0) {
+        throw new ApiError(400, 'Flow draft expectedLayoutHash is invalid', 'INVALID_FLOW_DRAFT');
+      }
+      expectedLayoutHash = expectedLayoutHashRaw.trim();
+    }
+
     const draft = await upsertFlowDraft({
       flowId: id,
       semanticDocument: spec,
       layoutDocument: layout,
       updatedBy: actor.id,
+      ...(expectedSemanticHash !== undefined ? { expectedSemanticHash } : {}),
+      ...(expectedLayoutHash !== undefined ? { expectedLayoutHash } : {}),
     });
     // FS-0030: draft autosave PUTs are intentionally not audited. This
     // endpoint fires on every editor autosave (high frequency), so one audit

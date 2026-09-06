@@ -396,8 +396,15 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // from the PUT response without reloading the document or refetching the
   // draft; reset whenever a different flow is opened.
   const [savedBaseline, setSavedBaseline] = React.useState<FlowDirtyBaseline | null>(null);
+  // R3: server hashes of the most recently autosaved draft, chained as the
+  // optimistic-concurrency predicate for the next PUT.
+  const [savedHashes, setSavedHashes] = React.useState<{
+    semanticHash: string;
+    layoutHash: string;
+  } | null>(null);
   React.useEffect(() => {
     setSavedBaseline(null);
+    setSavedHashes(null);
   }, [flowId]);
 
   // FS-0070: quick node picker opened by double-clicking empty canvas.
@@ -423,7 +430,18 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
 
   const handleAutosaved = React.useCallback((saved: FlowAutosaveSaved) => {
     setSavedBaseline(buildFlowDirtyBaseline(saved.spec, saved.layout));
+    setSavedHashes({ semanticHash: saved.semanticHash, layoutHash: saved.layoutHash });
   }, []);
+
+  // R3: predicate for the next draft PUT. Prefer the chained hashes from the
+  // last successful autosave; otherwise use the loaded draft hashes so a
+  // stale tab cannot silently replace newer edits (409 surfaces instead).
+  const baselineHashes = React.useMemo(() => {
+    if (savedHashes) return savedHashes;
+    const draft = draftQuery.data ?? null;
+    if (!draft) return null;
+    return { semanticHash: draft.semanticHash, layoutHash: draft.layoutHash };
+  }, [savedHashes, draftQuery.data]);
 
   // FS-0047: debounced draft autosave. Fires only for committed store
   // changes while dirty, PUTs {spec,layout} to the Manager draft API (never
@@ -434,6 +452,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     spec: storeDocument?.spec ?? null,
     layout: storeDocument?.layout ?? null,
     baseline,
+    baselineHashes,
     disabled:
       !draftQuery.isSuccess ||
       !storeDocument ||
