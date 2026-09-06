@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { FlowDiagnostic } from "@/lib/flows/model/diagnostic";
 import { createBuiltinNodeRegistry } from "@/lib/flows/registry/builtin-registry";
+import { isFlowPropertyVisible } from "@/lib/flows/registry/node-definition";
 import { useFlowEditorStore } from "@/stores/flow-editor-store";
 import { PropertyField } from "./property-field";
 
@@ -122,6 +123,11 @@ export function NodeInspector({
     // standalone usage without the page stays non-destructive.
     const nodeDiagnostics = diagnostics ?? [];
     const knownNode = selectedNode;
+    // FS-0145: conditional visibility. Non-matching properties are hidden
+    // from the form; the saved config is preserved untouched.
+    const visibleProperties = definition.properties.filter((property) =>
+      isFlowPropertyVisible(property, knownNode.config),
+    );
     body = (
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
@@ -165,13 +171,13 @@ export function NodeInspector({
             </ul>
           </div>
         ) : null}
-        {definition.properties.length === 0 ? (
+        {visibleProperties.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             This node has no configurable properties.
           </p>
         ) : (
           <div className="flex flex-col gap-4">
-            {definition.properties.map((property) => (
+            {visibleProperties.map((property) => (
               <PropertyField
                 key={property.key}
                 definition={property}
