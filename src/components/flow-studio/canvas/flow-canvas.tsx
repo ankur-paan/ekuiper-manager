@@ -52,6 +52,18 @@ export interface FlowPaletteDrop {
   position: { x: number; y: number };
 }
 
+/**
+ * Double-click on empty canvas resolved to flow coordinates (FS-0070).
+ *
+ * `position` is the flow coordinate where the node should be created;
+ * `screenPosition` is the viewport client coordinate where the compact
+ * picker should open at/near the cursor.
+ */
+export interface FlowCanvasEmptyDoubleClick {
+  position: { x: number; y: number };
+  screenPosition: { x: number; y: number };
+}
+
 export interface FlowCanvasProps {
   nodes?: Node[];
   edges?: Edge[];
@@ -64,6 +76,7 @@ export interface FlowCanvasProps {
   onNodeDragStop?: (moves: FlowCanvasNodeDragStopMove[]) => void;
   onSelectionChange?: (selection: FlowCanvasSelection) => void;
   onPaletteDrop?: (drop: FlowPaletteDrop) => void;
+  onEmptyDoubleClick?: (event: FlowCanvasEmptyDoubleClick) => void;
   nodeTypes?: NodeTypes;
   className?: string;
 }
@@ -80,6 +93,7 @@ export function FlowCanvas({
   onNodeDragStop,
   onSelectionChange,
   onPaletteDrop,
+  onEmptyDoubleClick,
   nodeTypes = flowNodeTypes,
   className,
 }: FlowCanvasProps) {
@@ -185,6 +199,37 @@ export function FlowCanvas({
     [onPaletteDrop],
   );
 
+  // FS-0070: double-click on empty canvas opens the quick node picker.
+  // React Flow exposes no onPaneDoubleClick prop, so listen on the wrapper
+  // and ignore double-clicks landing inside nodes/edges/controls/panels.
+  // Coordinates convert via the XYFlow instance so the created node lands
+  // where released under the current pan/zoom transform.
+  const handleDoubleClick = React.useCallback(
+    (event: React.MouseEvent) => {
+      if (!onEmptyDoubleClick) return;
+      if (event.target instanceof Element) {
+        if (
+          event.target.closest(
+            ".react-flow__node, .react-flow__edge, .react-flow__controls, .react-flow__panel",
+          )
+        ) {
+          return;
+        }
+      }
+      const instance = flowInstanceRef.current;
+      if (!instance) return;
+      const position = instance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      onEmptyDoubleClick({
+        position: { x: position.x, y: position.y },
+        screenPosition: { x: event.clientX, y: event.clientY },
+      });
+    },
+    [onEmptyDoubleClick],
+  );
+
   const selectedNodeSet = React.useMemo(
     () => (selectedNodeIds ? new Set(selectedNodeIds) : null),
     [selectedNodeIds],
@@ -221,6 +266,7 @@ export function FlowCanvas({
       aria-label="Flow canvas"
       className={cn("h-full min-h-0 w-full", className)}
       data-testid="flow-canvas"
+      onDoubleClick={handleDoubleClick}
     >
       <ReactFlow
         nodes={displayNodes}
@@ -235,6 +281,7 @@ export function FlowCanvas({
         onSelectionChange={handleSelectionChange}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
+        zoomOnDoubleClick={onEmptyDoubleClick ? false : undefined}
       >
         <Background />
       </ReactFlow>
