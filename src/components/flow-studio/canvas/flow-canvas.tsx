@@ -60,6 +60,7 @@ export interface FlowCanvasProps {
   onNodesChange?: (changes: NodeChange[]) => void;
   onEdgesChange?: (changes: EdgeChange[]) => void;
   onConnect?: (connection: Connection) => void;
+  isValidConnection?: (connection: Edge | Connection) => boolean;
   onNodeDragStop?: (moves: FlowCanvasNodeDragStopMove[]) => void;
   onSelectionChange?: (selection: FlowCanvasSelection) => void;
   onPaletteDrop?: (drop: FlowPaletteDrop) => void;
@@ -75,6 +76,7 @@ export function FlowCanvas({
   onNodesChange,
   onEdgesChange,
   onConnect,
+  isValidConnection,
   onNodeDragStop,
   onSelectionChange,
   onPaletteDrop,
@@ -228,6 +230,7 @@ export function FlowCanvas({
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        isValidConnection={isValidConnection}
         onNodeDragStop={handleNodeDragStop}
         onSelectionChange={handleSelectionChange}
         onDragOver={handleDragOver}
