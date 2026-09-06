@@ -1,10 +1,12 @@
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
 import {
+  createFlowEdge,
   createFlowNode,
   createMinimalFlowDocument,
 } from '@/lib/flows/testing/flow-fixtures';
 import { validateFlowRequiredProperties } from '@/lib/flows/validation/property-validation';
+import { validateFlowEdgePorts } from '@/lib/flows/validation/registry-validation';
 
 function buildDefinition(
   overrides: Partial<FlowNodeDefinition> & { type: string; version: number },
@@ -21,7 +23,7 @@ function buildDefinition(
 }
 
 describe('createBuiltinNodeRegistry', () => {
-  it('lists the memory, MQTT, REST, log, filter, pick, func, and window definitions', () => {
+  it('lists the memory, MQTT, REST, log, filter, pick, func, window, aggregate, and group-by definitions', () => {
     const registry = createBuiltinNodeRegistry();
 
     expect(registry.has('memory-source', 1)).toBe(true);
@@ -34,9 +36,13 @@ describe('createBuiltinNodeRegistry', () => {
     expect(registry.has('pick', 1)).toBe(true);
     expect(registry.has('func', 1)).toBe(true);
     expect(registry.has('window', 1)).toBe(true);
+    expect(registry.has('aggregate', 1)).toBe(true);
+    expect(registry.has('group-by', 1)).toBe(true);
     expect(registry.list().map((item) => `${item.type}@${item.version}`).sort()).toEqual([
+      'aggregate@1',
       'filter@1',
       'func@1',
+      'group-by@1',
       'log-sink@1',
       'memory-sink@1',
       'memory-source@1',
@@ -380,19 +386,207 @@ describe('createBuiltinNodeRegistry', () => {
     expect(first.get('window', 1)).toEqual(second.get('window', 1));
   });
 
+  it('registers the aggregate definition with collection input and stream output', () => {
+    const registry = createBuiltinNodeRegistry();
+    const aggregate = registry.get('aggregate', 1);
+
+    expect(aggregate?.displayName).toBe('Aggregate');
+    expect(aggregate?.category).toBe('streaming');
+    expect(aggregate?.inputs).toEqual([{ id: 'in', label: 'Collection', kind: 'collection' }]);
+    expect(aggregate?.outputs).toEqual([{ id: 'out', label: 'Stream', kind: 'stream' }]);
+
+    const fields = aggregate?.properties.find((property) => property.key === 'fields');
+    expect(fields?.required).toBe(true);
+    expect(fields?.type).toBe('expression');
+
+    expect(aggregate?.runtimeKind).toBeUndefined();
+    expect(aggregate?.operation).toBeUndefined();
+  });
+
+  it('validates the required aggregate fields via the generic property validator', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const missing = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-aggregate-1',
+          type: 'aggregate',
+          typeVersion: 1,
+          name: 'Aggregate',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingDiagnostics = validateFlowRequiredProperties(missing, registry).filter(
+      (item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(missingDiagnostics).toHaveLength(1);
+    expect(missingDiagnostics[0]?.nodeId).toBe('node-aggregate-1');
+    expect(missingDiagnostics[0]?.propertyPath).toBe('config.fields');
+
+    const present = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-aggregate-1',
+          type: 'aggregate',
+          typeVersion: 1,
+          name: 'Aggregate',
+          config: { fields: 'avg(power) AS mean_power' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
+  });
+
+  it('rejects a direct stream->aggregate edge but accepts window->aggregate', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const streamToAggregate = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-filter-1',
+          type: 'filter',
+          typeVersion: 1,
+          name: 'Filter',
+          config: { expression: 'power > 10' },
+        }),
+        createFlowNode({
+          id: 'node-aggregate-1',
+          type: 'aggregate',
+          typeVersion: 1,
+          name: 'Aggregate',
+          config: { fields: 'avg(power) AS mean_power' },
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-stream-aggregate',
+          sourceNodeId: 'node-filter-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-aggregate-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    const streamDiagnostics = validateFlowEdgePorts(streamToAggregate, registry).filter(
+      (item) => item.code === 'FLOW_PORT_INCOMPATIBLE',
+    );
+    expect(streamDiagnostics).toHaveLength(1);
+    expect(streamDiagnostics[0]?.edgeId).toBe('edge-stream-aggregate');
+
+    const windowToAggregate = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-window-1',
+          type: 'window',
+          typeVersion: 1,
+          name: 'Window',
+          config: { length: 10, timeUnit: 's' },
+        }),
+        createFlowNode({
+          id: 'node-aggregate-1',
+          type: 'aggregate',
+          typeVersion: 1,
+          name: 'Aggregate',
+          config: { fields: 'avg(power) AS mean_power' },
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-window-aggregate',
+          sourceNodeId: 'node-window-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-aggregate-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    expect(validateFlowEdgePorts(windowToAggregate, registry)).toEqual([]);
+  });
+
+  it('registers the group-by definition with collection input and output', () => {
+    const registry = createBuiltinNodeRegistry();
+    const groupBy = registry.get('group-by', 1);
+
+    expect(groupBy?.displayName).toBe('Group By');
+    expect(groupBy?.category).toBe('streaming');
+    expect(groupBy?.inputs).toEqual([{ id: 'in', label: 'Collection', kind: 'collection' }]);
+    expect(groupBy?.outputs).toEqual([{ id: 'out', label: 'Collection', kind: 'collection' }]);
+
+    const keys = groupBy?.properties.find((property) => property.key === 'keys');
+    expect(keys?.required).toBe(true);
+    expect(keys?.type).toBe('expression');
+
+    expect(groupBy?.runtimeKind).toBeUndefined();
+    expect(groupBy?.operation).toBeUndefined();
+  });
+
+  it('validates the required group-by keys via the generic property validator', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const missing = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-group-by-1',
+          type: 'group-by',
+          typeVersion: 1,
+          name: 'Group By',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingDiagnostics = validateFlowRequiredProperties(missing, registry).filter(
+      (item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(missingDiagnostics).toHaveLength(1);
+    expect(missingDiagnostics[0]?.nodeId).toBe('node-group-by-1');
+    expect(missingDiagnostics[0]?.propertyPath).toBe('config.keys');
+
+    const present = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-group-by-1',
+          type: 'group-by',
+          typeVersion: 1,
+          name: 'Group By',
+          config: { keys: 'deviceId' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
+  });
+
+  it('registers the aggregate and group-by definitions deterministically', () => {
+    const first = createBuiltinNodeRegistry();
+    const second = createBuiltinNodeRegistry();
+
+    expect(first.get('aggregate', 1)).toEqual(second.get('aggregate', 1));
+    expect(first.get('group-by', 1)).toEqual(second.get('group-by', 1));
+  });
+
   it('returns an isolated registry on each call', () => {
     const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
 
     expect(first).not.toBe(second);
-    expect(first.list()).toHaveLength(10);
-    expect(second.list()).toHaveLength(10);
+    expect(first.list()).toHaveLength(12);
+    expect(second.list()).toHaveLength(12);
 
     first.register(buildDefinition({ type: 'test-custom', version: 1 }));
 
     expect(first.has('test-custom', 1)).toBe(true);
-    expect(first.list()).toHaveLength(11);
-    expect(second.list()).toHaveLength(10);
+    expect(first.list()).toHaveLength(13);
+    expect(second.list()).toHaveLength(12);
     expect(second.has('test-custom', 1)).toBe(false);
     expect(second.get('test-custom', 1)).toBeUndefined();
   });
