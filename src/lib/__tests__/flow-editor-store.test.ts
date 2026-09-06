@@ -258,6 +258,116 @@ describe('flow editor store', () => {
     expect(after?.spec.edges).toBe(edgesRef);
   });
 
+  it('addEdge appends to spec.edges only without touching layout', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const before = useFlowEditorStore.getState().document;
+    expect(before).not.toBeNull();
+    const layoutRef = before!.layout;
+    const nodesRef = before!.spec.nodes;
+
+    useFlowEditorStore.getState().addEdge({
+      id: 'edge-2',
+      sourceNodeId: 'node-source-1',
+      sourcePortId: 'out',
+      targetNodeId: 'node-sink-1',
+      targetPortId: 'in',
+    });
+
+    const after = useFlowEditorStore.getState().document;
+    expect(after?.spec.edges).toHaveLength(2);
+    expect(after?.spec.edges[1]).toEqual({
+      id: 'edge-2',
+      sourceNodeId: 'node-source-1',
+      sourcePortId: 'out',
+      targetNodeId: 'node-sink-1',
+      targetPortId: 'in',
+    });
+    expect(after?.layout).toBe(layoutRef);
+    expect(after?.spec.nodes).toBe(nodesRef);
+  });
+
+  it('addEdge copies the supplied edge instead of holding the caller reference', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const edge = {
+      id: 'edge-2',
+      sourceNodeId: 'node-source-1',
+      sourcePortId: 'out',
+      targetNodeId: 'node-sink-1',
+      targetPortId: 'in',
+    };
+
+    useFlowEditorStore.getState().addEdge(edge);
+    edge.id = 'mutated';
+
+    expect(
+      useFlowEditorStore.getState().document?.spec.edges[1]?.id,
+    ).toBe('edge-2');
+  });
+
+  it('addEdge rejects a duplicate edge ID with an internal error', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const before = useFlowEditorStore.getState().document;
+    expect(before).not.toBeNull();
+
+    expect(() =>
+      useFlowEditorStore.getState().addEdge({
+        id: 'edge-1',
+        sourceNodeId: 'node-source-1',
+        sourcePortId: 'out',
+        targetNodeId: 'node-sink-1',
+        targetPortId: 'in',
+      }),
+    ).toThrow('Duplicate flow edge id "edge-1".');
+    expect(useFlowEditorStore.getState().document?.spec.edges).toHaveLength(1);
+  });
+
+  it('removeEdges removes only matching edges without touching layout', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    useFlowEditorStore.getState().addEdge({
+      id: 'edge-2',
+      sourceNodeId: 'node-source-1',
+      sourcePortId: 'out',
+      targetNodeId: 'node-sink-1',
+      targetPortId: 'in',
+    });
+    const before = useFlowEditorStore.getState().document;
+    expect(before).not.toBeNull();
+    const layoutRef = before!.layout;
+    const nodesRef = before!.spec.nodes;
+
+    useFlowEditorStore.getState().removeEdges(['edge-1']);
+
+    const after = useFlowEditorStore.getState().document;
+    expect(after?.spec.edges.map((entry) => entry.id)).toEqual(['edge-2']);
+    expect(after?.layout).toBe(layoutRef);
+    expect(after?.spec.nodes).toBe(nodesRef);
+  });
+
+  it('removeEdges is a no-op for unknown IDs, empty input, and without a document', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const before = useFlowEditorStore.getState().document;
+    expect(before).not.toBeNull();
+
+    useFlowEditorStore.getState().removeEdges(['edge-unknown']);
+    expect(useFlowEditorStore.getState().document).toBe(before);
+
+    useFlowEditorStore.getState().removeEdges([]);
+    expect(useFlowEditorStore.getState().document).toBe(before);
+
+    useFlowEditorStore.getState().clearDocument();
+    useFlowEditorStore.getState().removeEdges(['edge-1']);
+    expect(useFlowEditorStore.getState().document).toBeNull();
+
+    useFlowEditorStore.getState().addEdge({
+      id: 'edge-1',
+      sourceNodeId: 'node-source-1',
+      sourcePortId: 'out',
+      targetNodeId: 'node-sink-1',
+      targetPortId: 'in',
+    });
+    expect(useFlowEditorStore.getState().document).toBeNull();
+  });
+
   it('semantic node actions are a no-op for unknown node IDs and without a document', () => {
     useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
     const before = useFlowEditorStore.getState().document;

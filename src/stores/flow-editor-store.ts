@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import type {
   FlowDocument,
+  FlowEdge,
   FlowNodeLayout,
   FlowViewport,
 } from '@/lib/flows/model/flow-document';
@@ -31,6 +32,8 @@ interface FlowEditorState {
   moveNodes: (moves: readonly FlowNodeMove[]) => void;
   updateNodeConfig: (nodeId: string, patch: Record<string, unknown>) => void;
   renameNode: (nodeId: string, name: string) => void;
+  addEdge: (edge: FlowEdge) => void;
+  removeEdges: (ids: readonly string[]) => void;
 }
 
 function cloneViewport(viewport: FlowViewport): FlowViewport {
@@ -196,6 +199,48 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
           spec: {
             ...state.document.spec,
             nodes: nextNodes,
+          },
+        },
+      };
+    }),
+
+  addEdge: (edge) =>
+    set((state) => {
+      if (!state.document) {
+        return state;
+      }
+      if (state.document.spec.edges.some((entry) => entry.id === edge.id)) {
+        throw new Error(`Duplicate flow edge id "${edge.id}".`);
+      }
+      return {
+        document: {
+          ...state.document,
+          spec: {
+            ...state.document.spec,
+            edges: [...state.document.spec.edges, { ...edge }],
+          },
+        },
+      };
+    }),
+
+  removeEdges: (ids) =>
+    set((state) => {
+      if (!state.document || ids.length === 0) {
+        return state;
+      }
+      const remove = new Set(ids);
+      const nextEdges = state.document.spec.edges.filter(
+        (entry) => !remove.has(entry.id),
+      );
+      if (nextEdges.length === state.document.spec.edges.length) {
+        return state;
+      }
+      return {
+        document: {
+          ...state.document,
+          spec: {
+            ...state.document.spec,
+            edges: nextEdges,
           },
         },
       };
