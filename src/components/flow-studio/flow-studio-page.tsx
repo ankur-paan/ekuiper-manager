@@ -19,6 +19,7 @@ import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection } from './canvas/flow-canvas';
 import { toReactFlow } from './canvas/to-react-flow';
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
+import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
 import { useFlowAutosave, type FlowAutosaveSaved, type FlowAutosaveStatus } from './hooks/use-flow-autosave';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
@@ -46,6 +47,16 @@ class FlowPageError extends Error {
     this.status = status;
   }
 }
+
+/**
+ * Shared built-in definition source for the palette (FS-0063).
+ *
+ * The registry clones definitions on retrieval, so one module-level
+ * instance is safe to share across renders without leaking mutable state.
+ * The palette renders whatever this registry lists, so registry additions
+ * appear without palette source edits. No drag/drop payload is built here.
+ */
+const builtinRegistry = createBuiltinNodeRegistry();
 
 async function readErrorMessage(response: Response): Promise<string> {
   const payload: unknown = await response.json().catch(() => null);
@@ -203,6 +214,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     () => (canvasSource ? toReactFlow(canvasSource) : null),
     [canvasSource],
   );
+
+  // FS-0063: palette is driven by the built-in registry, not a hard-coded
+  // catalog. list() is already deterministically ordered; grouping and
+  // display order are owned by NodePalette.
+  const paletteDefinitions = React.useMemo(() => builtinRegistry.list(), []);
 
   // FS-0046: compare current editor canonical snapshots against the last
   // server draft documents, each domain independently and never by object
@@ -408,7 +424,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               deployDisabled
             />
           }
-          palette={<NodePalette />}
+          palette={<NodePalette definitions={paletteDefinitions} />}
           canvas={
             canvasView ? (
               <FlowCanvas
@@ -430,7 +446,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasView, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange]);
+  }, [flowQuery, draftQuery, canvasView, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
