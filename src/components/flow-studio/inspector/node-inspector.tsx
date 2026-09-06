@@ -19,6 +19,14 @@ export interface NodeInspectorProps {
    * here; the node chrome receives only counts. Never persisted.
    */
   diagnostics?: FlowDiagnostic[];
+  /**
+   * Defect R4: document-level diagnostics without nodeId/edgeId scope
+   * (cycle, no source, no sink), computed by the page from the same
+   * editor pipeline. Node-only presentation cannot show them, so they
+   * render in a dedicated Flow section below instead of being silently
+   * discarded. Never persisted.
+   */
+  documentDiagnostics?: FlowDiagnostic[];
   children?: React.ReactNode;
   className?: string;
 }
@@ -34,6 +42,7 @@ const builtinRegistry = createBuiltinNodeRegistry();
 export function NodeInspector({
   selectedNodeId,
   diagnostics,
+  documentDiagnostics,
   children,
   className,
 }: NodeInspectorProps) {
@@ -202,7 +211,32 @@ export function NodeInspector({
       <div className="shrink-0 border-b px-4 py-3">
         <h2 className="text-sm font-semibold leading-tight">Inspector</h2>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{body}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        {body}
+        {children === undefined && (documentDiagnostics ?? []).length > 0 ? (
+          <div
+            className="mt-4 flex flex-col gap-2"
+            data-testid="node-inspector-flow-diagnostics"
+          >
+            <p className="text-xs font-semibold">Flow</p>
+            <ul className="flex flex-col gap-1.5">
+              {(documentDiagnostics ?? []).map((diagnostic) => (
+                <li
+                  key={`${diagnostic.code}|${diagnostic.message}`}
+                  className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+                  data-testid="node-inspector-flow-diagnostic"
+                  data-severity={diagnostic.severity}
+                  role={diagnostic.severity === "error" ? "alert" : "status"}
+                >
+                  <span className="font-medium">{diagnostic.code}</span>
+                  {": "}
+                  {diagnostic.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
