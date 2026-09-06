@@ -25,6 +25,16 @@ import { createFlowEdgeForConnection, generateFlowEdgeId } from '@/lib/flows/mod
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
 import { canConnect } from '@/lib/flows/validation/port-compatibility';
+import { validateFlowStructure } from '@/lib/flows/validation/structural';
+import {
+  validateFlowEdgePorts,
+  validateFlowUnknownNodeTypes,
+} from '@/lib/flows/validation/registry-validation';
+import {
+  validateFlowPropertyTypes,
+  validateFlowRequiredProperties,
+} from '@/lib/flows/validation/property-validation';
+import type { FlowDiagnostic } from '@/lib/flows/model/diagnostic';
 import { useFlowAutosave, type FlowAutosaveSaved, type FlowAutosaveStatus } from './hooks/use-flow-autosave';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
@@ -226,6 +236,112 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // catalog. list() is already deterministically ordered; grouping and
   // display order are owned by NodePalette.
   const paletteDefinitions = React.useMemo(() => builtinRegistry.list(), []);
+
+  // FS-0068: node-scoped validation derived from committed store state.
+  // Runs existing client structural/registry/property validators against
+  // the built-in registry on every document change. Pure read: never
+  // mutates the document, never writes diagnostics into store state, and
+  // therefore never alters the semantic hash. Diagnostics stay in memo
+  // state only; only counts flow to node chrome while messages render in
+  // the inspector.
+  const flowDiagnostics = React.useMemo<FlowDiagnostic[]>(() => {
+    if (!storeDocument || storeDocument.metadata.id !== flowId) return [];
+    return [
+      ...validateFlowStructure(storeDocument),
+      ...validateFlowUnknownNodeTypes(storeDocument, builtinRegistry),
+      ...validateFlowEdgePorts(storeDocument, builtinRegistry),
+      ...validateFlowRequiredProperties(storeDocument, builtinRegistry),
+      ...validateFlowPropertyTypes(storeDocument, builtinRegistry),
+    ];
+  }, [storeDocument, flowId]);
+
+  // FS-0068: collapse diagnostics to per-node error/warning counts for the
+  // canvas. Diagnostics carrying nodeId count directly; edge-only
+  // diagnostics (e.g. incompatible ports) attribute to both endpoint
+  // nodes so the badge reflects connection problems. Document-level
+  // diagnostics without node or edge scope are inspector-agnostic and
+  // excluded from chrome counts.
+  const nodeValidationCounts = React.useMemo(
+    () => {
+      const counts = new Map<string, { errors: number; warnings: number }>();
+      if (!storeDocument) return counts;
+      const edgesById = new Map(
+        storeDocument.spec.edges.map((edge) => [edge.id, edge]),
+      );
+      const bump = (nodeId: string, severity: FlowDiagnostic['severity']) => {
+        const entry = counts.get(nodeId) ?? { errors: 0, warnings: 0 };
+        if (severity === 'error') {
+          entry.errors += 1;
+        } else if (severity === 'warning') {
+          entry.warnings += 1;
+        } else {
+          return;
+        }
+        counts.set(nodeId, entry);
+      };
+      for (const diagnostic of flowDiagnostics) {
+        if (diagnostic.nodeId) {
+          bump(diagnostic.nodeId, diagnostic.severity);
+        } else if (diagnostic.edgeId) {
+          const edge = edgesById.get(diagnostic.edgeId);
+          if (!edge) continue;
+          bump(edge.sourceNodeId, diagnostic.severity);
+          if (edge.targetNodeId !== edge.sourceNodeId) {
+            bump(edge.targetNodeId, diagnostic.severity);
+          }
+        }
+      }
+      return counts;
+    },
+    [flowDiagnostics, storeDocument],
+  );
+
+  // FS-0068: enrich the pure toReactFlow view with per-node counts only.
+  // Messages never enter canvas node data, keeping canvas chrome bounded
+  // per UI_PERFORMANCE_SPEC. Derived from committed store state so fixing
+  // a property clears the badge on the next render without reload.
+  const canvasViewWithValidation = React.useMemo(() => {
+    if (!canvasView) return null;
+    if (nodeValidationCounts.size === 0) return canvasView;
+    return {
+      edges: canvasView.edges,
+      nodes: canvasView.nodes.map((node) => {
+        const counts = nodeValidationCounts.get(node.id);
+        if (!counts) return node;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            validationErrorCount: counts.errors,
+            validationWarningCount: counts.warnings,
+          },
+        };
+      }),
+    };
+  }, [canvasView, nodeValidationCounts]);
+
+  // FS-0068: detailed messages for the currently selected node. Includes
+  // diagnostics scoped directly to the node plus edge diagnostics for
+  // incident edges (e.g. incompatible ports carry only edgeId).
+  const inspectorDiagnostics = React.useMemo<FlowDiagnostic[]>(() => {
+    const selectedNodeId = selectedNodeIds[0] ?? null;
+    if (!selectedNodeId || !storeDocument) return [];
+    const edgesById = new Map(
+      storeDocument.spec.edges.map((edge) => [edge.id, edge]),
+    );
+    return flowDiagnostics.filter((diagnostic) => {
+      if (diagnostic.nodeId === selectedNodeId) return true;
+      if (!diagnostic.nodeId && diagnostic.edgeId) {
+        const edge = edgesById.get(diagnostic.edgeId);
+        return (
+          edge !== undefined &&
+          (edge.sourceNodeId === selectedNodeId ||
+            edge.targetNodeId === selectedNodeId)
+        );
+      }
+      return false;
+    });
+  }, [flowDiagnostics, selectedNodeIds, storeDocument]);
 
   // FS-0046: compare current editor canonical snapshots against the last
   // server draft documents, each domain independently and never by object
@@ -588,10 +704,10 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
           }
           palette={<NodePalette definitions={paletteDefinitions} />}
           canvas={
-            canvasView ? (
+            canvasViewWithValidation ? (
               <FlowCanvas
-                edges={canvasView.edges}
-                nodes={canvasView.nodes}
+                edges={canvasViewWithValidation.edges}
+                nodes={canvasViewWithValidation.nodes}
                 selectedNodeIds={selectedNodeIds}
                 selectedEdgeIds={selectedEdgeIds}
                 nodeTypes={flowNodeTypes}
@@ -607,11 +723,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               </div>
             )
           }
-          inspector={<NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} />}
+          inspector={<NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} diagnostics={inspectorDiagnostics} />}
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasView, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, inspectorDiagnostics]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
