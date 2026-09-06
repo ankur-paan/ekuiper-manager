@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 import type {
   FlowNodeCategory,
   FlowNodeDefinition,
@@ -66,17 +67,49 @@ function groupPaletteDefinitions(
   return groups;
 }
 
+/**
+ * Case-insensitive substring match across display name, type, and
+ * description. Synchronous: the built-in set is small enough that no
+ * debounce or fuzzy-search dependency is needed (FS-0064).
+ */
+function matchesPaletteSearch(
+  definition: FlowNodeDefinition,
+  query: string,
+): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (normalized.length === 0) return true;
+  if (definition.displayName.toLowerCase().includes(normalized)) return true;
+  if (definition.type.toLowerCase().includes(normalized)) return true;
+  if ((definition.description ?? "").toLowerCase().includes(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 export function NodePalette({ definitions, children, className }: NodePaletteProps) {
-  const groups = React.useMemo(
-    () => (definitions ? groupPaletteDefinitions(definitions) : null),
-    [definitions],
+  const [search, setSearch] = React.useState("");
+  const filteredDefinitions = React.useMemo(
+    () =>
+      definitions
+        ? definitions.filter((definition) => matchesPaletteSearch(definition, search))
+        : undefined,
+    [definitions, search],
   );
+  const groups = React.useMemo(
+    () => (filteredDefinitions ? groupPaletteDefinitions(filteredDefinitions) : null),
+    [filteredDefinitions],
+  );
+  const hasQuery = search.trim().length > 0;
 
   let body: React.ReactNode;
   if (children !== undefined) {
     body = children;
   } else if (!groups || groups.length === 0) {
-    body = (
+    body = hasQuery ? (
+      <p role="status" className="text-xs text-muted-foreground">
+        No nodes match your search.
+      </p>
+    ) : (
       <p className="text-xs text-muted-foreground">
         No nodes available yet.
       </p>
@@ -119,8 +152,19 @@ export function NodePalette({ definitions, children, className }: NodePalettePro
       className={cn("flex h-full min-h-0 flex-col", className)}
       data-testid="node-palette"
     >
-      <div className="shrink-0 border-b px-4 py-3">
+      <div className="shrink-0 space-y-2 border-b px-4 py-3">
         <h2 className="text-sm font-semibold leading-tight">Palette</h2>
+        {children === undefined ? (
+          <Input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search nodes"
+            aria-label="Search nodes"
+            data-testid="node-palette-search"
+            className="h-8"
+          />
+        ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {body}
