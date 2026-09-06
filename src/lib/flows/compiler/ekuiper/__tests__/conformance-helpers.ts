@@ -155,9 +155,72 @@ function buildSwitchFlow(): FlowDocument {
   };
 }
 
+function windowNode(id: string): FlowDocument['spec']['nodes'][number] {
+  return {
+    id,
+    type: 'window',
+    typeVersion: 1,
+    name: 'Conformance Window',
+    config: { length: 10, timeUnit: 'ss' },
+  };
+}
+
+/**
+ * Linear source -> window -> operator -> sink flow (FS-0149).
+ *
+ * `aggfunc`, `groupby` and `orderby` accept ONLY collection input
+ * (eKuiper 2.4.1: `input type mismatch, expect collection, got row`),
+ * so aggregate, group-by and sort fixtures must be preceded by a window.
+ * A raw source emits row and can never feed them directly.
+ */
+function windowedLinearFlow(
+  ruleId: string,
+  operator: FlowDocument['spec']['nodes'][number],
+): FlowDocument {
+  const windowId = 'node-conformance-window';
+  const nodes: FlowDocument['spec']['nodes'] = [
+    memorySourceNode(SOURCE_ID),
+    windowNode(windowId),
+    operator,
+    memorySinkNode(SINK_ID),
+  ];
+  return {
+    apiVersion: FLOW_DOCUMENT_VERSION,
+    metadata: { id: ruleId, name: ruleId },
+    spec: {
+      nodes,
+      edges: [
+        {
+          id: 'edge-1',
+          sourceNodeId: SOURCE_ID,
+          sourcePortId: 'out',
+          targetNodeId: windowId,
+          targetPortId: 'in',
+        },
+        {
+          id: 'edge-2',
+          sourceNodeId: windowId,
+          sourcePortId: 'out',
+          targetNodeId: OPERATOR_ID,
+          targetPortId: 'in',
+        },
+        {
+          id: 'edge-3',
+          sourceNodeId: OPERATOR_ID,
+          sourcePortId: 'out',
+          targetNodeId: SINK_ID,
+          targetPortId: 'in',
+        },
+      ],
+    },
+    layout: baseLayout(nodes.map((node) => node.id)),
+  };
+}
+
 function buildJoinFlow(): FlowDocument {
   const leftSource = 'node-conformance-left';
   const rightSource = 'node-conformance-right';
+  const windowId = 'node-conformance-window';
   const nodes: FlowDocument['spec']['nodes'] = [
     {
       id: leftSource,
@@ -173,6 +236,7 @@ function buildJoinFlow(): FlowDocument {
       name: 'Conformance Right',
       config: { topic: 'devices/conformance-right' },
     },
+    windowNode(windowId),
     operatorNode('join', {
       condition: 'leftStream.id = rightStream.id',
     }),
@@ -195,11 +259,18 @@ function buildJoinFlow(): FlowDocument {
           id: 'edge-2',
           sourceNodeId: rightSource,
           sourcePortId: 'out',
+          targetNodeId: windowId,
+          targetPortId: 'in',
+        },
+        {
+          id: 'edge-3',
+          sourceNodeId: windowId,
+          sourcePortId: 'out',
           targetNodeId: OPERATOR_ID,
           targetPortId: 'right',
         },
         {
-          id: 'edge-3',
+          id: 'edge-4',
           sourceNodeId: OPERATOR_ID,
           sourcePortId: 'out',
           targetNodeId: SINK_ID,
@@ -311,7 +382,7 @@ export function listConformanceCases(): ConformanceCase[] {
       buildDocument: () =>
         linearFlow(
           'flow-conformance-func',
-          operatorNode('func', { expression: 'temperature * 2' }),
+          operatorNode('func', { expression: 'abs(temperature)' }),
         ),
     },
     {
@@ -325,7 +396,7 @@ export function listConformanceCases(): ConformanceCase[] {
     {
       nodeType: 'aggregate',
       buildDocument: () =>
-        linearFlow(
+        windowedLinearFlow(
           'flow-conformance-aggregate',
           operatorNode('aggregate', { fields: 'avg(temperature) AS avg_temp' }),
         ),
@@ -333,7 +404,7 @@ export function listConformanceCases(): ConformanceCase[] {
     {
       nodeType: 'group-by',
       buildDocument: () =>
-        linearFlow(
+        windowedLinearFlow(
           'flow-conformance-group-by',
           operatorNode('group-by', { keys: 'deviceId' }),
         ),
@@ -345,7 +416,7 @@ export function listConformanceCases(): ConformanceCase[] {
     {
       nodeType: 'sort',
       buildDocument: () =>
-        linearFlow(
+        windowedLinearFlow(
           'flow-conformance-sort',
           operatorNode('sort', { orderBy: 'avg_temp DESC' }),
         ),
