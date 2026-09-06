@@ -44,6 +44,12 @@ export interface FlowNodeData extends Record<string, unknown> {
   outputs?: FlowPortDefinition[];
   definition?: FlowNodeDefinitionSummary;
   /**
+   * Set by the page/view adapter when the (type, typeVersion) definition
+   * could not be resolved. The node still renders safely with zero
+   * handles plus an explicit unsupported mark.
+   */
+  unsupported?: boolean;
+  /**
    * FS-0068: node-scoped validation counts computed by the page from
    * existing client validators. Counts/status only; detailed messages
    * live in the inspector. Never persisted into the Flow document.
@@ -72,6 +78,7 @@ function handleTop(index: number, total: number): string {
 }
 
 export function FlowNode({ data, selected }: FlowNodeProps) {
+  const unsupported = data.unsupported === true;
   const category = data.definition?.category ?? data.category;
   const inputs = resolvePorts(data.inputs, data.definition?.inputs);
   const outputs = resolvePorts(data.outputs, data.definition?.outputs);
@@ -183,6 +190,18 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
           title={subtitle}
         >
           {subtitle}
+        </div>
+      ) : null}
+
+      {unsupported === true ? (
+        <div className="px-3 pb-2">
+          <span
+            className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+            data-testid="flow-node-unsupported"
+            title="Unknown node type. The saved node is preserved."
+          >
+            Unsupported
+          </span>
         </div>
       ) : null}
 
