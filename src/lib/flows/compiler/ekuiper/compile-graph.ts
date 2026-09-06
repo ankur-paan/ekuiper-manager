@@ -14,6 +14,11 @@ import {
   filterDefinition,
   pickDefinition,
 } from '../../registry/builtins/transforms';
+import {
+  aggregateDefinition,
+  groupByDefinition,
+} from '../../registry/builtins/aggregate';
+import { windowDefinition } from '../../registry/builtins/window';
 import { NodeRegistry } from '../../registry/node-registry';
 import { createRuntimeId } from '../runtime-id';
 import {
@@ -23,12 +28,13 @@ import {
 import type { EkuiperGraphNode, EkuiperGraphRule } from './graph-types';
 
 /**
- * Minimal eKuiper graph-rule compiler (FS-0074, extended by FS-0075).
+ * Minimal eKuiper graph-rule compiler (FS-0074, extended by FS-0075/FS-0076).
  *
  * Scope: compiles a validated linear Flow chain
- * (one memory source -> zero or more filter/pick operators -> one memory
- * sink) into one eKuiper graph rule definition. Any other shape yields
- * structured `FlowDiagnostic` failures; nodes are never silently dropped.
+ * (one memory source -> zero or more filter/pick/window/aggfunc/groupby
+ * operators -> one memory sink) into one eKuiper graph rule definition.
+ * Any other shape yields structured `FlowDiagnostic` failures; nodes are
+ * never silently dropped.
  *
  * Audited contract sources:
  * - Envelope (`nodes`/`topo`, node `type`/`nodeType`/`props`, topology
@@ -50,18 +56,35 @@ import type { EkuiperGraphNode, EkuiperGraphRule } from './graph-types';
  *   props: {expr: "<bool expression>"}}` and the pick operator as
  *   `{type: "operator", nodeType: "pick", props: {fields: [...]}}`
  *   where `fields` is an array of field-expression strings.
+ * - Operator values (FS-0076): the same official graph_rule doc defines
+ *   the window operator as `{type: "operator", nodeType: "window",
+ *   props: {type: "<windowtype>", unit: "<unit>", size: <int>,
+ *   interval: <int>}}` (e.g. `{type: "hoppingwindow", unit: "ss",
+ *   size: 10, interval: 5}`), the aggregate operator as
+ *   `{type: "operator", nodeType: "aggfunc", props: {expr: "<aggregate
+ *   expression>"}}` (e.g. `{expr: "count(*)"}`), and the grouping
+ *   operator as `{type: "operator", nodeType: "groupby",
+ *   props: {dimensions: [...]}}` (e.g. `{dimensions:
+ *   ["device1.humidity"]}`). The v1 window editor exposes tumbling-only
+ *   config (`length` + `timeUnit`), so the compiler emits
+ *   `type: "tumblingwindow"` with `unit`/`size` copied from the v1 config
+ *   and no `interval` (the eKuiper window runtime defaults an unset
+ *   interval to the window length, which is exactly tumbling semantics).
  *
  * Determinism: same Flow document always yields the same artifact
  * (deterministic runtime IDs, sorted IR input, canonical semantic hash,
  * edge-following chain order). Layout is never read and secrets are never
  * touched: only `metadata.id` and semantic `spec` nodes/edges are
- * consumed, and only `topic`/`expression`/`fields` strings are copied
- * into `props`.
+ * consumed, and only `topic`/`expression`/`fields`/`length`/`timeUnit`/
+ * `keys` values are copied into `props`.
  */
 
 const MEMORY_OPERATION = 'memory';
 const FILTER_OPERATION = 'filter';
 const PICK_OPERATION = 'pick';
+const WINDOW_OPERATION = 'window';
+const AGGFUNC_OPERATION = 'aggfunc';
+const GROUPBY_OPERATION = 'groupby';
 
 const SOURCE_KIND_PREFIX = 'source';
 const SINK_KIND_PREFIX = 'sink';
@@ -140,18 +163,21 @@ function toMemorySinkNode(
 }
 
 /**
- * Compiler-local registry overlay (FS-0075).
+ * Compiler-local registry overlay (FS-0075, extended by FS-0076).
  *
- * `filter`/`pick` definitions intentionally carry no `runtimeKind` /
- * `operation` metadata (transforms.ts defers that mapping to "a later
- * compiler ticket"), so the shared `createBuiltinNodeRegistry()` cannot
- * build IR for them yet. This ticket's allowed paths exclude the builtins
- * file, so the compiler supplies the small operator mapping locally:
- * each definition is re-registered with `runtimeKind: 'operator'` plus
- * its eKuiper operator name, and every other definition is passed through
- * untouched. Definitions for later compiler tickets (window, join, ...)
- * therefore still fail IR building with a structured diagnostic instead
- * of being silently dropped.
+ * `filter`/`pick`/`window`/`aggregate`/`group-by` definitions
+ * intentionally carry no `runtimeKind` / `operation` metadata
+ * (transforms.ts, window.ts, and aggregate.ts defer that mapping to "a
+ * later compiler ticket"), so the shared `createBuiltinNodeRegistry()`
+ * cannot build IR for them yet. This ticket's allowed paths exclude the
+ * builtins files, so the compiler supplies the small operator mapping
+ * locally: each definition is re-registered with `runtimeKind:
+ * 'operator'` plus its eKuiper operator name (`filter`, `pick`,
+ * `window`, `aggfunc` for the `aggregate` Flow type, `groupby` for the
+ * `group-by` Flow type), and every other definition is passed through
+ * untouched. Definitions for later compiler tickets (join, ...) therefore
+ * still fail IR building with a structured diagnostic instead of being
+ * silently dropped.
  */
 function createCompilerRegistry(): NodeRegistry {
   const registry = new NodeRegistry();
@@ -173,6 +199,33 @@ function createCompilerRegistry(): NodeRegistry {
         ...definition,
         runtimeKind: 'operator',
         operation: PICK_OPERATION,
+      });
+    } else if (
+      definition.type === windowDefinition.type &&
+      definition.version === windowDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'operator',
+        operation: WINDOW_OPERATION,
+      });
+    } else if (
+      definition.type === aggregateDefinition.type &&
+      definition.version === aggregateDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'operator',
+        operation: AGGFUNC_OPERATION,
+      });
+    } else if (
+      definition.type === groupByDefinition.type &&
+      definition.version === groupByDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'operator',
+        operation: GROUPBY_OPERATION,
       });
     } else {
       registry.register(definition);
@@ -268,6 +321,157 @@ function toPickNode(
 }
 
 /**
+ * Read the v1 tumbling-window editor config.
+ *
+ * The v1 `window` definition exposes only `length` (number) and
+ * `timeUnit` (string); both are required. `length` must be a positive
+ * integer because eKuiper documents the graph `size` prop as an int, and
+ * `timeUnit` is copied verbatim into the graph `unit` prop (official
+ * values are documented in the eKuiper windows reference, e.g. `ss`).
+ * No other window modes or advanced fields are supported here.
+ */
+function readWindowConfig(
+  config: Record<string, unknown>,
+  nodeId: string,
+): { length: number; timeUnit: string } | { diagnostic: FlowDiagnostic } {
+  const length: unknown = config.length;
+  if (typeof length !== 'number' || !Number.isInteger(length) || length <= 0) {
+    return {
+      diagnostic: {
+        code: FLOW_REQUIRED_PROPERTY_MISSING,
+        severity: 'error',
+        message: `Window node "${nodeId}" requires a positive integer "length" property.`,
+        nodeId,
+        propertyPath: 'length',
+      },
+    };
+  }
+  const timeUnit: unknown = config.timeUnit;
+  if (typeof timeUnit !== 'string' || timeUnit.length === 0) {
+    return {
+      diagnostic: {
+        code: FLOW_REQUIRED_PROPERTY_MISSING,
+        severity: 'error',
+        message: `Window node "${nodeId}" requires a non-empty "timeUnit" property.`,
+        nodeId,
+        propertyPath: 'timeUnit',
+      },
+    };
+  }
+  return { length, timeUnit };
+}
+
+function toWindowNode(
+  irNode: FlowIrNode,
+): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const window = readWindowConfig(irNode.config, irNode.id);
+  if ('diagnostic' in window) {
+    return window;
+  }
+  return {
+    node: {
+      type: 'operator',
+      nodeType: WINDOW_OPERATION,
+      props: {
+        type: 'tumblingwindow',
+        unit: window.timeUnit,
+        size: window.length,
+      },
+    },
+  };
+}
+
+/**
+ * Read the v1 aggregate `fields` expression text as an eKuiper `expr`
+ * string. The editor stores the aggregate call as one opaque expression
+ * (e.g. `avg(power) AS mean_power`), matching the official `aggfunc`
+ * single-`expr` prop shape; it is never parsed here.
+ */
+function readAggregateExpression(
+  config: Record<string, unknown>,
+  nodeId: string,
+): { expression: string } | { diagnostic: FlowDiagnostic } {
+  const fields: unknown = config.fields;
+  if (typeof fields === 'string' && fields.length > 0) {
+    return { expression: fields };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message: `Aggregate node "${nodeId}" requires a non-empty "fields" property.`,
+      nodeId,
+      propertyPath: 'fields',
+    },
+  };
+}
+
+function toAggregateNode(
+  irNode: FlowIrNode,
+): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const expression = readAggregateExpression(irNode.config, irNode.id);
+  if ('diagnostic' in expression) {
+    return expression;
+  }
+  return {
+    node: {
+      type: 'operator',
+      nodeType: AGGFUNC_OPERATION,
+      props: { expr: expression.expression },
+    },
+  };
+}
+
+/**
+ * Read the v1 group-by `keys` expression text as an eKuiper `dimensions`
+ * array. The editor stores grouping keys as one opaque expression string
+ * (never parsed by the registry), while eKuiper expects
+ * `dimensions: []string`. The v1 mapping splits the text on commas and
+ * trims each entry, dropping empties; a value with no usable key is
+ * reported as a missing required property.
+ */
+function readDimensionList(
+  config: Record<string, unknown>,
+  nodeId: string,
+): { dimensions: string[] } | { diagnostic: FlowDiagnostic } {
+  const keys: unknown = config.keys;
+  if (typeof keys === 'string') {
+    const list = keys
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (list.length > 0) {
+      return { dimensions: list };
+    }
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message: `Group By node "${nodeId}" requires a non-empty "keys" property.`,
+      nodeId,
+      propertyPath: 'keys',
+    },
+  };
+}
+
+function toGroupByNode(
+  irNode: FlowIrNode,
+): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const dimensions = readDimensionList(irNode.config, irNode.id);
+  if ('diagnostic' in dimensions) {
+    return dimensions;
+  }
+  return {
+    node: {
+      type: 'operator',
+      nodeType: GROUPBY_OPERATION,
+      props: { dimensions: dimensions.dimensions },
+    },
+  };
+}
+
+/**
  * Map one IR node to its eKuiper graph node. Any kind/operation pair
  * without an exact mapping yields a structured diagnostic; nodes are
  * never silently dropped.
@@ -287,6 +491,15 @@ function toEkuiperNode(
   if (irNode.kind === 'operator' && irNode.operation === PICK_OPERATION) {
     return toPickNode(irNode);
   }
+  if (irNode.kind === 'operator' && irNode.operation === WINDOW_OPERATION) {
+    return toWindowNode(irNode);
+  }
+  if (irNode.kind === 'operator' && irNode.operation === AGGFUNC_OPERATION) {
+    return toAggregateNode(irNode);
+  }
+  if (irNode.kind === 'operator' && irNode.operation === GROUPBY_OPERATION) {
+    return toGroupByNode(irNode);
+  }
   return {
     diagnostic: {
       code: FLOW_UNKNOWN_NODE_TYPE,
@@ -302,7 +515,8 @@ function toEkuiperNode(
 /**
  * Runtime ID prefix for one IR node: source/sink kinds keep their
  * established prefixes; operators use their eKuiper operator name so IDs
- * stay readable (`filter_<hash>`, `pick_<hash>`). Only the Flow node ID
+ * stay readable (`filter_<hash>`, `pick_<hash>`, `window_<hash>`,
+ * `aggfunc_<hash>`, `groupby_<hash>`). Only the Flow node ID
  * is hashed, so renames never change the output.
  */
 function runtimePrefixFor(irNode: FlowIrNode): string {
@@ -402,7 +616,8 @@ function orderLinearChain(
 /**
  * Compile a semantic Flow document into an eKuiper graph-rule deployment
  * artifact. Supported shape: exactly one source and one sink joined by a
- * linear chain of memory/filter/pick nodes in edge order.
+ * linear chain of memory/filter/pick/window/aggfunc/groupby nodes in edge
+ * order.
  *
  * Every user-correctable failure is returned as a structured diagnostic
  * (never a thrown string); only an empty Flow metadata ID throws, as an
