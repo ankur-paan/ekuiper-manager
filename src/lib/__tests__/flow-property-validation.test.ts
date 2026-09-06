@@ -269,6 +269,114 @@ describe('validateFlowRequiredProperties', () => {
   });
 });
 
+describe('validateFlowRequiredProperties with showWhen (FS-0156)', () => {
+  function buildVisibilityRegistry(): NodeRegistry {
+    const registry = new NodeRegistry();
+    registry.register(
+      buildDefinition({
+        type: 'test-window',
+        version: 1,
+        properties: [
+          {
+            key: 'windowType',
+            label: 'Window type',
+            type: 'string',
+            required: true,
+          },
+          {
+            key: 'size',
+            label: 'Size',
+            type: 'number',
+            required: true,
+            showWhen: { property: 'windowType', equals: 'tumbling' },
+          },
+        ],
+      }),
+    );
+    return registry;
+  }
+
+  function buildWindowDoc(config: Record<string, unknown>) {
+    return createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'n1',
+          type: 'test-window',
+          typeVersion: 1,
+          name: 'Window',
+          config,
+        }),
+      ],
+      edges: [],
+    });
+  }
+
+  it('produces no diagnostic for a hidden required property', () => {
+    const registry = buildVisibilityRegistry();
+    const doc = buildWindowDoc({ windowType: 'sliding' });
+
+    expect(validateFlowRequiredProperties(doc, registry)).toEqual([]);
+  });
+
+  it('still reports a visible required property that is missing', () => {
+    const registry = buildVisibilityRegistry();
+    const doc = buildWindowDoc({ windowType: 'tumbling' });
+
+    const diagnostics = validateFlowRequiredProperties(doc, registry);
+    const matches = diagnostics.filter(
+      (item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.nodeId).toBe('n1');
+    expect(matches[0]?.propertyPath).toBe('config.size');
+  });
+
+  it('passes when a visible required property is present', () => {
+    const registry = buildVisibilityRegistry();
+    const doc = buildWindowDoc({ windowType: 'tumbling', size: 10 });
+
+    expect(validateFlowRequiredProperties(doc, registry)).toEqual([]);
+  });
+
+  it('stays required when showWhen is malformed (fail-open)', () => {
+    const registry = new NodeRegistry();
+    registry.register(
+      buildDefinition({
+        type: 'test-window',
+        version: 1,
+        properties: [
+          {
+            key: 'size',
+            label: 'Size',
+            type: 'number',
+            required: true,
+            showWhen: { property: 'windowType' },
+          },
+        ],
+      }),
+    );
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'n1',
+          type: 'test-window',
+          typeVersion: 1,
+          name: 'Window',
+          config: { windowType: 'sliding' },
+        }),
+      ],
+      edges: [],
+    });
+
+    const diagnostics = validateFlowRequiredProperties(doc, registry);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.code).toBe('FLOW_REQUIRED_PROPERTY_MISSING');
+    expect(diagnostics[0]?.propertyPath).toBe('config.size');
+  });
+});
+
 describe('validateFlowPropertyTypes (FS-0062)', () => {
   function buildTypedRegistry(): NodeRegistry {
     const registry = new NodeRegistry();

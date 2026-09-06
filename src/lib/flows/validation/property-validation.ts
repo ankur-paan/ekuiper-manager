@@ -2,6 +2,7 @@ import type { FlowDiagnostic } from '../model/diagnostic';
 import { FLOW_REQUIRED_PROPERTY_MISSING } from '../model/diagnostic';
 import type { FlowDocument } from '../model/flow-document';
 import type { NodeRegistry } from '../registry/node-registry';
+import { isFlowPropertyVisible } from '../registry/node-definition';
 
 /**
  * Structured diagnostic code for property values whose runtime type does
@@ -36,6 +37,13 @@ function isMissingValue(value: unknown): boolean {
  * type coercion or select-option validation is performed. Returns every
  * diagnostic in one pass. Never throws for well-typed input and never
  * mutates its input or the registry.
+ *
+ * Visibility (FS-0156): a required property hidden by its declarative
+ * `showWhen` predicate (see `isFlowPropertyVisible`) is not applicable and
+ * is skipped, so the editor never reports a missing value for a field the
+ * user cannot see. `isFlowPropertyVisible` is fail-open: a malformed or
+ * unresolvable `showWhen` leaves the property visible and therefore still
+ * required.
  */
 export function validateFlowRequiredProperties(
   document: FlowDocument,
@@ -65,6 +73,9 @@ export function validateFlowRequiredProperties(
 
     for (const property of properties) {
       if (property.required !== true) {
+        continue;
+      }
+      if (!isFlowPropertyVisible(property, config)) {
         continue;
       }
       const value = config[property.key];
