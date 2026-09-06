@@ -1352,17 +1352,22 @@ describe('flow eKuiper compiler (sort operator)', () => {
 describe('flow eKuiper compiler (join operator)', () => {
   const LEFT_SOURCE_FLOW_ID = 'node-source-left';
   const RIGHT_SOURCE_FLOW_ID = 'node-source-right';
+  const WINDOW_FLOW_ID = 'node-window-1';
   const JOIN_FLOW_ID = 'node-join-1';
   const LEFT_TOPIC = 'devices/left';
   const RIGHT_TOPIC = 'devices/right';
   const JOIN_CONDITION = 'leftStream.id = rightStream.id';
 
   function buildJoinFlow(options?: {
-    leftSource?: string;
-    rightSource?: string;
+    from?: string;
+    joinName?: string;
+    condition?: string;
   }): FlowDocument {
-    const leftSource = options?.leftSource ?? LEFT_SOURCE_FLOW_ID;
-    const rightSource = options?.rightSource ?? RIGHT_SOURCE_FLOW_ID;
+    const from =
+      options?.from ?? createRuntimeId('source', LEFT_SOURCE_FLOW_ID);
+    const joinName =
+      options?.joinName ?? createRuntimeId('source', RIGHT_SOURCE_FLOW_ID);
+    const condition = options?.condition ?? JOIN_CONDITION;
     return {
       apiVersion: FLOW_DOCUMENT_VERSION,
       metadata: { id: 'flow-join-demo', name: 'Join Demo' },
@@ -1383,11 +1388,18 @@ describe('flow eKuiper compiler (join operator)', () => {
             config: { topic: RIGHT_TOPIC },
           },
           {
+            id: WINDOW_FLOW_ID,
+            type: 'window',
+            typeVersion: 1,
+            name: 'Window',
+            config: { length: 10, timeUnit: 'ss' },
+          },
+          {
             id: JOIN_FLOW_ID,
             type: 'join',
             typeVersion: 1,
             name: 'Join',
-            config: { condition: JOIN_CONDITION },
+            config: { from, joinName, condition },
           },
           {
             id: SINK_FLOW_ID,
@@ -1399,18 +1411,25 @@ describe('flow eKuiper compiler (join operator)', () => {
         ],
         edges: [
           {
-            id: 'edge-left',
-            sourceNodeId: leftSource,
+            id: 'edge-left-window',
+            sourceNodeId: LEFT_SOURCE_FLOW_ID,
             sourcePortId: 'out',
-            targetNodeId: JOIN_FLOW_ID,
-            targetPortId: 'left',
+            targetNodeId: WINDOW_FLOW_ID,
+            targetPortId: 'in',
           },
           {
-            id: 'edge-right',
-            sourceNodeId: rightSource,
+            id: 'edge-right-window',
+            sourceNodeId: RIGHT_SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: WINDOW_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-window-join',
+            sourceNodeId: WINDOW_FLOW_ID,
             sourcePortId: 'out',
             targetNodeId: JOIN_FLOW_ID,
-            targetPortId: 'right',
+            targetPortId: 'in',
           },
           {
             id: 'edge-out',
@@ -1425,15 +1444,16 @@ describe('flow eKuiper compiler (join operator)', () => {
         nodes: {
           [LEFT_SOURCE_FLOW_ID]: { x: 0, y: -60 },
           [RIGHT_SOURCE_FLOW_ID]: { x: 0, y: 60 },
-          [JOIN_FLOW_ID]: { x: 200, y: 0 },
-          [SINK_FLOW_ID]: { x: 400, y: 0 },
+          [WINDOW_FLOW_ID]: { x: 200, y: 0 },
+          [JOIN_FLOW_ID]: { x: 400, y: 0 },
+          [SINK_FLOW_ID]: { x: 600, y: 0 },
         },
         viewport: { x: 0, y: 0, zoom: 1 },
       },
     };
   }
 
-  it('produces the exact expected join nodeType/props with left mapped to from and right to joins', () => {
+  it('produces the exact expected join nodeType/props with from/joins taken from config', () => {
     const result = compileFlowToEkuiperGraph(buildJoinFlow());
 
     expect(result.ok).toBe(true);
@@ -1441,6 +1461,7 @@ describe('flow eKuiper compiler (join operator)', () => {
 
     const leftRuntimeId = createRuntimeId('source', LEFT_SOURCE_FLOW_ID);
     const rightRuntimeId = createRuntimeId('source', RIGHT_SOURCE_FLOW_ID);
+    const windowRuntimeId = createRuntimeId('window', WINDOW_FLOW_ID);
     const joinRuntimeId = createRuntimeId('join', JOIN_FLOW_ID);
     const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
 
@@ -1456,6 +1477,11 @@ describe('flow eKuiper compiler (join operator)', () => {
             type: 'source',
             nodeType: 'memory',
             props: { datasource: RIGHT_TOPIC },
+          },
+          [windowRuntimeId]: {
+            type: 'operator',
+            nodeType: 'window',
+            props: { type: 'tumblingwindow', unit: 'ss', size: 10 },
           },
           [joinRuntimeId]: {
             type: 'operator',
@@ -1476,8 +1502,9 @@ describe('flow eKuiper compiler (join operator)', () => {
         topo: {
           sources: [leftRuntimeId, rightRuntimeId].sort(),
           edges: {
-            [leftRuntimeId]: [joinRuntimeId],
-            [rightRuntimeId]: [joinRuntimeId],
+            [leftRuntimeId]: [windowRuntimeId],
+            [rightRuntimeId]: [windowRuntimeId],
+            [windowRuntimeId]: [joinRuntimeId],
             [joinRuntimeId]: [sinkRuntimeId],
           },
         },
@@ -1486,24 +1513,22 @@ describe('flow eKuiper compiler (join operator)', () => {
     expect(result.artifact.runtimeNodeMap).toEqual({
       [LEFT_SOURCE_FLOW_ID]: leftRuntimeId,
       [RIGHT_SOURCE_FLOW_ID]: rightRuntimeId,
+      [WINDOW_FLOW_ID]: windowRuntimeId,
       [JOIN_FLOW_ID]: joinRuntimeId,
       [SINK_FLOW_ID]: sinkRuntimeId,
     });
     expect(result.diagnostics).toEqual([]);
   });
 
-  it('preserves left/right identity when the feeds are swapped', () => {
+  it('derives the join identities from config rather than edge identity', () => {
+    const leftRuntimeId = createRuntimeId('source', LEFT_SOURCE_FLOW_ID);
+    const rightRuntimeId = createRuntimeId('source', RIGHT_SOURCE_FLOW_ID);
     const result = compileFlowToEkuiperGraph(
-      buildJoinFlow({
-        leftSource: RIGHT_SOURCE_FLOW_ID,
-        rightSource: LEFT_SOURCE_FLOW_ID,
-      }),
+      buildJoinFlow({ from: rightRuntimeId, joinName: leftRuntimeId }),
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const leftRuntimeId = createRuntimeId('source', LEFT_SOURCE_FLOW_ID);
-    const rightRuntimeId = createRuntimeId('source', RIGHT_SOURCE_FLOW_ID);
     const joinRuntimeId = createRuntimeId('join', JOIN_FLOW_ID);
     const graph = result.artifact.ruleDefinition.graph as {
       nodes: Record<string, { props: Record<string, unknown> }>;
@@ -1537,9 +1562,30 @@ describe('flow eKuiper compiler (join operator)', () => {
     ).toBe(true);
   });
 
-  it('fails with a structured diagnostic when the join condition is missing', () => {
+  it('fails with a structured diagnostic when the join from identity is missing', () => {
     const document = buildJoinFlow();
-    document.spec.nodes[2]!.config = {};
+    document.spec.nodes[3]!.config = {};
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(JOIN_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('from');
+  });
+
+  it('fails with a structured diagnostic when the join condition text is missing', () => {
+    const leftRuntimeId = createRuntimeId('source', LEFT_SOURCE_FLOW_ID);
+    const rightRuntimeId = createRuntimeId('source', RIGHT_SOURCE_FLOW_ID);
+    const document = buildJoinFlow();
+    document.spec.nodes[3]!.config = {
+      from: leftRuntimeId,
+      joinName: rightRuntimeId,
+    };
     const result = compileFlowToEkuiperGraph(document);
 
     expect(result.ok).toBe(false);
@@ -1553,10 +1599,10 @@ describe('flow eKuiper compiler (join operator)', () => {
     expect(result.diagnostics[0]?.propertyPath).toBe('condition');
   });
 
-  it('fails with a structured diagnostic when the left input is missing', () => {
+  it('fails with a structured diagnostic when the join input is missing', () => {
     const document = buildJoinFlow();
     document.spec.edges = document.spec.edges.filter(
-      (edge) => edge.targetPortId !== 'left',
+      (edge) => edge.targetNodeId !== JOIN_FLOW_ID,
     );
     const result = compileFlowToEkuiperGraph(document);
 
@@ -1566,9 +1612,7 @@ describe('flow eKuiper compiler (join operator)', () => {
     expect(result.diagnostics.length).toBeGreaterThan(0);
     expect(
       result.diagnostics.some(
-        (diagnostic) =>
-          diagnostic.code === 'FLOW_PORT_TARGET_MISSING' ||
-          diagnostic.nodeId === JOIN_FLOW_ID,
+        (diagnostic) => diagnostic.nodeId === JOIN_FLOW_ID,
       ),
     ).toBe(true);
   });

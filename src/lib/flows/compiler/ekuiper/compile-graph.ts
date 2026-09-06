@@ -5,7 +5,6 @@ import type { FlowDocument } from '../../model/flow-document';
 import {
   FLOW_NO_SINK,
   FLOW_NO_SOURCE,
-  FLOW_PORT_TARGET_MISSING,
   FLOW_REQUIRED_PROPERTY_MISSING,
   FLOW_UNKNOWN_NODE_TYPE,
   type FlowDiagnostic,
@@ -50,9 +49,12 @@ import type { EkuiperGraphNode } from './graph-types';
  * definition. Supported nodes: one or more memory/mqtt sources, the
  * filter/pick/function/window/aggfunc/groupby/orderby/switch/join operators, and
  * one or more memory/mqtt/rest/log sinks. Linear operators carry exactly one input and
- * one output; switch fans out by stable branch port; join fans in from
- * explicit left/right ports. Any other shape yields structured
- * `FlowDiagnostic` failures; nodes are never silently dropped.
+ * one output, except the window operator which admits converging fan-in
+ * (both join streams pass through one shared window); switch fans out by
+ * stable branch port; join carries exactly one collection input whose
+ * stream identities come from node config, not port identity. Any other
+ * shape yields structured `FlowDiagnostic` failures; nodes are never
+ * silently dropped.
  *
  * Audited contract sources:
  * - Envelope (`nodes`/`topo`, node `type`/`nodeType`/`props`, topology
@@ -110,11 +112,12 @@ import type { EkuiperGraphNode } from './graph-types';
  *   - `internal/topo/planner/planner_graph.go`: only switch nodes may
  *     originate multi-dimensional edge arrays (any other node found in a
  *     second-dimension position fails planning); sinks must have NO entry
- *     in `topo.edges` (`"sink %s has edge"`); every source and operator
- *     must have an entry; join `from`/`joins[].name` name stream emitters
- *     (graph source-node keys for inline sources, which is what this
- *     compiler emits), and more than one non-lookup input to a join is
- *     rejected (`"does not allow multiple stream inputs"`).
+  *     in `topo.edges` (`"sink %s has edge"`); every source and operator
+  *     must have an entry; join `from`/`joins[].name` name stream emitters
+  *     (live-engine correction FS-0151: the join takes ONE collection
+  *     input with both streams converged through a shared window, so a
+  *     two-input join is rejected with `"does not allow multiple stream
+  *     inputs"` and the identities come from node config, not edges).
  * - Connector values (FS-0078, corrected by FS-0142): live-engine
  *   verification against eKuiper 2.4.1 showed `connectionSelector` is not
  *   honoured for graph rules (`connectionSelector` alone is rejected
@@ -178,8 +181,7 @@ const SINK_KIND_PREFIX = 'sink';
 const SWITCH_BRANCH_PORTS = ['branch-1', 'branch-2'] as const;
 const SWITCH_DEFAULT_PORT = 'default';
 
-const JOIN_LEFT_PORT = 'left';
-const JOIN_RIGHT_PORT = 'right';
+const JOIN_INPUT_PORT = 'in';
 
 /**
  * Derive a deterministic eKuiper-safe rule ID from a Flow metadata ID.
@@ -1128,13 +1130,30 @@ function toSortNode(
 }
 
 /**
- * Context for mapping IR nodes whose eKuiper props reference other graph
- * nodes. Join `from`/`joins[].name` name the upstream graph nodes, so the
- * mapper needs the Flow-edge grouping plus the resolved runtime IDs.
+ * Read one required non-empty string property from a join IR node config.
+ *
+ * The value is copied verbatim into the eKuiper join props; it is never
+ * parsed here. A missing or empty value is a missing required property,
+ * never a fabricated default or a silent omission.
  */
-interface JoinMappingContext {
-  edgesByTarget: Map<string, FlowIrEdge[]>;
-  runtimeNodeMap: Record<string, string>;
+function readJoinString(
+  config: Record<string, unknown>,
+  nodeId: string,
+  property: 'from' | 'joinName',
+): { value: string } | { diagnostic: FlowDiagnostic } {
+  const value: unknown = config[property];
+  if (typeof value === 'string' && value.length > 0) {
+    return { value };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message: `Join node "${nodeId}" requires a non-empty "${property}" property.`,
+      nodeId,
+      propertyPath: property,
+    },
+  };
 }
 
 function readJoinCondition(
@@ -1159,95 +1178,40 @@ function readJoinCondition(
 /**
  * Map one join IR node to its eKuiper graph node.
  *
- * The engine parses `from`/`joins[].name` as stream names
- * (`parseJoinAst` in `internal/topo/planner/planner_graph.go` builds
- * `SELECT * FROM <from> <type> JOIN <name> ON <on>`); for the inline
- * sources this compiler emits, the stream name IS the graph node key, so
- * `from` is the runtime ID feeding the stable `left` port and
- * `joins[0].name` is the runtime ID feeding the stable `right` port.
- * Edge-array position never decides identity: only `targetPortId` does.
- * The v1 editor exposes no join-type control, so the compiler pins the
- * SQL default `inner` explicitly. A two-stream join additionally needs an
- * upstream window at deploy time (the engine rejects multiple non-lookup
- * inputs); the compiler preserves the identities and leaves that engine
- * validation authoritative instead of rewriting topology.
+ * Live-engine measurement (FS-0151, eKuiper 2.4.1): the join takes ONE
+ * collection input (both streams converge through a shared window) and the
+ * engine parses `from`/`joins[].name` as stream names (`Join{from string,
+ * joins: [{name, type, on}]}` in `internal/topo/graph/node.go`,
+ * `parseJoinAst` in `internal/topo/planner/planner_graph.go` builds
+ * `SELECT * FROM <from> <type> JOIN <name> ON <on>`). The identities
+ * therefore come from node config (`from`, `joinName`, `condition`),
+ * copied verbatim into `from`/`joins[0].name`/`joins[0].on` — never from
+ * port identity, and the single upstream edge is never consulted for
+ * meaning beyond the topology. The v1 editor exposes no join-type control,
+ * so the compiler pins the SQL default `inner` explicitly.
  */
 function toJoinNode(
   irNode: FlowIrNode,
-  context: JoinMappingContext,
 ): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const from = readJoinString(irNode.config, irNode.id, 'from');
+  if ('diagnostic' in from) {
+    return from;
+  }
+  const joinName = readJoinString(irNode.config, irNode.id, 'joinName');
+  if ('diagnostic' in joinName) {
+    return joinName;
+  }
   const condition = readJoinCondition(irNode.config, irNode.id);
   if ('diagnostic' in condition) {
     return condition;
-  }
-  const incoming = context.edgesByTarget.get(irNode.id) ?? [];
-  const left = incoming.filter((edge) => edge.targetPortId === JOIN_LEFT_PORT);
-  const right = incoming.filter(
-    (edge) => edge.targetPortId === JOIN_RIGHT_PORT,
-  );
-  if (left.length === 0) {
-    return {
-      diagnostic: {
-        code: FLOW_PORT_TARGET_MISSING,
-        severity: 'error',
-        message: `Flow join node "${irNode.id}" has no edge targeting required input port "left".`,
-        nodeId: irNode.id,
-      },
-    };
-  }
-  if (right.length === 0) {
-    return {
-      diagnostic: {
-        code: FLOW_PORT_TARGET_MISSING,
-        severity: 'error',
-        message: `Flow join node "${irNode.id}" has no edge targeting required input port "right".`,
-        nodeId: irNode.id,
-      },
-    };
-  }
-  if (left.length !== 1 || right.length !== 1) {
-    return {
-      diagnostic: {
-        code: FLOW_UNKNOWN_NODE_TYPE,
-        severity: 'error',
-        message:
-          `Flow join node "${irNode.id}" has more than one edge on a ` +
-          `single input port; this compiler version maps exactly one edge per join input.`,
-        nodeId: irNode.id,
-      },
-    };
-  }
-  const leftEdge = left[0];
-  const rightEdge = right[0];
-  if (leftEdge === undefined || rightEdge === undefined) {
-    return {
-      diagnostic: {
-        code: FLOW_UNKNOWN_NODE_TYPE,
-        severity: 'error',
-        message: `Flow edge into join node "${irNode.id}" references an unknown node.`,
-        nodeId: irNode.id,
-      },
-    };
-  }
-  const from = context.runtimeNodeMap[leftEdge.sourceNodeId];
-  const name = context.runtimeNodeMap[rightEdge.sourceNodeId];
-  if (from === undefined || name === undefined) {
-    return {
-      diagnostic: {
-        code: FLOW_UNKNOWN_NODE_TYPE,
-        severity: 'error',
-        message: `Flow edge into join node "${irNode.id}" references an unknown node.`,
-        nodeId: irNode.id,
-      },
-    };
   }
   return {
     node: {
       type: 'operator',
       nodeType: JOIN_OPERATION,
       props: {
-        from,
-        joins: [{ name, type: 'inner', on: condition.condition }],
+        from: from.value,
+        joins: [{ name: joinName.value, type: 'inner', on: condition.condition }],
       },
     },
   };
@@ -1256,12 +1220,10 @@ function toJoinNode(
 /**
  * Map one IR node to its eKuiper graph node. Any kind/operation pair
  * without an exact mapping yields a structured diagnostic; nodes are
- * never silently dropped. Join mapping needs edge context (see
- * `JoinMappingContext`) because its props name upstream graph nodes.
+ * never silently dropped.
  */
 function toEkuiperNode(
   irNode: FlowIrNode,
-  context: JoinMappingContext,
 ): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
   if (irNode.kind === 'source' && irNode.operation === MEMORY_OPERATION) {
     return toMemorySourceNode(irNode);
@@ -1306,7 +1268,7 @@ function toEkuiperNode(
     return toSortNode(irNode);
   }
   if (irNode.kind === 'operator' && irNode.operation === JOIN_OPERATION) {
-    return toJoinNode(irNode, context);
+    return toJoinNode(irNode);
   }
   return {
     diagnostic: {
@@ -1387,10 +1349,12 @@ function outgoingCount(group: NodeEdgeGroups): number {
  * Validate that the IR graph has the DAG shape this compiler version can
  * map: every edge references known nodes, every non-source has at least
  * one input, every non-sink has at least one output, linear operators
- * carry exactly one input and one output, switch carries exactly one
- * input with branch outputs grouped by stable port ID, and join carries
- * exactly one `left` and one `right` input with one output. Only switch
- * nodes may fan out; any other multi-output shape fails with a diagnostic
+ * carry exactly one input and one output (except the window operator,
+ * which admits converging fan-in so both join streams can pass through
+ * one shared window), switch carries exactly one input with branch
+ * outputs grouped by stable port ID, and join carries exactly one `in`
+ * input with one output. Only switch nodes may fan out and only window
+ * nodes may fan in; any other multi-edge shape fails with a diagnostic
  * instead of being silently dropped or reordered. Nodes unreachable from
  * any source (disconnected islands or sourceless cycles) fail as well.
  * Checks run in sorted Flow-node-ID order so the first reported
@@ -1479,7 +1443,8 @@ function validateDagShape(
     if (
       node.kind === 'operator' &&
       node.operation !== SWITCH_OPERATION &&
-      node.operation !== JOIN_OPERATION
+      node.operation !== JOIN_OPERATION &&
+      node.operation !== WINDOW_OPERATION
     ) {
       if (group.incoming.length !== 1 || outgoingCount(group) !== 1) {
         return {
@@ -1489,8 +1454,26 @@ function validateDagShape(
             severity: 'error',
             message:
               `Flow node "${node.id}" is outside the supported shape: ` +
-              `only switch nodes may fan out and only join nodes may fan ` +
+              `only switch nodes may fan out and only window nodes may fan ` +
               `in, so this operator needs exactly one input and one output.`,
+            nodeId: node.id,
+          },
+        };
+      }
+    }
+    if (node.kind === 'operator' && node.operation === WINDOW_OPERATION) {
+      // Shared-window join topology (FS-0151): both join streams converge
+      // through one window, so a window admits fan-in (one or more inputs)
+      // while still fanning out to exactly one downstream node.
+      if (group.incoming.length < 1 || outgoingCount(group) !== 1) {
+        return {
+          ok: false,
+          diagnostic: {
+            code: FLOW_UNKNOWN_NODE_TYPE,
+            severity: 'error',
+            message:
+              `Flow window node "${node.id}" needs at least one input edge ` +
+              `and exactly one output edge.`,
             nodeId: node.id,
           },
         };
@@ -1546,13 +1529,10 @@ function validateDagShape(
       }
     }
     if (node.kind === 'operator' && node.operation === JOIN_OPERATION) {
-      const left = group.incoming.filter(
-        (edge) => edge.targetPortId === JOIN_LEFT_PORT,
+      const incoming = group.incoming.filter(
+        (edge) => edge.targetPortId === JOIN_INPUT_PORT,
       );
-      const right = group.incoming.filter(
-        (edge) => edge.targetPortId === JOIN_RIGHT_PORT,
-      );
-      if (left.length !== 1 || right.length !== 1) {
+      if (incoming.length !== 1 || group.incoming.length !== 1) {
         return {
           ok: false,
           diagnostic: {
@@ -1560,7 +1540,7 @@ function validateDagShape(
             severity: 'error',
             message:
               `Flow join node "${node.id}" needs exactly one edge on ` +
-              `each of the "left" and "right" input ports.`,
+              `the "in" input port.`,
             nodeId: node.id,
           },
         };
@@ -1747,17 +1727,9 @@ export function compileFlowToEkuiperGraph(
     );
   }
 
-  const edgesByTarget = new Map<string, FlowIrEdge[]>();
-  for (const edge of irEdges) {
-    const list = edgesByTarget.get(edge.targetNodeId) ?? [];
-    list.push(edge);
-    edgesByTarget.set(edge.targetNodeId, list);
-  }
-  const joinContext: JoinMappingContext = { edgesByTarget, runtimeNodeMap };
-
   const graphNodes: Record<string, EkuiperGraphNode> = {};
   for (const irNode of irNodes) {
-    const mapped = toEkuiperNode(irNode, joinContext);
+    const mapped = toEkuiperNode(irNode);
     if ('diagnostic' in mapped) {
       return { ok: false, artifact: undefined, diagnostics: [mapped.diagnostic] };
     }

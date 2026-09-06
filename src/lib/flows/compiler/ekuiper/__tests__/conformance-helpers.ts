@@ -2,6 +2,7 @@ import {
   FLOW_DOCUMENT_VERSION,
   type FlowDocument,
 } from '../../../model/flow-document';
+import { createRuntimeId } from '../../runtime-id';
 
 /**
  * Live-engine node conformance helpers (FS-0141).
@@ -217,6 +218,18 @@ function windowedLinearFlow(
   };
 }
 
+/**
+ * Shared-window join flow (FS-0151).
+ *
+ * Live-engine measurement (eKuiper 2.4.1): the join takes ONE collection
+ * input, so both sources converge through a single shared window
+ * (`leftSource -> window`, `rightSource -> SAME window`, `window -> join`
+ * validates, while any two-input join is rejected with `join node does not
+ * allow multiple stream inputs`). The joined stream identities are carried
+ * by node config (`from`/`joinName` name the two source graph nodes,
+ * resolved here with the same deterministic runtime IDs the compiler
+ * emits) and compile verbatim to the eKuiper `from`/`joins[0].name` props.
+ */
 function buildJoinFlow(): FlowDocument {
   const leftSource = 'node-conformance-left';
   const rightSource = 'node-conformance-right';
@@ -238,6 +251,8 @@ function buildJoinFlow(): FlowDocument {
     },
     windowNode(windowId),
     operatorNode('join', {
+      from: createRuntimeId('source', leftSource),
+      joinName: createRuntimeId('source', rightSource),
       condition: 'leftStream.id = rightStream.id',
     }),
     memorySinkNode(SINK_ID),
@@ -252,8 +267,8 @@ function buildJoinFlow(): FlowDocument {
           id: 'edge-1',
           sourceNodeId: leftSource,
           sourcePortId: 'out',
-          targetNodeId: OPERATOR_ID,
-          targetPortId: 'left',
+          targetNodeId: windowId,
+          targetPortId: 'in',
         },
         {
           id: 'edge-2',
@@ -267,7 +282,7 @@ function buildJoinFlow(): FlowDocument {
           sourceNodeId: windowId,
           sourcePortId: 'out',
           targetNodeId: OPERATOR_ID,
-          targetPortId: 'right',
+          targetPortId: 'in',
         },
         {
           id: 'edge-4',
@@ -293,7 +308,8 @@ export interface ConformanceCase {
  * One minimal valid flow per built-in node type currently in the
  * registry (15 types): sources/sinks pair with a memory counterpart and
  * each operator sits alone between a memory source and a memory sink,
- * except switch (two branch sinks) and join (two sources).
+ * except switch (two branch sinks) and join (two sources converge through
+ * one shared window into the single join input).
  */
 export function listConformanceCases(): ConformanceCase[] {
   return [
