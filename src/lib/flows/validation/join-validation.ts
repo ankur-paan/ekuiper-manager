@@ -12,33 +12,27 @@ import type { NodeRegistry } from '../registry/node-registry';
  *
  * Covers only what the audited eKuiper baseline confirms without inventing
  * engine rules:
- * - `src/lib/ekuiper/formatters.ts` OP_TYPE_MAP confirms a two-input `join`
- *   graph operator, so every v1 `join` node requires one incoming edge on
- *   each stable input port (`left` and `right`).
- * - `src/lib/ekuiper/types.ts` (`scan` | `lookup` table kinds) confirms
- *   lookup tables as a joinable right-side concept, so the `right` input
- *   admits `stream`, `collection` (windowed), `table`, or `any` upstreams
- *   while the driving `left` input admits only `stream` or `any`.
- * - Live-engine correction (FS-0149, eKuiper 2.4.1): the engine rejects
- *   multiple non-lookup inputs (`join node does not allow multiple stream
- *   inputs`), so at least one side must be windowed (`collection`) or a
- *   lookup `table`. No static per-port kind can express this cross-port
- *   constraint (the `right` definition port is kind `any`, which the
- *   generic `canConnect` check always accepts), so it is enforced below
- *   as a cross-port check over the join node's resolved inputs: when both
- *   resolved inputs are plain `stream`, one structured diagnostic is
- *   emitted. `FlowPortKind` is not widened and `canConnect` is unchanged.
+ * - `src/lib/ekuiper/formatters.ts` OP_TYPE_MAP confirms a `join` graph
+ *   operator, and live-engine measurement (FS-0151, eKuiper 2.4.1) shows it
+ *   takes ONE collection input: both streams converge through a shared
+ *   window (`leftSource -> window`, `rightSource -> SAME window`,
+ *   `window -> join` validates, while any two-input join is rejected with
+ *   `join node does not allow multiple stream inputs`). The v1 `join`
+ *   definition therefore exposes a single `in` input of kind `collection`,
+ *   and every v1 `join` node requires one incoming edge on it.
+ * - The joined stream identities are carried by node config (`from`,
+ *   `joinName`, `condition`), not by port identity, so this module owns no
+ *   cross-port rule: the only topology question is whether the single
+ *   upstream is a windowed `collection`.
  *
- * The `right` definition port is kind `any`, which the generic port
- * compatibility check always accepts; this module owns the semantic
- * rejection of `collection` (on the `left`) and `table` (on the `left`)
- * upstreams that the generic check cannot see, plus the cross-port
- * stream+stream rejection. No new diagnostic codes are introduced:
+ * The generic port compatibility check (`canConnect`) accepts `any` on
+ * either side, so `any`-kinded upstreams are treated as unknown and never
+ * rejected here; only definitively non-collection upstreams (`stream`,
+ * `table`) are reported. No new diagnostic codes are introduced:
  * a missing required input reuses FLOW_PORT_TARGET_MISSING (node-scoped,
  * no edgeId) and a semantically invalid upstream reuses
- * FLOW_PORT_INCOMPATIBLE (node- and edge-scoped for per-edge rejections,
- * node-scoped for the cross-port stream+stream rejection). No SQL is
- * generated and no expression is parsed here.
+ * FLOW_PORT_INCOMPATIBLE (node- and edge-scoped). No SQL is generated and
+ * no expression is parsed here.
  *
  * Returns every diagnostic in one pass. Never throws for well-typed input
  * and never mutates its input or the registry.
@@ -67,31 +61,21 @@ export function validateFlowJoinTopology(
       continue;
     }
 
-    const leftEdges = edges.filter(
-      (edge) => edge.targetNodeId === node.id && edge.targetPortId === 'left',
-    );
-    const rightEdges = edges.filter(
-      (edge) => edge.targetNodeId === node.id && edge.targetPortId === 'right',
+    const incoming = edges.filter(
+      (edge) => edge.targetNodeId === node.id && edge.targetPortId === 'in',
     );
 
-    if (leftEdges.length === 0) {
+    if (incoming.length === 0) {
       diagnostics.push({
         code: FLOW_PORT_TARGET_MISSING,
         severity: 'error',
-        message: `Flow join node "${node.id}" has no edge targeting required input port "left".`,
+        message: `Flow join node "${node.id}" has no edge targeting required input port "in".`,
         nodeId: node.id,
       });
-    }
-    if (rightEdges.length === 0) {
-      diagnostics.push({
-        code: FLOW_PORT_TARGET_MISSING,
-        severity: 'error',
-        message: `Flow join node "${node.id}" has no edge targeting required input port "right".`,
-        nodeId: node.id,
-      });
+      continue;
     }
 
-    for (const edge of [...leftEdges, ...rightEdges]) {
+    for (const edge of incoming) {
       const sourceNode = nodesById.get(edge.sourceNodeId);
       if (sourceNode === undefined) {
         continue;
@@ -109,105 +93,21 @@ export function validateFlowJoinTopology(
       if (sourcePort === undefined) {
         continue;
       }
-      if (!isAllowedJoinUpstream(edge.targetPortId, sourcePort.kind)) {
-        const expected =
-          edge.targetPortId === 'left'
-            ? 'a stream'
-            : 'a stream, windowed collection, or lookup table';
+      if (!isAllowedJoinUpstream(sourcePort.kind)) {
         diagnostics.push({
           code: FLOW_PORT_INCOMPATIBLE,
           severity: 'error',
-          message: `Flow edge "${edge.id}" feeds join node "${node.id}" input "${edge.targetPortId}" from source port "${sourcePort.id}" kind "${sourcePort.kind}", which a v1 join cannot consume; expected ${expected}.`,
+          message: `Flow edge "${edge.id}" feeds join node "${node.id}" input "in" from source port "${sourcePort.id}" kind "${sourcePort.kind}", which a v1 join cannot consume; expected a windowed collection.`,
           nodeId: node.id,
           edgeId: edge.id,
         });
       }
-    }
-
-    if (isPlainStreamJoin(leftEdges, rightEdges, nodesById, registry)) {
-      diagnostics.push({
-        code: FLOW_PORT_INCOMPATIBLE,
-        severity: 'error',
-        message:
-          `Flow join node "${node.id}" joins two plain streams; eKuiper requires ` +
-          `a windowed (collection) or table input on at least one side.`,
-        nodeId: node.id,
-      });
     }
   }
 
   return diagnostics;
 }
 
-function isAllowedJoinUpstream(
-  targetPortId: string,
-  sourceKind: FlowPortKind,
-): boolean {
-  if (targetPortId === 'left') {
-    return sourceKind === 'stream' || sourceKind === 'any';
-  }
-  return (
-    sourceKind === 'stream' ||
-    sourceKind === 'collection' ||
-    sourceKind === 'table' ||
-    sourceKind === 'any'
-  );
-}
-
-/**
- * Cross-port join topology rule (FS-0149): at least one input must be
- * windowed (`collection`) or a lookup `table`.
- *
- * Resolves both inputs' source port kinds and reports true only when both
- * sides resolve to at least one upstream AND every resolved upstream on
- * both sides is definitively `stream`. `any`-kinded or unresolvable
- * upstreams are treated as unknown and never trigger the rejection, so
- * future generic nodes and missing definitions fail (or pass) elsewhere,
- * never here. Missing inputs are owned by the FLOW_PORT_TARGET_MISSING
- * check above and likewise never trigger this rule.
- */
-function isPlainStreamJoin(
-  leftEdges: FlowDocument['spec']['edges'],
-  rightEdges: FlowDocument['spec']['edges'],
-  nodesById: Map<string, FlowDocument['spec']['nodes'][number]>,
-  registry: NodeRegistry,
-): boolean {
-  if (leftEdges.length === 0 || rightEdges.length === 0) {
-    return false;
-  }
-  const resolveKinds = (
-    edges: FlowDocument['spec']['edges'],
-  ): FlowPortKind[] => {
-    const kinds: FlowPortKind[] = [];
-    for (const edge of edges) {
-      const sourceNode = nodesById.get(edge.sourceNodeId);
-      if (sourceNode === undefined) {
-        continue;
-      }
-      const sourceDefinition = registry.get(
-        sourceNode.type,
-        sourceNode.typeVersion,
-      );
-      if (sourceDefinition === undefined) {
-        continue;
-      }
-      const sourcePort = sourceDefinition.outputs.find(
-        (port) => port.id === edge.sourcePortId,
-      );
-      if (sourcePort === undefined) {
-        continue;
-      }
-      kinds.push(sourcePort.kind);
-    }
-    return kinds;
-  };
-  const leftKinds = resolveKinds(leftEdges);
-  const rightKinds = resolveKinds(rightEdges);
-  if (leftKinds.length === 0 || rightKinds.length === 0) {
-    return false;
-  }
-  return (
-    leftKinds.every((kind) => kind === 'stream') &&
-    rightKinds.every((kind) => kind === 'stream')
-  );
+function isAllowedJoinUpstream(sourceKind: FlowPortKind): boolean {
+  return sourceKind === 'collection' || sourceKind === 'any';
 }
