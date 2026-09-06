@@ -19,6 +19,7 @@ import {
   logSinkDefinition,
   restSinkDefinition,
 } from '../../registry/builtins/sinks';
+import { funcDefinition } from '../../registry/builtins/script';
 import {
   filterDefinition,
   pickDefinition,
@@ -47,7 +48,7 @@ import type { EkuiperGraphNode } from './graph-types';
  *
  * Scope: compiles a validated Flow DAG into one eKuiper graph rule
  * definition. Supported nodes: one or more memory/mqtt sources, the
- * filter/pick/window/aggfunc/groupby/orderby/switch/join operators, and
+ * filter/pick/function/window/aggfunc/groupby/orderby/switch/join operators, and
  * one or more memory/mqtt/rest/log sinks. Linear operators carry exactly one input and
  * one output; switch fans out by stable branch port; join fans in from
  * explicit left/right ports. Any other shape yields structured
@@ -136,10 +137,11 @@ import type { EkuiperGraphNode } from './graph-types';
  *   `insecureSkipVerify`) stay out of scope. The log sink maps the
  *   confirmed `LogSink`/`KNOWN_FIELDS.log` contract (no required keys) to
  *   empty `props`.
- * - Script values (FS-0078): FS-0056 explicitly leaves the exact eKuiper
- *   graph `func` node property shape unconfirmed, so the `func` Flow type
- *   keeps no compiler mapping and still fails with a structured
- *   diagnostic; no code is ever executed in Manager.
+ * - Script values (FS-0143): the `func` Flow type maps to the eKuiper
+ *   graph `function` operator as `{type: "operator",
+ *   nodeType: "function", props: {expr: "<expression>"}}`, copying the
+ *   Flow `expression` config verbatim into `expr` (stored as opaque text;
+ *   no code is ever executed in Manager).
  *
  * Determinism: same Flow document always yields the same artifact
  * (deterministic runtime IDs, sorted IR input, canonical semantic hash,
@@ -157,6 +159,7 @@ const REST_OPERATION = 'rest';
 const LOG_OPERATION = 'log';
 const FILTER_OPERATION = 'filter';
 const PICK_OPERATION = 'pick';
+const FUNCTION_OPERATION = 'function';
 const WINDOW_OPERATION = 'window';
 const AGGFUNC_OPERATION = 'aggfunc';
 const GROUPBY_OPERATION = 'groupby';
@@ -546,28 +549,27 @@ function toLogSinkNode(irNode: FlowIrNode): { node: EkuiperGraphNode } {
 
 /**
  * Compiler-local registry overlay (FS-0075, extended by FS-0076/FS-0077/
- * FS-0078).
+ * FS-0078 and FS-0143).
  *
- * `filter`/`pick`/`window`/`aggregate`/`group-by`/`switch`/`sort`/`join`
- * definitions intentionally carry no `runtimeKind` / `operation` metadata
- * (transforms.ts, window.ts, aggregate.ts, routing.ts, and join.ts defer
- * that mapping to "a later compiler ticket"), so the shared
- * `createBuiltinNodeRegistry()` cannot build IR for them yet. The same
- * holds for the FS-0078 connectors: mqtt.ts and sinks.ts intentionally
- * omit `runtimeKind`/`operation` until this compiler ticket. This
- * ticket's allowed paths exclude the builtins files, so the compiler
+ * `filter`/`pick`/`func`/`window`/`aggregate`/`group-by`/`switch`/`sort`/
+ * `join` definitions intentionally carry no `runtimeKind` / `operation`
+ * metadata (transforms.ts, script.ts, window.ts, aggregate.ts, routing.ts,
+ * and join.ts defer that mapping to "a later compiler ticket"), so the
+ * shared `createBuiltinNodeRegistry()` cannot build IR for them yet. The
+ * same holds for the FS-0078 connectors: mqtt.ts and sinks.ts
+ * intentionally omit `runtimeKind`/`operation` until this compiler ticket.
+ * This ticket's allowed paths exclude the builtins files, so the compiler
  * supplies the small operator/connector mapping locally: each definition is
  * re-registered with `runtimeKind: 'operator'` plus its eKuiper operator
- * name (`filter`, `pick`, `window`, `aggfunc` for the `aggregate` Flow
- * type, `groupby` for the `group-by` Flow type, `switch` for the `switch`
- * Flow type, `orderby` for the `sort` Flow type, `join` for the `join`
- * Flow type), each MQTT definition with its kind (`source`/`sink`) plus
- * the `mqtt` connector name, and each REST/log sink definition with
- * `runtimeKind: 'sink'` plus its connector name (`rest`, `log`).
- * The `func` script definition (script.ts) keeps no mapping: FS-0056
- * leaves its exact eKuiper graph property shape unconfirmed, so per
- * FS-0078 it still fails IR building with a structured diagnostic instead
- * of being silently dropped or guessed.
+ * name (`filter`, `pick`, `function` for the `func` Flow type, `window`,
+ * `aggfunc` for the `aggregate` Flow type, `groupby` for the `group-by`
+ * Flow type, `switch` for the `switch` Flow type, `orderby` for the `sort`
+ * Flow type, `join` for the `join` Flow type), each MQTT definition with
+ * its kind (`source`/`sink`) plus the `mqtt` connector name, and each
+ * REST/log sink definition with `runtimeKind: 'sink'` plus its connector
+ * name (`rest`, `log`). Every mapped type has a `to*Node` mapper below;
+ * anything else still fails IR building with a structured diagnostic
+ * instead of being silently dropped or guessed.
  */
 function createCompilerRegistry(): NodeRegistry {
   const registry = new NodeRegistry();
@@ -589,6 +591,15 @@ function createCompilerRegistry(): NodeRegistry {
         ...definition,
         runtimeKind: 'operator',
         operation: PICK_OPERATION,
+      });
+    } else if (
+      definition.type === funcDefinition.type &&
+      definition.version === funcDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'operator',
+        operation: FUNCTION_OPERATION,
       });
     } else if (
       definition.type === windowDefinition.type &&
@@ -769,6 +780,49 @@ function toPickNode(
       type: 'operator',
       nodeType: PICK_OPERATION,
       props: { fields: fields.fields },
+    },
+  };
+}
+
+/**
+ * Read the v1 func `expression` editor config as an eKuiper `expr` string.
+ *
+ * The editor stores the function expression as opaque text (never parsed
+ * and never executed in Manager); the compiler copies it verbatim into
+ * the graph `function` operator `expr` prop. A missing or empty value is
+ * a missing required property, never a fabricated default.
+ */
+function readFunctionExpression(
+  config: Record<string, unknown>,
+  nodeId: string,
+): { expression: string } | { diagnostic: FlowDiagnostic } {
+  const expression: unknown = config.expression;
+  if (typeof expression === 'string' && expression.length > 0) {
+    return { expression };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message: `Function node "${nodeId}" requires a non-empty "expression" property.`,
+      nodeId,
+      propertyPath: 'expression',
+    },
+  };
+}
+
+function toFunctionNode(
+  irNode: FlowIrNode,
+): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const expression = readFunctionExpression(irNode.config, irNode.id);
+  if ('diagnostic' in expression) {
+    return expression;
+  }
+  return {
+    node: {
+      type: 'operator',
+      nodeType: FUNCTION_OPERATION,
+      props: { expr: expression.expression },
     },
   };
 }
@@ -1233,6 +1287,9 @@ function toEkuiperNode(
   if (irNode.kind === 'operator' && irNode.operation === PICK_OPERATION) {
     return toPickNode(irNode);
   }
+  if (irNode.kind === 'operator' && irNode.operation === FUNCTION_OPERATION) {
+    return toFunctionNode(irNode);
+  }
   if (irNode.kind === 'operator' && irNode.operation === WINDOW_OPERATION) {
     return toWindowNode(irNode);
   }
@@ -1266,10 +1323,13 @@ function toEkuiperNode(
 /**
  * Runtime ID prefix for one IR node: source/sink kinds keep their
  * established prefixes; operators use their eKuiper operator name so IDs
- * stay readable (`filter_<hash>`, `pick_<hash>`, `window_<hash>`,
- * `aggfunc_<hash>`, `groupby_<hash>`, `switch_<hash>`,
+ * stay readable (`filter_<hash>`, `pick_<hash>`, `function_<hash>`,
+ * `window_<hash>`, `aggfunc_<hash>`, `groupby_<hash>`, `switch_<hash>`,
  * `orderby_<hash>`, `join_<hash>`). Only the Flow node ID
  * is hashed, so renames never change the output.
+ *
+ * (FS-0143: the `func` Flow type compiles under its eKuiper operator name
+ * `function`, so its prefix is `function_<hash>`.)
  */
 function runtimePrefixFor(irNode: FlowIrNode): string {
   if (irNode.kind === 'source') {
@@ -1622,7 +1682,7 @@ interface CompiledGraphRule {
 /**
  * Compile a semantic Flow document into an eKuiper graph-rule deployment
  * artifact. Supported shape: one or more memory/mqtt sources feeding a DAG of
- * memory/mqtt/filter/pick/window/aggfunc/groupby/orderby/switch/join nodes
+ * memory/mqtt/filter/pick/function/window/aggfunc/groupby/orderby/switch/join nodes
  * into one or more memory/mqtt/rest/log sinks, validated by `validateDagShape`.
  *
  * Every user-correctable failure is returned as a structured diagnostic
