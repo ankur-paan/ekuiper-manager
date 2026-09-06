@@ -16,7 +16,7 @@ import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader } from './shell/flow-studio-header';
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
-import { FlowCanvas, flowNodeTypes } from './canvas/flow-canvas';
+import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove } from './canvas/flow-canvas';
 import { toReactFlow } from './canvas/to-react-flow';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
@@ -119,6 +119,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
 
   const loadDocument = useFlowEditorStore((state) => state.loadDocument);
   const storeDocument = useFlowEditorStore((state) => state.document);
+  const moveNodes = useFlowEditorStore((state) => state.moveNodes);
 
   const document = React.useMemo<FlowDocument | null>(() => {
     if (!flowQuery.isSuccess || !draftQuery.isSuccess) return null;
@@ -144,6 +145,21 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const canvasView = React.useMemo(
     () => (canvasSource ? toReactFlow(canvasSource) : null),
     [canvasSource],
+  );
+
+  // Commit one layout-only move per drag stop. High-frequency drag updates
+  // stay inside FlowCanvas view state; no draft PUT happens here (FS-0047).
+  const handleCanvasNodeDragStop = React.useCallback(
+    (moves: FlowCanvasNodeDragStopMove[]) => {
+      if (moves.length === 0) return;
+      moveNodes(
+        moves.map((move) => ({
+          nodeId: move.nodeId,
+          position: { x: move.position.x, y: move.position.y },
+        })),
+      );
+    },
+    [moveNodes],
   );
 
   const body = React.useMemo(() => {
@@ -232,6 +248,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
                 edges={canvasView.edges}
                 nodes={canvasView.nodes}
                 nodeTypes={flowNodeTypes}
+                onNodeDragStop={handleCanvasNodeDragStop}
               />
             ) : (
               <div className="flex h-full items-center justify-center p-6">
@@ -243,7 +260,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasView]);
+  }, [flowQuery, draftQuery, canvasView, handleCanvasNodeDragStop]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
