@@ -1,5 +1,10 @@
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
+import {
+  createFlowNode,
+  createMinimalFlowDocument,
+} from '@/lib/flows/testing/flow-fixtures';
+import { validateFlowRequiredProperties } from '@/lib/flows/validation/property-validation';
 
 function buildDefinition(
   overrides: Partial<FlowNodeDefinition> & { type: string; version: number },
@@ -16,7 +21,7 @@ function buildDefinition(
 }
 
 describe('createBuiltinNodeRegistry', () => {
-  it('lists the memory, MQTT, REST, and log source/sink definitions', () => {
+  it('lists the memory, MQTT, REST, log, filter, and pick definitions', () => {
     const registry = createBuiltinNodeRegistry();
 
     expect(registry.has('memory-source', 1)).toBe(true);
@@ -25,12 +30,16 @@ describe('createBuiltinNodeRegistry', () => {
     expect(registry.has('mqtt-sink', 1)).toBe(true);
     expect(registry.has('rest-sink', 1)).toBe(true);
     expect(registry.has('log-sink', 1)).toBe(true);
+    expect(registry.has('filter', 1)).toBe(true);
+    expect(registry.has('pick', 1)).toBe(true);
     expect(registry.list().map((item) => `${item.type}@${item.version}`).sort()).toEqual([
+      'filter@1',
       'log-sink@1',
       'memory-sink@1',
       'memory-source@1',
       'mqtt-sink@1',
       'mqtt-source@1',
+      'pick@1',
       'rest-sink@1',
     ]);
   });
@@ -160,20 +169,94 @@ describe('createBuiltinNodeRegistry', () => {
     expect(first.get('log-sink', 1)).toEqual(second.get('log-sink', 1));
   });
 
+  it('registers filter and pick transforms with stream in/out and required expressions', () => {
+    const registry = createBuiltinNodeRegistry();
+    const filter = registry.get('filter', 1);
+    const pick = registry.get('pick', 1);
+
+    expect(filter?.category).toBe('transform');
+    expect(filter?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(filter?.outputs).toEqual([{ id: 'out', label: 'Stream', kind: 'stream' }]);
+
+    const expression = filter?.properties.find((property) => property.key === 'expression');
+    expect(expression?.required).toBe(true);
+    expect(expression?.type).toBe('expression');
+
+    expect(pick?.category).toBe('transform');
+    expect(pick?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(pick?.outputs).toEqual([{ id: 'out', label: 'Stream', kind: 'stream' }]);
+
+    const fields = pick?.properties.find((property) => property.key === 'fields');
+    expect(fields?.required).toBe(true);
+    expect(fields?.type).toBe('expression');
+
+    for (const definition of [filter, pick]) {
+      expect(definition?.runtimeKind).toBeUndefined();
+      expect(definition?.operation).toBeUndefined();
+    }
+  });
+
+  it('validates the required filter expression via the generic property validator', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const missing = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-filter-1',
+          type: 'filter',
+          typeVersion: 1,
+          name: 'Filter',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingDiagnostics = validateFlowRequiredProperties(missing, registry).filter(
+      (item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(missingDiagnostics).toHaveLength(1);
+    expect(missingDiagnostics[0]?.nodeId).toBe('node-filter-1');
+    expect(missingDiagnostics[0]?.propertyPath).toBe('config.expression');
+
+    const present = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-filter-1',
+          type: 'filter',
+          typeVersion: 1,
+          name: 'Filter',
+          config: { expression: 'temperature > 30' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
+  });
+
+  it('registers filter and pick definitions deterministically', () => {
+    const first = createBuiltinNodeRegistry();
+    const second = createBuiltinNodeRegistry();
+
+    expect(first.get('filter', 1)).toEqual(second.get('filter', 1));
+    expect(first.get('pick', 1)).toEqual(second.get('pick', 1));
+  });
+
   it('returns an isolated registry on each call', () => {
     const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
 
     expect(first).not.toBe(second);
-    expect(first.list()).toHaveLength(6);
-    expect(second.list()).toHaveLength(6);
+    expect(first.list()).toHaveLength(8);
+    expect(second.list()).toHaveLength(8);
 
-    first.register(buildDefinition({ type: 'filter', version: 1 }));
+    first.register(buildDefinition({ type: 'test-custom', version: 1 }));
 
-    expect(first.has('filter', 1)).toBe(true);
-    expect(first.list()).toHaveLength(7);
-    expect(second.list()).toHaveLength(6);
-    expect(second.has('filter', 1)).toBe(false);
-    expect(second.get('filter', 1)).toBeUndefined();
+    expect(first.has('test-custom', 1)).toBe(true);
+    expect(first.list()).toHaveLength(9);
+    expect(second.list()).toHaveLength(8);
+    expect(second.has('test-custom', 1)).toBe(false);
+    expect(second.get('test-custom', 1)).toBeUndefined();
   });
 });
