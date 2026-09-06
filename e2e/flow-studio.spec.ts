@@ -67,13 +67,16 @@ test('flow studio authoring journey round-trips through autosave', async ({ page
     const edges = page.locator('.react-flow__edge');
     const topicInput = page.getByLabel('Topic', { exact: true });
 
-    async function canvasPoint(fractionX: number, fractionY: number): Promise<{ x: number; y: number }> {
+    async function ensureCanvasReady(): Promise<{ width: number; height: number }> {
+      await expect(canvas).toBeVisible();
       const box = await canvas.boundingBox();
       expect(box).not.toBeNull();
       if (!box) {
         throw new Error('Flow canvas has no bounding box');
       }
-      return { x: box.x + box.width * fractionX, y: box.y + box.height * fractionY };
+      expect(box.width).toBeGreaterThan(0);
+      expect(box.height).toBeGreaterThan(0);
+      return { width: box.width, height: box.height };
     }
 
     // Node creation uses the FS-0070 quick node picker (double-click empty
@@ -83,12 +86,24 @@ test('flow studio authoring journey round-trips through autosave', async ({ page
     // payload the canvas drop handler reads, so the drop is ignored and no
     // node is created. Palette drag/drop itself is covered by the focused
     // synthetic-DataTransfer test below.
+    // The double-click is driven RELATIVE TO THE CANVAS ELEMENT (not the
+    // viewport): Flow Studio is a three-column layout (palette left, canvas
+    // centre, inspector right), so absolute viewport points do not reliably
+    // land on the canvas pane. canvas.dblclick({ position }) resolves the
+    // point inside the canvas element, guaranteeing the event reaches the
+    // canvas wrapper that owns onDoubleClick.
     async function addNodeViaQuickPicker(
       type: 'memory-source' | 'memory-sink',
-      point: { x: number; y: number },
+      fractionX: number,
+      fractionY: number,
     ): Promise<void> {
       const before = await nodes.count();
-      await page.mouse.dblclick(point.x, point.y);
+      const size = await ensureCanvasReady();
+      const position = {
+        x: Math.round(size.width * fractionX),
+        y: Math.round(size.height * fractionY),
+      };
+      await canvas.dblclick({ position });
       const picker = page.getByTestId('quick-node-picker');
       await expect(picker).toBeVisible({ timeout: 10_000 });
       await page.getByTestId('quick-node-picker-search').fill(type);
@@ -101,8 +116,9 @@ test('flow studio authoring journey round-trips through autosave', async ({ page
 
     // Add a Memory Source and a Memory Sink at well-separated canvas points
     // so the second double-click lands on empty canvas, not on the first node.
-    await addNodeViaQuickPicker('memory-source', await canvasPoint(0.25, 0.4));
-    await addNodeViaQuickPicker('memory-sink', await canvasPoint(0.65, 0.4));
+    // Fractions are well inside the canvas element and comfortably apart.
+    await addNodeViaQuickPicker('memory-source', 0.25, 0.4);
+    await addNodeViaQuickPicker('memory-sink', 0.65, 0.4);
 
     const sourceNode = nodes.filter({
       has: page.getByTestId('flow-node-output-out'),
@@ -128,7 +144,9 @@ test('flow studio authoring journey round-trips through autosave', async ({ page
 
     // Connect source output to sink input by dragging between the real handles.
     // Pointer events (not HTML5 DnD) drive XYFlow connections, so the
-    // Playwright mouse API is the faithful automation path here.
+    // Playwright mouse API is the faithful automation path here. Endpoints
+    // are derived from each handle's own bounding box (element-relative, not
+    // assumed viewport positions) after waiting on user-visible state.
     await expect(edges).toHaveCount(0);
     const sourceHandle = sourceNode.getByTestId('flow-node-output-out');
     const sinkHandle = sinkNode.getByTestId('flow-node-input-in');
@@ -143,6 +161,10 @@ test('flow studio authoring journey round-trips through autosave', async ({ page
     if (!fromBox || !toBox) {
       throw new Error('Connection handles have no bounding box');
     }
+    expect(fromBox.width).toBeGreaterThan(0);
+    expect(fromBox.height).toBeGreaterThan(0);
+    expect(toBox.width).toBeGreaterThan(0);
+    expect(toBox.height).toBeGreaterThan(0);
     await page.mouse.move(fromBox.x + fromBox.width / 2, fromBox.y + fromBox.height / 2, { steps: 5 });
     await page.mouse.down();
     await page.mouse.move(toBox.x + toBox.width / 2, toBox.y + toBox.height / 2, { steps: 20 });
@@ -153,11 +175,17 @@ test('flow studio authoring journey round-trips through autosave', async ({ page
     await expect(page.locator('[data-save-status="saved"]')).toBeVisible({ timeout: 30_000 });
 
     // Move a node: layout-only, must not mark the flow semantically dirty.
+    // Drag start is derived from the node's own bounding box (element
+    // bounding box, not an assumed viewport position) after waiting on
+    // user-visible state.
+    await expect(sourceNode).toBeVisible();
     const nodeBox = await sourceNode.boundingBox();
     expect(nodeBox).not.toBeNull();
     if (!nodeBox) {
       throw new Error('Source node has no bounding box');
     }
+    expect(nodeBox.width).toBeGreaterThan(0);
+    expect(nodeBox.height).toBeGreaterThan(0);
     const startX = nodeBox.x + nodeBox.width / 2;
     const startY = nodeBox.y + nodeBox.height / 2;
     await page.mouse.move(startX, startY, { steps: 5 });
