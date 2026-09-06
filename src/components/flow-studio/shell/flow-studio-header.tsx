@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 
 export type FlowStudioSaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
 
+export type FlowDeploymentStatus = 'deployed' | 'undeployed' | 'never-deployed';
+
 export interface FlowStudioHeaderProps {
   flowName: string;
   saveState: string;
@@ -12,6 +14,8 @@ export interface FlowStudioHeaderProps {
   targetName?: string;
   deployDisabled: boolean;
   onDeploy?: () => void;
+  deploymentLabel?: string;
+  deploymentStatus?: FlowDeploymentStatus;
   className?: string;
 }
 
@@ -22,6 +26,8 @@ export function FlowStudioHeader({
   targetName,
   deployDisabled,
   onDeploy,
+  deploymentLabel,
+  deploymentStatus,
   className,
 }: FlowStudioHeaderProps) {
   return (
@@ -47,6 +53,22 @@ export function FlowStudioHeader({
         >
           {saveState}
         </p>
+        {deploymentLabel ? (
+          <p
+            aria-live="polite"
+            data-testid="flow-deployment-status"
+            data-deployment-status={deploymentStatus}
+            title={deploymentLabel}
+            className={cn(
+              'truncate text-xs',
+              deploymentStatus === 'deployed' && 'font-medium text-green-700',
+              deploymentStatus === 'undeployed' && 'font-medium text-amber-700',
+              deploymentStatus === 'never-deployed' && 'text-muted-foreground',
+            )}
+          >
+            {deploymentLabel}
+          </p>
+        ) : null}
       </div>
 
       {targetName ? (
