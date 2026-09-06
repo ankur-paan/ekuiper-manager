@@ -22,6 +22,16 @@ function buildDefinition(
   };
 }
 
+function assertValidCompilerMapping(definition: FlowNodeDefinition | undefined): void {
+  if (definition?.runtimeKind !== undefined) {
+    expect(['source', 'operator', 'sink']).toContain(definition.runtimeKind);
+  }
+  if (definition?.operation !== undefined) {
+    expect(typeof definition.operation).toBe('string');
+    expect(definition.operation.length).toBeGreaterThan(0);
+  }
+}
+
 describe('createBuiltinNodeRegistry', () => {
   it('lists the memory, MQTT, REST, log, filter, pick, func, window, aggregate, group-by, switch, and sort definitions', () => {
     const registry = createBuiltinNodeRegistry();
@@ -73,17 +83,21 @@ describe('createBuiltinNodeRegistry', () => {
     expect(sink?.outputs).toEqual([]);
   });
 
-  it('requires topic on both definitions and carries no compiler mapping', () => {
+  it('requires topic on both definitions and carries the memory compiler mapping', () => {
     const registry = createBuiltinNodeRegistry();
     const source = registry.get('memory-source', 1);
     const sink = registry.get('memory-sink', 1);
+
+    expect(source?.runtimeKind).toBe('source');
+    expect(source?.operation).toBe('memory');
+    expect(sink?.runtimeKind).toBe('sink');
+    expect(sink?.operation).toBe('memory');
 
     for (const definition of [source, sink]) {
       const topic = definition?.properties.find((property) => property.key === 'topic');
       expect(topic?.required).toBe(true);
       expect(topic?.type).toBe('string');
-      expect(definition?.runtimeKind).toBeUndefined();
-      expect(definition?.operation).toBeUndefined();
+      assertValidCompilerMapping(definition);
     }
   });
 
@@ -101,7 +115,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(sink?.outputs).toEqual([]);
   });
 
-  it('requires topic, exposes a shared-connection reference, and carries no compiler mapping or secret literal', () => {
+  it('requires topic, exposes a shared-connection reference, and carries no secret literal', () => {
     const registry = createBuiltinNodeRegistry();
     const source = registry.get('mqtt-source', 1);
     const sink = registry.get('mqtt-sink', 1);
@@ -121,8 +135,7 @@ describe('createBuiltinNodeRegistry', () => {
         expect(property.key).not.toMatch(/password|passwd|secret|token|private.?key|certification/i);
       }
 
-      expect(definition?.runtimeKind).toBeUndefined();
-      expect(definition?.operation).toBeUndefined();
+      assertValidCompilerMapping(definition);
     }
   });
 
@@ -171,8 +184,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(logSink?.properties).toEqual([]);
 
     for (const definition of [restSink, logSink]) {
-      expect(definition?.runtimeKind).toBeUndefined();
-      expect(definition?.operation).toBeUndefined();
+      assertValidCompilerMapping(definition);
     }
   });
 
@@ -206,8 +218,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(fields?.type).toBe('expression');
 
     for (const definition of [filter, pick]) {
-      expect(definition?.runtimeKind).toBeUndefined();
-      expect(definition?.operation).toBeUndefined();
+      assertValidCompilerMapping(definition);
     }
   });
 
@@ -271,8 +282,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(expression?.required).toBe(true);
     expect(expression?.type).toBe('expression');
 
-    expect(func?.runtimeKind).toBeUndefined();
-    expect(func?.operation).toBeUndefined();
+    assertValidCompilerMapping(func);
   });
 
   it('validates the required func expression via the generic property validator', () => {
@@ -337,8 +347,7 @@ describe('createBuiltinNodeRegistry', () => {
     const timeUnit = window?.properties.find((property) => property.key === 'timeUnit');
     expect(timeUnit?.required).toBe(true);
 
-    expect(window?.runtimeKind).toBeUndefined();
-    expect(window?.operation).toBeUndefined();
+    assertValidCompilerMapping(window);
   });
 
   it('validates the required window settings via the generic property validator', () => {
@@ -404,8 +413,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(fields?.required).toBe(true);
     expect(fields?.type).toBe('expression');
 
-    expect(aggregate?.runtimeKind).toBeUndefined();
-    expect(aggregate?.operation).toBeUndefined();
+    assertValidCompilerMapping(aggregate);
   });
 
   it('validates the required aggregate fields via the generic property validator', () => {
@@ -528,8 +536,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(keys?.required).toBe(true);
     expect(keys?.type).toBe('expression');
 
-    expect(groupBy?.runtimeKind).toBeUndefined();
-    expect(groupBy?.operation).toBeUndefined();
+    assertValidCompilerMapping(groupBy);
   });
 
   it('validates the required group-by keys via the generic property validator', () => {
@@ -596,8 +603,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(cases?.required).toBe(true);
     expect(cases?.type).toBe('expression');
 
-    expect(switchNode?.runtimeKind).toBeUndefined();
-    expect(switchNode?.operation).toBeUndefined();
+    assertValidCompilerMapping(switchNode);
   });
 
   it('uses stable string output port IDs on switch with no array-index edge semantics', () => {
@@ -698,8 +704,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(orderBy?.required).toBe(true);
     expect(orderBy?.type).toBe('expression');
 
-    expect(sort?.runtimeKind).toBeUndefined();
-    expect(sort?.operation).toBeUndefined();
+    assertValidCompilerMapping(sort);
   });
 
   it('validates the required sort order via the generic property validator', () => {
@@ -747,6 +752,13 @@ describe('createBuiltinNodeRegistry', () => {
 
     expect(first.get('switch', 1)).toEqual(second.get('switch', 1));
     expect(first.get('sort', 1)).toEqual(second.get('sort', 1));
+  });
+
+  it('declares only valid compiler mapping shapes when present', () => {
+    const registry = createBuiltinNodeRegistry();
+    for (const definition of registry.list()) {
+      assertValidCompilerMapping(definition);
+    }
   });
 
   it('returns an isolated registry on each call', () => {
