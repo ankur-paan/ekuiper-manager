@@ -62,12 +62,16 @@ export const switchDefinition: FlowNodeDefinition = {
  *   `src/lib/__tests__/rule-designer.test.ts` confirms the combined shape
  *   (`... ORDER BY mean_power DESC ...`).
  *
- * `ORDER BY` operates over the SQL result stream, so confirmed engine
- * behavior is stream-in/stream-out; no collection port semantics are
- * advertised here. Only the confirmed editor-semantic `orderBy` property is
- * exposed. The value is stored as opaque text and is never parsed here;
- * compiler mapping (`runtimeKind`/`operation`) is intentionally omitted and
- * lands in a later compiler ticket. No compiler code lives here.
+ * Live-engine correction (FS-0144, eKuiper 2.4.1): feeding a raw source
+ * row stream directly into sort is rejected with
+ * `input type mismatch, expect collection, got row`. Like `aggfunc` and
+ * `groupby`, `orderby` accepts ONLY collection input, so a window must
+ * precede it (source -> window -> sort). The input port is therefore kind
+ * `collection` and the output stays `stream`. Only the confirmed
+ * editor-semantic `orderBy` property is exposed. The value is stored as
+ * opaque text and is never parsed here; compiler mapping
+ * (`runtimeKind`/`operation`) is intentionally omitted and lands in a
+ * later compiler ticket. No compiler code lives here.
  */
 export const sortDefinition: FlowNodeDefinition = {
   type: 'sort',
@@ -75,7 +79,7 @@ export const sortDefinition: FlowNodeDefinition = {
   displayName: 'Sort',
   description: 'Sort events by an order expression.',
   category: 'routing',
-  inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
+  inputs: [{ id: 'in', label: 'Collection', kind: 'collection' }],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [
     {
