@@ -1,3 +1,5 @@
+import type { FlowDiagnostic } from '../model/diagnostic';
+
 export type FlowNodeCategory =
   | 'source'
   | 'transform'
@@ -33,6 +35,17 @@ export interface FlowPropertyDefinition {
   options?: Array<{ label: string; value: string | number | boolean }>;
   defaultValue?: unknown;
   /**
+   * Optional display/range hints for the property control (FS-0146).
+   *
+   * Declarative only: plain JSON data, never a function or expression.
+   * `multiline`, `password` and `placeholder` are display-only. `min`,
+   * `max` and `step` are honoured by number controls; `min`/`max` are
+   * additionally enforced by range validation. `password` masks the
+   * input only and never changes storage semantics; secrets remain a
+   * separate concern (`secret-ref` type).
+   */
+  typeOptions?: FlowPropertyTypeOptions;
+  /**
    * Optional conditional visibility predicate over sibling property values
    * (FS-0145).
    *
@@ -42,6 +55,78 @@ export interface FlowPropertyDefinition {
    * visible.
    */
   showWhen?: FlowPropertyShowWhen;
+}
+
+/**
+ * Declarative display/range hints for a single property (FS-0146).
+ *
+ * All fields are optional and JSON-serialisable. `password` masks the
+ * input control only; it does not make the value a secret and never
+ * changes how the value is stored.
+ */
+export interface FlowPropertyTypeOptions {
+  multiline?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  password?: boolean;
+  placeholder?: string;
+}
+
+/**
+ * Range validation for FS-0146 `typeOptions.min`/`max`.
+ *
+ * Applies to `number` properties only; all other types return null
+ * (multiline/password/placeholder/step are display-only). Absent values
+ * (undefined, null, empty string) return null and stay owned by
+ * required-property validation; non-finite or non-number values return
+ * null and stay owned by type validation. A finite number below `min`
+ * or above `max` yields one `FLOW_INVALID_PROPERTY_VALUE` error
+ * diagnostic carrying nodeId and propertyPath. Never throws for
+ * well-typed input and never mutates its inputs.
+ */
+export function validateFlowPropertyBounds(
+  nodeId: string,
+  property: FlowPropertyDefinition,
+  value: unknown,
+): FlowDiagnostic | null {
+  if (property.type !== 'number') {
+    return null;
+  }
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === 'string' && value.length === 0) {
+    return null;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  const options = property.typeOptions;
+  if (options === undefined) {
+    return null;
+  }
+  const min = options.min;
+  if (typeof min === 'number' && Number.isFinite(min) && value < min) {
+    return {
+      code: 'FLOW_INVALID_PROPERTY_VALUE',
+      severity: 'error',
+      message: `Flow node "${nodeId}" property "${property.key}" must be >= ${min}.`,
+      nodeId,
+      propertyPath: `config.${property.key}`,
+    };
+  }
+  const max = options.max;
+  if (typeof max === 'number' && Number.isFinite(max) && value > max) {
+    return {
+      code: 'FLOW_INVALID_PROPERTY_VALUE',
+      severity: 'error',
+      message: `Flow node "${nodeId}" property "${property.key}" must be <= ${max}.`,
+      nodeId,
+      propertyPath: `config.${property.key}`,
+    };
+  }
+  return null;
 }
 
 /**

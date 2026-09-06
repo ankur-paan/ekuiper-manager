@@ -26,6 +26,11 @@ export interface PropertyFieldProps {
  * types) render a non-destructive placeholder and never write into node
  * config; dedicated tickets own those controls. No node-specific React
  * editor lives here.
+ *
+ * FS-0146: honours `typeOptions` display hints. `multiline` renders a
+ * string as a textarea, `password` masks a string input (display only;
+ * storage semantics unchanged), and `placeholder`/`min`/`max`/`step`
+ * are passed through to the underlying control.
  */
 export function PropertyField({ definition, value, onChange, className }: PropertyFieldProps) {
   const fieldId = React.useId();
@@ -52,9 +57,21 @@ export function PropertyField({ definition, value, onChange, className }: Proper
             ) : null}
           </Label>
           {definition.type === "string" ? (
-            <StringField value={value} onChange={onChange} fieldId={fieldId} descriptionId={descriptionId} />
+            <StringField
+              definition={definition}
+              value={value}
+              onChange={onChange}
+              fieldId={fieldId}
+              descriptionId={descriptionId}
+            />
           ) : definition.type === "number" ? (
-            <NumberField value={value} onChange={onChange} fieldId={fieldId} descriptionId={descriptionId} />
+            <NumberField
+              definition={definition}
+              value={value}
+              onChange={onChange}
+              fieldId={fieldId}
+              descriptionId={descriptionId}
+            />
           ) : definition.type === "select" ? (
             <SelectField
               definition={definition}
@@ -72,7 +89,13 @@ export function PropertyField({ definition, value, onChange, className }: Proper
               descriptionId={descriptionId}
             />
           ) : definition.type === "expression" ? (
-            <ExpressionField value={value} onChange={onChange} fieldId={fieldId} descriptionId={descriptionId} />
+            <ExpressionField
+              definition={definition}
+              value={value}
+              onChange={onChange}
+              fieldId={fieldId}
+              descriptionId={descriptionId}
+            />
           ) : (
             <p className="text-xs text-muted-foreground" data-testid={`property-field-unsupported-${definition.key}`}>
               {`Property type "${definition.type}" is not editable yet. Saved value is preserved.`}
@@ -90,11 +113,13 @@ export function PropertyField({ definition, value, onChange, className }: Proper
 }
 
 function StringField({
+  definition,
   value,
   onChange,
   fieldId,
   descriptionId,
 }: {
+  definition: FlowPropertyDefinition;
   value: unknown;
   onChange: (next: unknown) => void;
   fieldId: string;
@@ -102,12 +127,32 @@ function StringField({
 }) {
   // Preserve explicit values; only null/undefined render as empty text.
   const text = typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
+  const typeOptions = definition.typeOptions;
+  const placeholder = typeof typeOptions?.placeholder === "string" ? typeOptions.placeholder : undefined;
+  // FS-0146: multiline renders a textarea; password masks display only
+  // (type="password") without changing storage semantics.
+  if (typeOptions?.multiline === true) {
+    return (
+      <Textarea
+        id={fieldId}
+        aria-describedby={descriptionId}
+        value={text}
+        rows={4}
+        spellCheck={false}
+        placeholder={placeholder}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      />
+    );
+  }
   return (
     <Input
       id={fieldId}
       aria-describedby={descriptionId}
-      type="text"
+      type={typeOptions?.password === true ? "password" : "text"}
       value={text}
+      placeholder={placeholder}
       onChange={(event) => {
         onChange(event.target.value);
       }}
@@ -116,11 +161,13 @@ function StringField({
 }
 
 function NumberField({
+  definition,
   value,
   onChange,
   fieldId,
   descriptionId,
 }: {
+  definition: FlowPropertyDefinition;
   value: unknown;
   onChange: (next: unknown) => void;
   fieldId: string;
@@ -133,12 +180,26 @@ function NumberField({
       : value === undefined || value === null || value === ""
         ? ""
         : String(value);
+  // FS-0146: pass min/max/step/placeholder through to the control.
+  // Range enforcement lives in validation, not here; the control only
+  // hints. Non-finite option values are ignored (fail-open).
+  const typeOptions = definition.typeOptions;
+  const min = typeof typeOptions?.min === "number" && Number.isFinite(typeOptions.min) ? typeOptions.min : undefined;
+  const max = typeof typeOptions?.max === "number" && Number.isFinite(typeOptions.max) ? typeOptions.max : undefined;
+  const step =
+    typeof typeOptions?.step === "number" && Number.isFinite(typeOptions.step) ? typeOptions.step : undefined;
+  const placeholder =
+    typeof typeOptions?.placeholder === "string" ? typeOptions.placeholder : undefined;
   return (
     <Input
       id={fieldId}
       aria-describedby={descriptionId}
       type="number"
       value={text}
+      min={min}
+      max={max}
+      step={step}
+      placeholder={placeholder}
       onChange={(event) => {
         const raw = event.target.value;
         if (raw === "") {
@@ -363,11 +424,13 @@ function JsonField({
 }
 
 function ExpressionField({
+  definition,
   value,
   onChange,
   fieldId,
   descriptionId,
 }: {
+  definition: FlowPropertyDefinition;
   value: unknown;
   onChange: (next: unknown) => void;
   fieldId: string;
@@ -375,7 +438,10 @@ function ExpressionField({
 }) {
   // FS-0062: expression is opaque text; no parsing or Monaco here.
   // Preserve explicit values; only null/undefined render as empty text.
+  // FS-0146: honour placeholder as a display-only hint.
   const text = typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
+  const placeholder =
+    typeof definition.typeOptions?.placeholder === "string" ? definition.typeOptions.placeholder : undefined;
   return (
     <Textarea
       id={fieldId}
@@ -383,6 +449,7 @@ function ExpressionField({
       value={text}
       rows={3}
       spellCheck={false}
+      placeholder={placeholder}
       onChange={(event) => {
         onChange(event.target.value);
       }}
