@@ -16,18 +16,22 @@ function buildDefinition(
 }
 
 describe('createBuiltinNodeRegistry', () => {
-  it('lists the memory and MQTT source/sink definitions', () => {
+  it('lists the memory, MQTT, REST, and log source/sink definitions', () => {
     const registry = createBuiltinNodeRegistry();
 
     expect(registry.has('memory-source', 1)).toBe(true);
     expect(registry.has('memory-sink', 1)).toBe(true);
     expect(registry.has('mqtt-source', 1)).toBe(true);
     expect(registry.has('mqtt-sink', 1)).toBe(true);
+    expect(registry.has('rest-sink', 1)).toBe(true);
+    expect(registry.has('log-sink', 1)).toBe(true);
     expect(registry.list().map((item) => `${item.type}@${item.version}`).sort()).toEqual([
+      'log-sink@1',
       'memory-sink@1',
       'memory-source@1',
       'mqtt-sink@1',
       'mqtt-source@1',
+      'rest-sink@1',
     ]);
   });
 
@@ -107,19 +111,68 @@ describe('createBuiltinNodeRegistry', () => {
     expect(first.get('mqtt-sink', 1)).toEqual(second.get('mqtt-sink', 1));
   });
 
+  it('uses stream input and no runtime output for REST and log sinks', () => {
+    const registry = createBuiltinNodeRegistry();
+    const restSink = registry.get('rest-sink', 1);
+    const logSink = registry.get('log-sink', 1);
+
+    expect(restSink?.category).toBe('sink');
+    expect(restSink?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(restSink?.outputs).toEqual([]);
+
+    expect(logSink?.category).toBe('sink');
+    expect(logSink?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(logSink?.outputs).toEqual([]);
+  });
+
+  it('requires url on the REST sink, exposes method/body/header concepts, and leaves the log sink field-free', () => {
+    const registry = createBuiltinNodeRegistry();
+    const restSink = registry.get('rest-sink', 1);
+    const logSink = registry.get('log-sink', 1);
+
+    const url = restSink?.properties.find((property) => property.key === 'url');
+    expect(url?.required).toBe(true);
+    expect(url?.type).toBe('string');
+
+    const method = restSink?.properties.find((property) => property.key === 'method');
+    expect(method?.type).toBe('select');
+    expect(method?.required).not.toBe(true);
+
+    const bodyType = restSink?.properties.find((property) => property.key === 'bodyType');
+    expect(bodyType?.type).toBe('select');
+
+    const headers = restSink?.properties.find((property) => property.key === 'headers');
+    expect(headers?.type).toBe('json');
+
+    expect(logSink?.properties).toEqual([]);
+
+    for (const definition of [restSink, logSink]) {
+      expect(definition?.runtimeKind).toBeUndefined();
+      expect(definition?.operation).toBeUndefined();
+    }
+  });
+
+  it('registers REST and log definitions deterministically', () => {
+    const first = createBuiltinNodeRegistry();
+    const second = createBuiltinNodeRegistry();
+
+    expect(first.get('rest-sink', 1)).toEqual(second.get('rest-sink', 1));
+    expect(first.get('log-sink', 1)).toEqual(second.get('log-sink', 1));
+  });
+
   it('returns an isolated registry on each call', () => {
     const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
 
     expect(first).not.toBe(second);
-    expect(first.list()).toHaveLength(4);
-    expect(second.list()).toHaveLength(4);
+    expect(first.list()).toHaveLength(6);
+    expect(second.list()).toHaveLength(6);
 
     first.register(buildDefinition({ type: 'filter', version: 1 }));
 
     expect(first.has('filter', 1)).toBe(true);
-    expect(first.list()).toHaveLength(5);
-    expect(second.list()).toHaveLength(4);
+    expect(first.list()).toHaveLength(7);
+    expect(second.list()).toHaveLength(6);
     expect(second.has('filter', 1)).toBe(false);
     expect(second.get('filter', 1)).toBeUndefined();
   });
