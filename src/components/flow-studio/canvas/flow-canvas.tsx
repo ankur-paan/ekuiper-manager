@@ -9,11 +9,19 @@ import {
   type EdgeChange,
   type Node,
   type NodeChange,
+  type NodeTypes,
 } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
 
 import { cn } from "@/lib/utils";
+
+import { FlowNode } from "../nodes/flow-node";
+import { FLOW_CANVAS_NODE_TYPE } from "./to-react-flow";
+
+export const flowNodeTypes: NodeTypes = {
+  [FLOW_CANVAS_NODE_TYPE]: FlowNode,
+};
 
 export interface FlowCanvasProps {
   nodes?: Node[];
@@ -21,6 +29,7 @@ export interface FlowCanvasProps {
   onNodesChange?: (changes: NodeChange[]) => void;
   onEdgesChange?: (changes: EdgeChange[]) => void;
   onConnect?: (connection: Connection) => void;
+  nodeTypes?: NodeTypes;
   className?: string;
 }
 
@@ -30,6 +39,7 @@ export function FlowCanvas({
   onNodesChange,
   onEdgesChange,
   onConnect,
+  nodeTypes = flowNodeTypes,
   className,
 }: FlowCanvasProps) {
   return (
@@ -41,6 +51,7 @@ export function FlowCanvas({
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
