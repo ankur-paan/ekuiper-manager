@@ -45,6 +45,7 @@ describe('createBuiltinNodeRegistry', () => {
       'filter@1',
       'func@1',
       'group-by@1',
+      'join@1',
       'log-sink@1',
       'memory-sink@1',
       'memory-source@1',
@@ -753,14 +754,14 @@ describe('createBuiltinNodeRegistry', () => {
     const second = createBuiltinNodeRegistry();
 
     expect(first).not.toBe(second);
-    expect(first.list()).toHaveLength(14);
-    expect(second.list()).toHaveLength(14);
+    expect(first.list()).toHaveLength(15);
+    expect(second.list()).toHaveLength(15);
 
     first.register(buildDefinition({ type: 'test-custom', version: 1 }));
 
     expect(first.has('test-custom', 1)).toBe(true);
-    expect(first.list()).toHaveLength(15);
-    expect(second.list()).toHaveLength(14);
+    expect(first.list()).toHaveLength(16);
+    expect(second.list()).toHaveLength(15);
     expect(second.has('test-custom', 1)).toBe(false);
     expect(second.get('test-custom', 1)).toBeUndefined();
   });
