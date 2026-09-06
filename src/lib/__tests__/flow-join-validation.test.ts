@@ -121,9 +121,67 @@ describe('join builtin definition', () => {
 });
 
 describe('validateFlowJoinTopology', () => {
-  it('accepts a valid two-stream join topology', () => {
+  it('rejects a stream+stream join topology (engine requires windowed/table on one side)', () => {
     const registry = createBuiltinNodeRegistry();
     const document = buildValidJoinDocument();
+
+    const diagnostics = validateFlowJoinTopology(document, registry).filter(
+      (item) => item.code === 'FLOW_PORT_INCOMPATIBLE',
+    );
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.nodeId).toBe('node-join-1');
+    expect(diagnostics[0]?.edgeId).toBeUndefined();
+    expect(diagnostics[0]?.severity).toBe('error');
+    expect(diagnostics[0]?.message).toContain('two plain streams');
+    // The generic port check still passes (stream->stream, stream->any);
+    // the rejection comes from the join cross-port topology rule.
+    expect(validateFlowEdgePorts(document, registry)).toEqual([]);
+  });
+
+  it('accepts a windowed collection on the right join input', () => {
+    const registry = createBuiltinNodeRegistry();
+    const document = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-left-1',
+          type: 'memory-source',
+          typeVersion: 1,
+          name: 'Left Stream',
+          config: { topic: 'left-events' },
+        }),
+        createFlowNode({
+          id: 'node-window-1',
+          type: 'window',
+          typeVersion: 1,
+          name: 'Window',
+          config: { length: 10, timeUnit: 's' },
+        }),
+        createFlowNode({
+          id: 'node-join-1',
+          type: 'join',
+          typeVersion: 1,
+          name: 'Join',
+          config: { condition: 'left.deviceId = right.deviceId' },
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-left-join',
+          sourceNodeId: 'node-left-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-join-1',
+          targetPortId: 'left',
+        }),
+        createFlowEdge({
+          id: 'edge-window-join',
+          sourceNodeId: 'node-window-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-join-1',
+          targetPortId: 'right',
+        }),
+      ],
+    });
 
     expect(validateFlowJoinTopology(document, registry)).toEqual([]);
     expect(validateFlowEdgePorts(document, registry)).toEqual([]);

@@ -19,14 +19,17 @@ import type { FlowNodeDefinition } from '../node-definition';
  * Because no engine join property shape is confirmed, this definition
  * advertises no engine operator and uses a documented restricted form: two
  * stable inputs (`left` for the driving event stream, `right` for the
- * second stream or lookup table) and one stream output. The `left` port
+ * second stream, windowed collection, or lookup table) and one stream output. The `left` port
  * uses kind `stream`; the `right` port uses kind `any` so the existing
- * generic port compatibility accepts both `stream` and `table` upstreams
- * without requiring a new `FlowPortKind` (a `table` output connects only
- * to `table` or `any`). Join-specific topology rules (both inputs
- * connected, collection rejected on both sides, table rejected on the
+ * generic port compatibility accepts `stream`, `collection` (windowed),
+ * and `table` upstreams without requiring a new `FlowPortKind` (a `table`
+ * output connects only to `table` or `any`). Join-specific topology rules (both inputs
+ * connected, collection/table rejected on the
  * left) live in `src/lib/flows/validation/join-validation.ts`, which can
- * reject what the permissive `any` port admits. The required opaque
+ * reject what the permissive `any` port admits, including the live-engine
+ * cross-port rule (FS-0149, eKuiper 2.4.1: two plain streams are rejected
+ * with `join node does not allow multiple stream inputs`, so at least one
+ * side must be windowed or a table). The required opaque
  * `condition` expression describes the join predicate; it is stored as
  * text and never parsed here. Branch identity is carried only by the
  * stable string port IDs `left`/`right`: visual array position is never
