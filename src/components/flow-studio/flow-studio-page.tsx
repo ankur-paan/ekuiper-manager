@@ -16,8 +16,9 @@ import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader, type FlowStudioSaveStatus } from './shell/flow-studio-header';
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
-import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection } from './canvas/flow-canvas';
+import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
 import { toReactFlow } from './canvas/to-react-flow';
+import { generateFlowNodeId } from '@/lib/flows/model/create-flow-node';
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
 import { useFlowAutosave, type FlowAutosaveSaved, type FlowAutosaveStatus } from './hooks/use-flow-autosave';
@@ -185,6 +186,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const loadDocument = useFlowEditorStore((state) => state.loadDocument);
   const storeDocument = useFlowEditorStore((state) => state.document);
   const moveNodes = useFlowEditorStore((state) => state.moveNodes);
+  const addNode = useFlowEditorStore((state) => state.addNode);
   const selectedNodeIds = useFlowEditorStore((state) => state.selectedNodeIds);
   const selectedEdgeIds = useFlowEditorStore((state) => state.selectedEdgeIds);
   const setSelection = useFlowEditorStore((state) => state.setSelection);
@@ -298,6 +300,23 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       setSelection({ nodeIds: selection.nodeIds, edgeIds: selection.edgeIds });
     },
     [setSelection],
+  );
+
+  // FS-0066: create one node from a palette drop. The payload carries only
+  // the registry identity (type+version); the definition is resolved here
+  // and the node is created via the editor-store addNode action as a single
+  // history entry. Unknown types are ignored without mutation.
+  const handlePaletteDrop = React.useCallback(
+    (drop: FlowPaletteDrop) => {
+      const definition = builtinRegistry.get(drop.type, drop.version);
+      if (!definition) return;
+      addNode({
+        id: generateFlowNodeId(),
+        definition,
+        position: { x: drop.position.x, y: drop.position.y },
+      });
+    },
+    [addNode],
   );
 
   // FS-0050: keyboard undo/redo and delete. Ctrl/Cmd+Z undoes,
@@ -435,6 +454,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
                 nodeTypes={flowNodeTypes}
                 onNodeDragStop={handleCanvasNodeDragStop}
                 onSelectionChange={handleCanvasSelectionChange}
+                onPaletteDrop={handlePaletteDrop}
               />
             ) : (
               <div className="flex h-full items-center justify-center p-6">
@@ -446,7 +466,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasView, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange]);
+  }, [flowQuery, draftQuery, canvasView, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>

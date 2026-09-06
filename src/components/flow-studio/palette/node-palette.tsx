@@ -14,6 +14,20 @@ export interface NodePaletteProps {
 }
 
 /**
+ * Browser drag/drop MIME for palette node creation (FS-0066).
+ *
+ * The payload contains only `{ type, version }`, never a full executable
+ * object. The canvas drop target resolves the definition from the built-in
+ * registry and creates the node via the editor store.
+ */
+export const FLOW_PALETTE_DRAG_MIME = "application/x-ekuiper-flow-node";
+
+export interface FlowPaletteDragPayload {
+  type: string;
+  version: number;
+}
+
+/**
  * Deterministic palette section order.
  *
  * This is a category order only, not a node catalog: every rendered node
@@ -127,7 +141,19 @@ export function NodePalette({ definitions, children, className }: NodePalettePro
                 <li
                   key={`${definition.type}@${definition.version}`}
                   data-testid={`node-palette-item-${definition.type}`}
-                  className="rounded-md border px-3 py-2"
+                  className="cursor-grab rounded-md border px-3 py-2 active:cursor-grabbing"
+                  draggable
+                  onDragStart={(event) => {
+                    const payload: FlowPaletteDragPayload = {
+                      type: definition.type,
+                      version: definition.version,
+                    };
+                    event.dataTransfer.setData(
+                      FLOW_PALETTE_DRAG_MIME,
+                      JSON.stringify(payload),
+                    );
+                    event.dataTransfer.effectAllowed = "move";
+                  }}
                 >
                   <p className="text-xs font-medium leading-tight">
                     {definition.displayName}
