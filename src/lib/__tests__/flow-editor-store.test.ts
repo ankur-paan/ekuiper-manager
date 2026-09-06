@@ -1,4 +1,5 @@
 import { createMinimalFlowDocument } from '@/lib/flows/testing/flow-fixtures';
+import { hashFlowSemantic } from '@/lib/flows/hashing/flow-hash';
 import {
   DEFAULT_FLOW_VIEWPORT,
   useFlowEditorStore,
@@ -125,5 +126,60 @@ describe('flow editor store', () => {
     expect(state).not.toHaveProperty('runtime');
     expect(state).not.toHaveProperty('debugState');
     expect(state).not.toHaveProperty('nodeMetrics');
+  });
+
+  it('moveNode changes layout coordinates only and keeps the semantic hash stable', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const before = useFlowEditorStore.getState().document;
+    expect(before).not.toBeNull();
+    const semanticBefore = hashFlowSemantic(before!.spec);
+    const specRef = before!.spec;
+
+    useFlowEditorStore.getState().moveNode('node-source-1', { x: 240, y: 180 });
+
+    const after = useFlowEditorStore.getState().document;
+    expect(after?.layout.nodes['node-source-1']).toEqual({ x: 240, y: 180 });
+    expect(after?.layout.nodes['node-sink-1']).toEqual({ x: 320, y: 120 });
+    expect(after?.spec).toBe(specRef);
+    expect(hashFlowSemantic(after!.spec)).toBe(semanticBefore);
+  });
+
+  it('moveNode copies the supplied position instead of holding the caller reference', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const position = { x: 50, y: 60 };
+
+    useFlowEditorStore.getState().moveNode('node-source-1', position);
+    position.x = 999;
+
+    expect(
+      useFlowEditorStore.getState().document?.layout.nodes['node-source-1'],
+    ).toEqual({ x: 50, y: 60 });
+  });
+
+  it('moveNodes updates multiple layout entries in one batch without touching spec', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const specRef = useFlowEditorStore.getState().document!.spec;
+    const semanticBefore = hashFlowSemantic(specRef);
+
+    useFlowEditorStore.getState().moveNodes([
+      { nodeId: 'node-source-1', position: { x: 11, y: 22 } },
+      { nodeId: 'node-sink-1', position: { x: 33, y: 44 } },
+    ]);
+
+    const after = useFlowEditorStore.getState().document;
+    expect(after?.layout.nodes['node-source-1']).toEqual({ x: 11, y: 22 });
+    expect(after?.layout.nodes['node-sink-1']).toEqual({ x: 33, y: 44 });
+    expect(after?.spec).toBe(specRef);
+    expect(hashFlowSemantic(after!.spec)).toBe(semanticBefore);
+  });
+
+  it('move actions are a no-op without a loaded document', () => {
+    useFlowEditorStore.getState().moveNode('node-source-1', { x: 1, y: 1 });
+    expect(useFlowEditorStore.getState().document).toBeNull();
+
+    useFlowEditorStore.getState().moveNodes([
+      { nodeId: 'node-source-1', position: { x: 1, y: 1 } },
+    ]);
+    expect(useFlowEditorStore.getState().document).toBeNull();
   });
 });
