@@ -12,6 +12,7 @@ import {
   type NodeChange,
   type NodeTypes,
   type OnNodeDrag,
+  type OnSelectionChangeFunc,
 } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
@@ -30,13 +31,21 @@ export interface FlowCanvasNodeDragStopMove {
   position: { x: number; y: number };
 }
 
+export interface FlowCanvasSelection {
+  nodeIds: string[];
+  edgeIds: string[];
+}
+
 export interface FlowCanvasProps {
   nodes?: Node[];
   edges?: Edge[];
+  selectedNodeIds?: string[];
+  selectedEdgeIds?: string[];
   onNodesChange?: (changes: NodeChange[]) => void;
   onEdgesChange?: (changes: EdgeChange[]) => void;
   onConnect?: (connection: Connection) => void;
   onNodeDragStop?: (moves: FlowCanvasNodeDragStopMove[]) => void;
+  onSelectionChange?: (selection: FlowCanvasSelection) => void;
   nodeTypes?: NodeTypes;
   className?: string;
 }
@@ -44,10 +53,13 @@ export interface FlowCanvasProps {
 export function FlowCanvas({
   nodes = [],
   edges = [],
+  selectedNodeIds,
+  selectedEdgeIds,
   onNodesChange,
   onEdgesChange,
   onConnect,
   onNodeDragStop,
+  onSelectionChange,
   nodeTypes = flowNodeTypes,
   className,
 }: FlowCanvasProps) {
@@ -85,6 +97,50 @@ export function FlowCanvas({
     [onNodeDragStop],
   );
 
+  // Selection lives outside the FlowDocument: XYFlow reports selection
+  // changes and the caller mirrors them into ephemeral editor state (FS-0045).
+  // Blank-canvas clicks arrive here as empty arrays, clearing the selection.
+  const handleSelectionChange: OnSelectionChangeFunc = React.useCallback(
+    ({ nodes: selectedNodes, edges: selectedEdges }) => {
+      onSelectionChange?.({
+        nodeIds: selectedNodes.map((selectedNode) => selectedNode.id),
+        edgeIds: selectedEdges.map((selectedEdge) => selectedEdge.id),
+      });
+    },
+    [onSelectionChange],
+  );
+
+  const selectedNodeSet = React.useMemo(
+    () => (selectedNodeIds ? new Set(selectedNodeIds) : null),
+    [selectedNodeIds],
+  );
+  const selectedEdgeSet = React.useMemo(
+    () => (selectedEdgeIds ? new Set(selectedEdgeIds) : null),
+    [selectedEdgeIds],
+  );
+
+  const displayNodes = React.useMemo(
+    () =>
+      selectedNodeSet
+        ? viewNodes.map((viewNode) => ({
+            ...viewNode,
+            selected: selectedNodeSet.has(viewNode.id),
+          }))
+        : viewNodes,
+    [viewNodes, selectedNodeSet],
+  );
+
+  const displayEdges = React.useMemo(
+    () =>
+      selectedEdgeSet
+        ? edges.map((edge) => ({
+            ...edge,
+            selected: selectedEdgeSet.has(edge.id),
+          }))
+        : edges,
+    [edges, selectedEdgeSet],
+  );
+
   return (
     <div
       aria-label="Flow canvas"
@@ -92,13 +148,14 @@ export function FlowCanvas({
       data-testid="flow-canvas"
     >
       <ReactFlow
-        nodes={viewNodes}
-        edges={edges}
+        nodes={displayNodes}
+        edges={displayEdges}
         nodeTypes={nodeTypes}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeDragStop={handleNodeDragStop}
+        onSelectionChange={handleSelectionChange}
       >
         <Background />
       </ReactFlow>
