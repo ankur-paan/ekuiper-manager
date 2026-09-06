@@ -29,6 +29,8 @@ interface FlowEditorState {
   setViewport: (viewport: FlowViewport) => void;
   moveNode: (nodeId: string, position: FlowNodeLayout) => void;
   moveNodes: (moves: readonly FlowNodeMove[]) => void;
+  updateNodeConfig: (nodeId: string, patch: Record<string, unknown>) => void;
+  renameNode: (nodeId: string, name: string) => void;
 }
 
 function cloneViewport(viewport: FlowViewport): FlowViewport {
@@ -123,6 +125,76 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
           ...state.document,
           layout: {
             ...state.document.layout,
+            nodes: nextNodes,
+          },
+        },
+      };
+    }),
+
+  updateNodeConfig: (nodeId, patch) =>
+    set((state) => {
+      if (!state.document) {
+        return state;
+      }
+      const index = state.document.spec.nodes.findIndex(
+        (node) => node.id === nodeId,
+      );
+      if (index === -1) {
+        return state;
+      }
+      const node = state.document.spec.nodes[index];
+      const patchKeys = Object.keys(patch);
+      if (patchKeys.length === 0) {
+        return state;
+      }
+      let configChanged = false;
+      for (const key of patchKeys) {
+        if (!Object.is(node.config[key], patch[key])) {
+          configChanged = true;
+          break;
+        }
+      }
+      if (!configChanged) {
+        return state;
+      }
+      const nextNodes = [...state.document.spec.nodes];
+      nextNodes[index] = {
+        ...node,
+        config: { ...node.config, ...patch },
+      };
+      return {
+        document: {
+          ...state.document,
+          spec: {
+            ...state.document.spec,
+            nodes: nextNodes,
+          },
+        },
+      };
+    }),
+
+  renameNode: (nodeId, name) =>
+    set((state) => {
+      if (!state.document) {
+        return state;
+      }
+      const index = state.document.spec.nodes.findIndex(
+        (node) => node.id === nodeId,
+      );
+      if (index === -1) {
+        return state;
+      }
+      const node = state.document.spec.nodes[index];
+      if (node.name === name) {
+        return state;
+      }
+      const nextNodes = [...state.document.spec.nodes];
+      nextNodes[index] = { ...node, name };
+      return {
+        document: {
+          ...state.document,
+          spec: {
+            ...state.document.spec,
             nodes: nextNodes,
           },
         },
