@@ -28,6 +28,9 @@ export const aggregateDefinition: FlowNodeDefinition = {
   displayName: 'Aggregate',
   description: 'Compute aggregate values over windowed collections.',
   category: 'streaming',
+  icon: 'aggregate',
+  accent: 'streaming',
+  subtitleKey: 'fields',
   inputs: [{ id: 'in', label: 'Collection', kind: 'collection' }],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [
@@ -70,6 +73,9 @@ export const groupByDefinition: FlowNodeDefinition = {
   displayName: 'Group By',
   description: 'Group windowed events by key before aggregation.',
   category: 'streaming',
+  icon: 'aggregate',
+  accent: 'streaming',
+  subtitleKey: 'keys',
   inputs: [{ id: 'in', label: 'Collection', kind: 'collection' }],
   outputs: [{ id: 'out', label: 'Collection', kind: 'collection' }],
   properties: [

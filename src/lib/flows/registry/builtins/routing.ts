@@ -33,6 +33,9 @@ export const switchDefinition: FlowNodeDefinition = {
   displayName: 'Switch',
   description: 'Route events to one of two branches or a default output.',
   category: 'routing',
+  icon: 'switch',
+  accent: 'routing',
+  subtitleKey: 'cases',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [
     { id: 'branch-1', label: 'Branch 1', kind: 'stream' },
@@ -79,6 +82,9 @@ export const sortDefinition: FlowNodeDefinition = {
   displayName: 'Sort',
   description: 'Sort events by an order expression.',
   category: 'routing',
+  icon: 'sort',
+  accent: 'routing',
+  subtitleKey: 'orderBy',
   inputs: [{ id: 'in', label: 'Collection', kind: 'collection' }],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [

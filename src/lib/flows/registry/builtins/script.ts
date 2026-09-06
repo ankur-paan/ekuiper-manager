@@ -27,6 +27,9 @@ export const funcDefinition: FlowNodeDefinition = {
   displayName: 'Function',
   description: 'Compute output fields with a function expression.',
   category: 'transform',
+  icon: 'function',
+  accent: 'transform',
+  subtitleKey: 'expression',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [
