@@ -11,8 +11,10 @@ import {
   type Node,
   type NodeChange,
   type NodeTypes,
+  type OnInit,
   type OnNodeDrag,
   type OnSelectionChangeFunc,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 
 import "@xyflow/react/dist/style.css";
@@ -21,6 +23,7 @@ import { cn } from "@/lib/utils";
 
 import { FlowNode } from "../nodes/flow-node";
 import { FLOW_CANVAS_NODE_TYPE } from "./to-react-flow";
+import { FLOW_PALETTE_DRAG_MIME } from "../palette/node-palette";
 
 export const flowNodeTypes: NodeTypes = {
   [FLOW_CANVAS_NODE_TYPE]: FlowNode,
@@ -36,6 +39,19 @@ export interface FlowCanvasSelection {
   edgeIds: string[];
 }
 
+/**
+ * External palette drop resolved to flow coordinates (FS-0066).
+ *
+ * `type`/`version` is the registry identity from the palette drag payload;
+ * the caller resolves the definition and creates the node via the editor
+ * store. Unknown types are ignored by the caller without mutation.
+ */
+export interface FlowPaletteDrop {
+  type: string;
+  version: number;
+  position: { x: number; y: number };
+}
+
 export interface FlowCanvasProps {
   nodes?: Node[];
   edges?: Edge[];
@@ -46,6 +62,7 @@ export interface FlowCanvasProps {
   onConnect?: (connection: Connection) => void;
   onNodeDragStop?: (moves: FlowCanvasNodeDragStopMove[]) => void;
   onSelectionChange?: (selection: FlowCanvasSelection) => void;
+  onPaletteDrop?: (drop: FlowPaletteDrop) => void;
   nodeTypes?: NodeTypes;
   className?: string;
 }
@@ -60,6 +77,7 @@ export function FlowCanvas({
   onConnect,
   onNodeDragStop,
   onSelectionChange,
+  onPaletteDrop,
   nodeTypes = flowNodeTypes,
   className,
 }: FlowCanvasProps) {
@@ -110,6 +128,61 @@ export function FlowCanvas({
     [onSelectionChange],
   );
 
+  // XYFlow instance for external palette drops (FS-0066). Screen/client
+  // coordinates are converted via screenToFlowPosition so the created node
+  // lands where released under the current pan/zoom transform.
+  const flowInstanceRef = React.useRef<ReactFlowInstance | null>(null);
+
+  const handleInit: OnInit = React.useCallback((instance) => {
+    flowInstanceRef.current = instance;
+  }, []);
+
+  // Allow external palette drags over the canvas. Required for drop to fire.
+  const handleDragOver = React.useCallback(
+    (event: React.DragEvent) => {
+      if (!onPaletteDrop) return;
+      if (!event.dataTransfer.types.includes(FLOW_PALETTE_DRAG_MIME)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+    },
+    [onPaletteDrop],
+  );
+
+  // Resolve a palette payload to flow coordinates and forward it. Unknown
+  // or malformed drag types are ignored without mutation.
+  const handleDrop = React.useCallback(
+    (event: React.DragEvent) => {
+      if (!onPaletteDrop) return;
+      const raw = event.dataTransfer.getData(FLOW_PALETTE_DRAG_MIME);
+      if (!raw) return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw) as unknown;
+      } catch {
+        return;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+      const record = parsed as Record<string, unknown>;
+      if (typeof record["type"] !== "string" || record["type"].length === 0) return;
+      if (typeof record["version"] !== "number" || !Number.isInteger(record["version"])) {
+        return;
+      }
+      const instance = flowInstanceRef.current;
+      if (!instance) return;
+      event.preventDefault();
+      const position = instance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      onPaletteDrop({
+        type: record["type"] as string,
+        version: record["version"] as number,
+        position: { x: position.x, y: position.y },
+      });
+    },
+    [onPaletteDrop],
+  );
+
   const selectedNodeSet = React.useMemo(
     () => (selectedNodeIds ? new Set(selectedNodeIds) : null),
     [selectedNodeIds],
@@ -151,11 +224,14 @@ export function FlowCanvas({
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
+        onInit={handleInit}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeDragStop={handleNodeDragStop}
         onSelectionChange={handleSelectionChange}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
       >
         <Background />
       </ReactFlow>
