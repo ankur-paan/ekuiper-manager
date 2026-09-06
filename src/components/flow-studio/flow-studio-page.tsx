@@ -3,6 +3,8 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
+import type { Connection, Edge } from '@xyflow/react';
+import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,8 +21,10 @@ import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
 import { toReactFlow } from './canvas/to-react-flow';
 import { generateFlowNodeId } from '@/lib/flows/model/create-flow-node';
+import { createFlowEdgeForConnection, generateFlowEdgeId } from '@/lib/flows/model/create-flow-edge';
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
+import { canConnect } from '@/lib/flows/validation/port-compatibility';
 import { useFlowAutosave, type FlowAutosaveSaved, type FlowAutosaveStatus } from './hooks/use-flow-autosave';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
@@ -187,6 +191,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const storeDocument = useFlowEditorStore((state) => state.document);
   const moveNodes = useFlowEditorStore((state) => state.moveNodes);
   const addNode = useFlowEditorStore((state) => state.addNode);
+  const addEdge = useFlowEditorStore((state) => state.addEdge);
   const selectedNodeIds = useFlowEditorStore((state) => state.selectedNodeIds);
   const selectedEdgeIds = useFlowEditorStore((state) => state.selectedEdgeIds);
   const setSelection = useFlowEditorStore((state) => state.setSelection);
@@ -317,6 +322,144 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       });
     },
     [addNode],
+  );
+
+  // FS-0067: preflight validation shared by connect creation and the
+  // canvas isValidConnection preview. Pure read of committed store state:
+  // no server call, no mutation, no toast. Rejects missing handles,
+  // self-edges, duplicate identical connections, unknown nodes/ports, and
+  // incompatible port kinds via registry definitions plus canConnect.
+  const isFlowConnectionValid = React.useCallback(
+    (connection: Edge | Connection): boolean => {
+      const current = useFlowEditorStore.getState().document;
+      if (!current || current.metadata.id !== flowId) return false;
+      const sourceNodeId = connection.source;
+      const targetNodeId = connection.target;
+      const sourcePortId = connection.sourceHandle;
+      const targetPortId = connection.targetHandle;
+      if (!sourceNodeId || !targetNodeId || !sourcePortId || !targetPortId) {
+        return false;
+      }
+      if (sourceNodeId === targetNodeId) return false;
+      const duplicate = current.spec.edges.some(
+        (entry) =>
+          entry.sourceNodeId === sourceNodeId &&
+          entry.sourcePortId === sourcePortId &&
+          entry.targetNodeId === targetNodeId &&
+          entry.targetPortId === targetPortId,
+      );
+      if (duplicate) return false;
+      const sourceNode = current.spec.nodes.find(
+        (entry) => entry.id === sourceNodeId,
+      );
+      const targetNode = current.spec.nodes.find(
+        (entry) => entry.id === targetNodeId,
+      );
+      if (!sourceNode || !targetNode) return false;
+      const sourceDefinition = builtinRegistry.get(
+        sourceNode.type,
+        sourceNode.typeVersion,
+      );
+      const targetDefinition = builtinRegistry.get(
+        targetNode.type,
+        targetNode.typeVersion,
+      );
+      if (!sourceDefinition || !targetDefinition) return false;
+      const sourcePort = sourceDefinition.outputs.find(
+        (port) => port.id === sourcePortId,
+      );
+      const targetPort = targetDefinition.inputs.find(
+        (port) => port.id === targetPortId,
+      );
+      if (!sourcePort || !targetPort) return false;
+      return canConnect(sourcePort.kind, targetPort.kind);
+    },
+    [flowId],
+  );
+
+  // FS-0067: create one semantic FlowEdge from an XYFlow connect event after
+  // preflight port validation. The edge ID is a fresh authoring UUID via the
+  // injected/browser boundary; compiler runtime IDs remain unrelated. Invalid
+  // connections (missing handles, unknown nodes/ports, incompatible kinds,
+  // self-edges, duplicates) are rejected with concise sonner toast feedback
+  // and leave the document unaltered. One valid connection is one history
+  // entry via the editor-store addEdge action. No server call.
+  const handleConnect = React.useCallback(
+    (connection: Connection) => {
+      const current = useFlowEditorStore.getState().document;
+      if (!current || current.metadata.id !== flowId) return;
+      const sourceNodeId = connection.source;
+      const targetNodeId = connection.target;
+      const sourcePortId = connection.sourceHandle;
+      const targetPortId = connection.targetHandle;
+      if (!sourceNodeId || !targetNodeId || !sourcePortId || !targetPortId) {
+        toast.error('Select source and target handles to connect.');
+        return;
+      }
+      if (sourceNodeId === targetNodeId) {
+        toast.error('Cannot connect a node to itself.');
+        return;
+      }
+      const duplicate = current.spec.edges.some(
+        (entry) =>
+          entry.sourceNodeId === sourceNodeId &&
+          entry.sourcePortId === sourcePortId &&
+          entry.targetNodeId === targetNodeId &&
+          entry.targetPortId === targetPortId,
+      );
+      if (duplicate) {
+        toast.error('This connection already exists.');
+        return;
+      }
+      const sourceNode = current.spec.nodes.find(
+        (entry) => entry.id === sourceNodeId,
+      );
+      const targetNode = current.spec.nodes.find(
+        (entry) => entry.id === targetNodeId,
+      );
+      if (!sourceNode || !targetNode) {
+        toast.error('Cannot connect: node not found.');
+        return;
+      }
+      const sourceDefinition = builtinRegistry.get(
+        sourceNode.type,
+        sourceNode.typeVersion,
+      );
+      const targetDefinition = builtinRegistry.get(
+        targetNode.type,
+        targetNode.typeVersion,
+      );
+      if (!sourceDefinition || !targetDefinition) {
+        toast.error('Cannot connect: unknown node type.');
+        return;
+      }
+      const sourcePort = sourceDefinition.outputs.find(
+        (port) => port.id === sourcePortId,
+      );
+      const targetPort = targetDefinition.inputs.find(
+        (port) => port.id === targetPortId,
+      );
+      if (!sourcePort || !targetPort) {
+        toast.error('Cannot connect: unknown port.');
+        return;
+      }
+      if (!canConnect(sourcePort.kind, targetPort.kind)) {
+        toast.error(
+          `Incompatible ports: ${sourcePort.kind} cannot connect to ${targetPort.kind}.`,
+        );
+        return;
+      }
+      addEdge(
+        createFlowEdgeForConnection({
+          id: generateFlowEdgeId(),
+          sourceNodeId,
+          sourcePortId,
+          targetNodeId,
+          targetPortId,
+        }),
+      );
+    },
+    [addEdge, flowId],
   );
 
   // FS-0050: keyboard undo/redo and delete. Ctrl/Cmd+Z undoes,
@@ -455,6 +598,8 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
                 onNodeDragStop={handleCanvasNodeDragStop}
                 onSelectionChange={handleCanvasSelectionChange}
                 onPaletteDrop={handlePaletteDrop}
+                onConnect={handleConnect}
+                isValidConnection={isFlowConnectionValid}
               />
             ) : (
               <div className="flex h-full items-center justify-center p-6">
@@ -466,7 +611,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasView, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop]);
+  }, [flowQuery, draftQuery, canvasView, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
