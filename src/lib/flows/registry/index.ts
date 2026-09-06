@@ -1,3 +1,4 @@
+export { createBuiltinNodeRegistry } from './builtin-registry';
 export { NodeRegistry } from './node-registry';
 export type {
   FlowNodeCategory,
