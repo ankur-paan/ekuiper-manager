@@ -19,11 +19,20 @@ export interface FlowNodeMove {
   position: FlowNodeLayout;
 }
 
+/** Maximum number of committed editor commands retained for undo. */
+export const FLOW_EDITOR_HISTORY_LIMIT = 100;
+
 interface FlowEditorState {
   document: FlowDocument | null;
   selectedNodeIds: string[];
   selectedEdgeIds: string[];
   viewport: FlowViewport;
+  /** Committed document snapshots available for undo (oldest first). */
+  past: FlowDocument[];
+  /** Committed document snapshots available for redo (oldest first). */
+  future: FlowDocument[];
+  canUndo: boolean;
+  canRedo: boolean;
   loadDocument: (doc: FlowDocument) => void;
   clearDocument: () => void;
   setSelection: (selection: FlowEditorSelection) => void;
@@ -34,6 +43,8 @@ interface FlowEditorState {
   renameNode: (nodeId: string, name: string) => void;
   addEdge: (edge: FlowEdge) => void;
   removeEdges: (ids: readonly string[]) => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 function cloneViewport(viewport: FlowViewport): FlowViewport {
@@ -44,11 +55,42 @@ function cloneDocument(doc: FlowDocument): FlowDocument {
   return JSON.parse(JSON.stringify(doc)) as FlowDocument;
 }
 
+interface HistoryTransition {
+  past: FlowDocument[];
+  future: FlowDocument[];
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+function emptyHistory(): HistoryTransition {
+  return { past: [], future: [], canUndo: false, canRedo: false };
+}
+
+/**
+ * Capture the current document for undo before a committed mutation.
+ * The redo stack is cleared because a new change branches history.
+ */
+function pushHistory(
+  past: FlowDocument[],
+  current: FlowDocument,
+): HistoryTransition {
+  const snapshot = cloneDocument(current);
+  const nextPast =
+    past.length >= FLOW_EDITOR_HISTORY_LIMIT
+      ? [...past.slice(past.length - (FLOW_EDITOR_HISTORY_LIMIT - 1)), snapshot]
+      : [...past, snapshot];
+  return { past: nextPast, future: [], canUndo: true, canRedo: false };
+}
+
 export const useFlowEditorStore = create<FlowEditorState>((set) => ({
   document: null,
   selectedNodeIds: [],
   selectedEdgeIds: [],
   viewport: cloneViewport(DEFAULT_FLOW_VIEWPORT),
+  past: [],
+  future: [],
+  canUndo: false,
+  canRedo: false,
 
   loadDocument: (doc) =>
     set({
@@ -58,6 +100,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
       viewport: doc.layout.viewport
         ? cloneViewport(doc.layout.viewport)
         : cloneViewport(DEFAULT_FLOW_VIEWPORT),
+      ...emptyHistory(),
     }),
 
   clearDocument: () =>
@@ -66,6 +109,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
       selectedNodeIds: [],
       selectedEdgeIds: [],
       viewport: cloneViewport(DEFAULT_FLOW_VIEWPORT),
+      ...emptyHistory(),
     }),
 
   setSelection: (selection) =>
@@ -96,6 +140,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
             },
           },
         },
+        ...pushHistory(state.past, state.document),
       };
     }),
 
@@ -131,6 +176,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
             nodes: nextNodes,
           },
         },
+        ...pushHistory(state.past, state.document),
       };
     }),
 
@@ -173,6 +219,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
             nodes: nextNodes,
           },
         },
+        ...pushHistory(state.past, state.document),
       };
     }),
 
@@ -201,6 +248,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
             nodes: nextNodes,
           },
         },
+        ...pushHistory(state.past, state.document),
       };
     }),
 
@@ -220,6 +268,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
             edges: [...state.document.spec.edges, { ...edge }],
           },
         },
+        ...pushHistory(state.past, state.document),
       };
     }),
 
@@ -243,6 +292,50 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
             edges: nextEdges,
           },
         },
+        ...pushHistory(state.past, state.document),
+      };
+    }),
+
+  undo: () =>
+    set((state) => {
+      if (!state.document || state.past.length === 0) {
+        return state;
+      }
+      const previous = state.past[state.past.length - 1];
+      const nextPast = state.past.slice(0, -1);
+      const nextFuture = [...state.future, cloneDocument(state.document)];
+      return {
+        document: previous,
+        past: nextPast,
+        future: nextFuture,
+        canUndo: nextPast.length > 0,
+        canRedo: true,
+      };
+    }),
+
+  redo: () =>
+    set((state) => {
+      if (!state.document || state.future.length === 0) {
+        return state;
+      }
+      const next = state.future[state.future.length - 1];
+      const nextFuture = state.future.slice(0, -1);
+      const snapshot = cloneDocument(state.document);
+      const nextPast =
+        state.past.length >= FLOW_EDITOR_HISTORY_LIMIT
+          ? [
+              ...state.past.slice(
+                state.past.length - (FLOW_EDITOR_HISTORY_LIMIT - 1),
+              ),
+              snapshot,
+            ]
+          : [...state.past, snapshot];
+      return {
+        document: next,
+        past: nextPast,
+        future: nextFuture,
+        canUndo: true,
+        canRedo: nextFuture.length > 0,
       };
     }),
 }));
