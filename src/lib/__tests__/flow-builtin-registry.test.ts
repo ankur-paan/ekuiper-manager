@@ -578,6 +578,74 @@ describe('createBuiltinNodeRegistry', () => {
     expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
   });
 
+  it('rejects a direct stream->group-by edge but accepts window->group-by', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const streamToGroupBy = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-filter-1',
+          type: 'filter',
+          typeVersion: 1,
+          name: 'Filter',
+          config: { expression: 'power > 10' },
+        }),
+        createFlowNode({
+          id: 'node-group-by-1',
+          type: 'group-by',
+          typeVersion: 1,
+          name: 'Group By',
+          config: { keys: 'deviceId' },
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-stream-group-by',
+          sourceNodeId: 'node-filter-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-group-by-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    const streamDiagnostics = validateFlowEdgePorts(streamToGroupBy, registry).filter(
+      (item) => item.code === 'FLOW_PORT_INCOMPATIBLE',
+    );
+    expect(streamDiagnostics).toHaveLength(1);
+    expect(streamDiagnostics[0]?.edgeId).toBe('edge-stream-group-by');
+
+    const windowToGroupBy = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-window-1',
+          type: 'window',
+          typeVersion: 1,
+          name: 'Window',
+          config: { length: 10, timeUnit: 's' },
+        }),
+        createFlowNode({
+          id: 'node-group-by-1',
+          type: 'group-by',
+          typeVersion: 1,
+          name: 'Group By',
+          config: { keys: 'deviceId' },
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-window-group-by',
+          sourceNodeId: 'node-window-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-group-by-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    expect(validateFlowEdgePorts(windowToGroupBy, registry)).toEqual([]);
+  });
+
   it('registers the aggregate and group-by definitions deterministically', () => {
     const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
@@ -691,13 +759,13 @@ describe('createBuiltinNodeRegistry', () => {
     expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
   });
 
-  it('registers the sort definition with stream in/out and a required order expression', () => {
+  it('registers the sort definition with collection in, stream out, and a required order expression', () => {
     const registry = createBuiltinNodeRegistry();
     const sort = registry.get('sort', 1);
 
     expect(sort?.displayName).toBe('Sort');
     expect(sort?.category).toBe('routing');
-    expect(sort?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(sort?.inputs).toEqual([{ id: 'in', label: 'Collection', kind: 'collection' }]);
     expect(sort?.outputs).toEqual([{ id: 'out', label: 'Stream', kind: 'stream' }]);
 
     const orderBy = sort?.properties.find((property) => property.key === 'orderBy');
@@ -744,6 +812,74 @@ describe('createBuiltinNodeRegistry', () => {
     });
 
     expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
+  });
+
+  it('rejects a direct stream->sort edge but accepts window->sort', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const streamToSort = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-filter-1',
+          type: 'filter',
+          typeVersion: 1,
+          name: 'Filter',
+          config: { expression: 'power > 10' },
+        }),
+        createFlowNode({
+          id: 'node-sort-1',
+          type: 'sort',
+          typeVersion: 1,
+          name: 'Sort',
+          config: { orderBy: 'mean_power DESC' },
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-stream-sort',
+          sourceNodeId: 'node-filter-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-sort-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    const streamDiagnostics = validateFlowEdgePorts(streamToSort, registry).filter(
+      (item) => item.code === 'FLOW_PORT_INCOMPATIBLE',
+    );
+    expect(streamDiagnostics).toHaveLength(1);
+    expect(streamDiagnostics[0]?.edgeId).toBe('edge-stream-sort');
+
+    const windowToSort = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-window-1',
+          type: 'window',
+          typeVersion: 1,
+          name: 'Window',
+          config: { length: 10, timeUnit: 's' },
+        }),
+        createFlowNode({
+          id: 'node-sort-1',
+          type: 'sort',
+          typeVersion: 1,
+          name: 'Sort',
+          config: { orderBy: 'mean_power DESC' },
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-window-sort',
+          sourceNodeId: 'node-window-1',
+          sourcePortId: 'out',
+          targetNodeId: 'node-sort-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    expect(validateFlowEdgePorts(windowToSort, registry)).toEqual([]);
   });
 
   it('registers the switch and sort definitions deterministically', () => {
