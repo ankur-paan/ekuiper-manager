@@ -201,12 +201,28 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
       if (patchKeys.length === 0) {
         return state;
       }
+      // R2: a cleared property arrives as `undefined` (number/select/JSON
+      // controls emit `undefined` when emptied). The Flow model requires
+      // config to stay JSON-compatible, so `undefined` is the clear signal
+      // and the key is DELETED rather than stored as an own `undefined`
+      // property (which would make canonicalJson throw and break dirty
+      // calculation during render). This keeps controls, dirty state,
+      // undo/redo snapshots and autosave serialization in agreement.
+      const nextConfig: Record<string, unknown> = { ...node.config };
       let configChanged = false;
       for (const key of patchKeys) {
-        if (!Object.is(node.config[key], patch[key])) {
-          configChanged = true;
-          break;
+        const nextValue = patch[key];
+        if (nextValue === undefined) {
+          if (Object.prototype.hasOwnProperty.call(nextConfig, key)) {
+            delete nextConfig[key];
+            configChanged = true;
+          }
+          continue;
         }
+        if (!Object.is(node.config[key], nextValue)) {
+          configChanged = true;
+        }
+        nextConfig[key] = nextValue;
       }
       if (!configChanged) {
         return state;
@@ -214,7 +230,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
       const nextNodes = [...state.document.spec.nodes];
       nextNodes[index] = {
         ...node,
-        config: { ...node.config, ...patch },
+        config: nextConfig,
       };
       return {
         document: {
