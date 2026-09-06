@@ -465,6 +465,440 @@ describe('flow eKuiper compiler (filter and pick operators)', () => {
   });
 });
 
+describe('flow eKuiper compiler (window and aggregate operators)', () => {
+  const WINDOW_FLOW_ID = 'node-window-1';
+  const AGGREGATE_FLOW_ID = 'node-aggregate-1';
+  const WINDOW_LENGTH = 10;
+  const WINDOW_TIME_UNIT = 'ss';
+  const AGGREGATE_FIELDS = 'avg(temperature) AS avg_temp';
+
+  function buildWindowAggregateFlow(): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-window-aggregate-demo', name: 'Window Aggregate Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: WINDOW_FLOW_ID,
+            type: 'window',
+            typeVersion: 1,
+            name: 'Window',
+            config: { length: WINDOW_LENGTH, timeUnit: WINDOW_TIME_UNIT },
+          },
+          {
+            id: AGGREGATE_FLOW_ID,
+            type: 'aggregate',
+            typeVersion: 1,
+            name: 'Aggregate',
+            config: { fields: AGGREGATE_FIELDS },
+          },
+          {
+            id: SINK_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Sink',
+            config: { topic: SINK_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: WINDOW_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-2',
+            sourceNodeId: WINDOW_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: AGGREGATE_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-3',
+            sourceNodeId: AGGREGATE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [WINDOW_FLOW_ID]: { x: 160, y: 0 },
+          [AGGREGATE_FLOW_ID]: { x: 320, y: 0 },
+          [SINK_FLOW_ID]: { x: 480, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected nodeType/props for source->window->aggregate->sink', () => {
+    const result = compileFlowToEkuiperGraph(buildWindowAggregateFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const windowRuntimeId = createRuntimeId('window', WINDOW_FLOW_ID);
+    const aggregateRuntimeId = createRuntimeId('aggfunc', AGGREGATE_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [windowRuntimeId]: {
+            type: 'operator',
+            nodeType: 'window',
+            props: {
+              type: 'tumblingwindow',
+              unit: WINDOW_TIME_UNIT,
+              size: WINDOW_LENGTH,
+            },
+          },
+          [aggregateRuntimeId]: {
+            type: 'operator',
+            nodeType: 'aggfunc',
+            props: { expr: AGGREGATE_FIELDS },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [windowRuntimeId],
+            [windowRuntimeId]: [aggregateRuntimeId],
+            [aggregateRuntimeId]: [sinkRuntimeId],
+            [sinkRuntimeId]: [],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [WINDOW_FLOW_ID]: windowRuntimeId,
+      [AGGREGATE_FLOW_ID]: aggregateRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildWindowAggregateFlow());
+    const second = compileFlowToEkuiperGraph(buildWindowAggregateFlow());
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces a graph that satisfies the audited eKuiper envelope', () => {
+    const result = compileFlowToEkuiperGraph(buildWindowAggregateFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      isEkuiperGraphRule(result.artifact.ruleDefinition.graph),
+    ).toBe(true);
+  });
+
+  it('fails with a structured diagnostic when the window length is missing', () => {
+    const document = buildWindowAggregateFlow();
+    document.spec.nodes[1]!.config = { timeUnit: WINDOW_TIME_UNIT };
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(WINDOW_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('length');
+  });
+
+  it('fails with a structured diagnostic when the window timeUnit is missing', () => {
+    const document = buildWindowAggregateFlow();
+    document.spec.nodes[1]!.config = { length: WINDOW_LENGTH };
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(WINDOW_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('timeUnit');
+  });
+
+  it('fails with a structured diagnostic when the window length is not a positive integer', () => {
+    const document = buildWindowAggregateFlow();
+    document.spec.nodes[1]!.config = { length: 0, timeUnit: WINDOW_TIME_UNIT };
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(WINDOW_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('length');
+  });
+
+  it('fails with a structured diagnostic when the aggregate fields are missing', () => {
+    const document = buildWindowAggregateFlow();
+    document.spec.nodes[2]!.config = {};
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(AGGREGATE_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('fields');
+  });
+});
+
+describe('flow eKuiper compiler (group-by operator)', () => {
+  const WINDOW_FLOW_ID = 'node-window-1';
+  const GROUP_BY_FLOW_ID = 'node-group-by-1';
+  const AGGREGATE_FLOW_ID = 'node-aggregate-1';
+  const GROUP_BY_KEYS = 'deviceId, location';
+
+  function buildGroupByFlow(): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-group-by-demo', name: 'Group By Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: WINDOW_FLOW_ID,
+            type: 'window',
+            typeVersion: 1,
+            name: 'Window',
+            config: { length: 10, timeUnit: 'ss' },
+          },
+          {
+            id: GROUP_BY_FLOW_ID,
+            type: 'group-by',
+            typeVersion: 1,
+            name: 'Group By',
+            config: { keys: GROUP_BY_KEYS },
+          },
+          {
+            id: AGGREGATE_FLOW_ID,
+            type: 'aggregate',
+            typeVersion: 1,
+            name: 'Aggregate',
+            config: { fields: 'avg(temperature) AS avg_temp' },
+          },
+          {
+            id: SINK_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Sink',
+            config: { topic: SINK_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: WINDOW_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-2',
+            sourceNodeId: WINDOW_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: GROUP_BY_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-3',
+            sourceNodeId: GROUP_BY_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: AGGREGATE_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-4',
+            sourceNodeId: AGGREGATE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [WINDOW_FLOW_ID]: { x: 160, y: 0 },
+          [GROUP_BY_FLOW_ID]: { x: 320, y: 0 },
+          [AGGREGATE_FLOW_ID]: { x: 480, y: 0 },
+          [SINK_FLOW_ID]: { x: 640, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected nodeType/props for source->window->group-by->aggregate->sink', () => {
+    const result = compileFlowToEkuiperGraph(buildGroupByFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const windowRuntimeId = createRuntimeId('window', WINDOW_FLOW_ID);
+    const groupByRuntimeId = createRuntimeId('groupby', GROUP_BY_FLOW_ID);
+    const aggregateRuntimeId = createRuntimeId('aggfunc', AGGREGATE_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [windowRuntimeId]: {
+            type: 'operator',
+            nodeType: 'window',
+            props: { type: 'tumblingwindow', unit: 'ss', size: 10 },
+          },
+          [groupByRuntimeId]: {
+            type: 'operator',
+            nodeType: 'groupby',
+            props: { dimensions: ['deviceId', 'location'] },
+          },
+          [aggregateRuntimeId]: {
+            type: 'operator',
+            nodeType: 'aggfunc',
+            props: { expr: 'avg(temperature) AS avg_temp' },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [windowRuntimeId],
+            [windowRuntimeId]: [groupByRuntimeId],
+            [groupByRuntimeId]: [aggregateRuntimeId],
+            [aggregateRuntimeId]: [sinkRuntimeId],
+            [sinkRuntimeId]: [],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [WINDOW_FLOW_ID]: windowRuntimeId,
+      [GROUP_BY_FLOW_ID]: groupByRuntimeId,
+      [AGGREGATE_FLOW_ID]: aggregateRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildGroupByFlow());
+    const second = compileFlowToEkuiperGraph(buildGroupByFlow());
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces a graph that satisfies the audited eKuiper envelope', () => {
+    const result = compileFlowToEkuiperGraph(buildGroupByFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      isEkuiperGraphRule(result.artifact.ruleDefinition.graph),
+    ).toBe(true);
+  });
+
+  it('fails with a structured diagnostic when the group-by keys are missing', () => {
+    const document = buildGroupByFlow();
+    document.spec.nodes[2]!.config = {};
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(GROUP_BY_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('keys');
+  });
+
+  it('fails with a structured diagnostic when the group-by keys have no usable entry', () => {
+    const document = buildGroupByFlow();
+    document.spec.nodes[2]!.config = { keys: '  ,  ' };
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(GROUP_BY_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('keys');
+  });
+});
+
 describe('toSafeRuleId', () => {
   it('keeps an already-safe flow id unchanged', () => {
     expect(toSafeRuleId('flow-memory-demo')).toBe('flow-memory-demo');
