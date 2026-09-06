@@ -7,6 +7,10 @@ import {
   defaultFetchRuleStatus,
   defaultUpsertRule,
   deployFlow,
+  FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS,
+  FLOW_DEPLOY_CONNECTION_POLL_INTERVAL_MS,
+  FLOW_DEPLOY_CONNECTION_SETTLE_MS,
+  getUnhealthyConnectionDetail,
   type DeployFlowDependencies,
 } from '@/lib/flows/deployments/deploy-flow';
 import type { FlowDeploymentRecord } from '@/lib/flows/deployments/types';
@@ -534,5 +538,143 @@ describe('default rule transport (registered-node boundary)', () => {
 
     expect(seen).toEqual(['http://edge-node:9081/v2/rules/flow-1/status']);
     expect(status).toEqual({ status: 'running', message: '' });
+  });
+});
+
+describe('deployFlow connection health gate (FS-0155)', () => {
+  function unhealthyStatus() {
+    return {
+      status: 'running',
+      message: '',
+      source_mqtt_0_connection_status: -1,
+      source_mqtt_0_exceptions_total: 16,
+      source_mqtt_0_last_exception:
+        'found error when connecting for tcp://127.0.0.1:1883 with password=supersecret123',
+      source_mqtt_0_records_in_total: 0,
+    };
+  }
+
+  it('marks the attempt FAILED when running status reports connection_status -1', async () => {
+    const harness = buildHarness();
+    const delayCalls: number[] = [];
+    harness.deps.delay = async (ms: number) => {
+      delayCalls.push(ms);
+    };
+    harness.deps.fetchRuleStatus = async () => {
+      harness.order.push('readStatus');
+      return unhealthyStatus();
+    };
+
+    const error = await deployFlow({ flowId: 'flow-1' }, harness.deps).catch(
+      (failure: unknown) => failure,
+    );
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(502);
+    expect((error as ApiError).code).toBe('EKRULE_CONNECTION_UNHEALTHY');
+    // The engine exception is surfaced but credential material is redacted.
+    expect((error as ApiError).message).toContain('found error when connecting');
+    expect((error as ApiError).message).toContain('[redacted]');
+    expect((error as ApiError).message).not.toContain('supersecret123');
+    // Failed health check marks the attempt failed and never succeeds:
+    // the append-only table keeps the previous successful row active.
+    expect(harness.order).toContain('markFailed');
+    expect(harness.order).not.toContain('markSucceeded');
+    expect(harness.failureInputs).toHaveLength(1);
+    expect(String(harness.failureInputs[0])).not.toContain('supersecret123');
+  });
+
+  it('treats a "-1" string connection_status and sink last_exception as unhealthy', () => {
+    expect(
+      getUnhealthyConnectionDetail({
+        status: 'running',
+        sink_rest_0_connection_status: '-1',
+      }),
+    ).not.toBeNull();
+    expect(
+      getUnhealthyConnectionDetail({
+        status: 'running',
+        sink_mqtt_0_last_exception: 'dial tcp: connection refused',
+      }),
+    ).not.toBeNull();
+    expect(
+      getUnhealthyConnectionDetail({
+        status: 'running',
+        source_mqtt_0_connection_status: 0,
+        source_mqtt_0_last_exception: '',
+      }),
+    ).toBeNull();
+    expect(getUnhealthyConnectionDetail({ status: 'running' })).toBeNull();
+  });
+
+  it('still succeeds for a healthy deployment within the settle window', async () => {
+    const harness = buildHarness();
+    let reads = 0;
+    harness.deps.delay = async () => {};
+    harness.deps.fetchRuleStatus = async () => {
+      reads += 1;
+      harness.order.push('readStatus');
+      return {
+        status: 'running',
+        source_mqtt_0_connection_status: 0,
+        source_mqtt_0_last_exception: '',
+      };
+    };
+
+    const result = await deployFlow({ flowId: 'flow-1' }, harness.deps);
+
+    expect(result.ok).toBe(true);
+    expect(reads).toBe(1);
+    expect(harness.order).toContain('markSucceeded');
+  });
+
+  it('recovers when a connection becomes healthy inside the window instead of sampling once', async () => {
+    const harness = buildHarness();
+    const delayCalls: number[] = [];
+    harness.deps.delay = async (ms: number) => {
+      delayCalls.push(ms);
+    };
+    const bodies = [unhealthyStatus(), { status: 'running' }];
+    harness.deps.fetchRuleStatus = async () => {
+      harness.order.push('readStatus');
+      return bodies.shift() ?? { status: 'running' };
+    };
+
+    const result = await deployFlow({ flowId: 'flow-1' }, harness.deps);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected success after settle');
+    expect(harness.order.filter((entry) => entry === 'readStatus')).toHaveLength(2);
+    expect(delayCalls).toHaveLength(1);
+    expect(harness.order).toContain('markSucceeded');
+    expect(harness.order).not.toContain('markFailed');
+  });
+
+  it('keeps the polling window bounded, not unbounded', async () => {
+    expect(FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS).toBeGreaterThan(1);
+    expect(FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS).toBeLessThanOrEqual(10);
+    expect(FLOW_DEPLOY_CONNECTION_POLL_INTERVAL_MS).toBeGreaterThan(0);
+    expect(FLOW_DEPLOY_CONNECTION_SETTLE_MS).toBe(
+      FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS * FLOW_DEPLOY_CONNECTION_POLL_INTERVAL_MS,
+    );
+
+    const harness = buildHarness();
+    const delayCalls: number[] = [];
+    harness.deps.delay = async (ms: number) => {
+      delayCalls.push(ms);
+    };
+    harness.deps.fetchRuleStatus = async () => {
+      harness.order.push('readStatus');
+      return unhealthyStatus();
+    };
+
+    await deployFlow({ flowId: 'flow-1' }, harness.deps).catch(() => undefined);
+
+    // Persistently unhealthy: exactly MAX_ATTEMPTS reads and MAX_ATTEMPTS-1
+    // settles — proof the loop terminates instead of polling forever.
+    expect(harness.order.filter((entry) => entry === 'readStatus')).toHaveLength(
+      FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS,
+    );
+    expect(delayCalls).toHaveLength(FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS - 1);
   });
 });
