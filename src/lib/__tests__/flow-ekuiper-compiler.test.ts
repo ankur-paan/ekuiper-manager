@@ -219,14 +219,14 @@ describe('flow eKuiper compiler (memory source -> memory sink)', () => {
     expect(result.diagnostics[0]?.severity).toBe('error');
   });
 
-  it('fails with a structured diagnostic for an unmappable node', () => {
+  it('fails with a structured diagnostic for an unsupported operation', () => {
     const document = buildMemoryFlow();
     document.spec.nodes.push({
-      id: 'node-filter-1',
-      type: 'filter',
+      id: 'node-func-1',
+      type: 'func',
       typeVersion: 1,
-      name: 'Filter',
-      config: { expression: 'temperature > 20' },
+      name: 'Function',
+      config: { expression: 'log(temperature) as log_temperature' },
     });
     const result = compileFlowToEkuiperGraph(document);
 
@@ -249,6 +249,219 @@ describe('flow eKuiper compiler (memory source -> memory sink)', () => {
     if (result.ok) return;
     expect(result.artifact).toBeUndefined();
     expect(result.diagnostics.length).toBeGreaterThan(0);
+  });
+});
+
+describe('flow eKuiper compiler (filter and pick operators)', () => {
+  const FILTER_FLOW_ID = 'node-filter-1';
+  const PICK_FLOW_ID = 'node-pick-1';
+  const FILTER_EXPRESSION = 'temperature > 20';
+  const PICK_FIELDS = 'temperature, humidity';
+
+  function buildFilterPickFlow(): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-filter-pick-demo', name: 'Filter Pick Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: FILTER_FLOW_ID,
+            type: 'filter',
+            typeVersion: 1,
+            name: 'Filter',
+            config: { expression: FILTER_EXPRESSION },
+          },
+          {
+            id: PICK_FLOW_ID,
+            type: 'pick',
+            typeVersion: 1,
+            name: 'Pick',
+            config: { fields: PICK_FIELDS },
+          },
+          {
+            id: SINK_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Sink',
+            config: { topic: SINK_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: FILTER_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-2',
+            sourceNodeId: FILTER_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: PICK_FLOW_ID,
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-3',
+            sourceNodeId: PICK_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [FILTER_FLOW_ID]: { x: 160, y: 0 },
+          [PICK_FLOW_ID]: { x: 320, y: 0 },
+          [SINK_FLOW_ID]: { x: 480, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected nodeType/props for source->filter->pick->sink', () => {
+    const result = compileFlowToEkuiperGraph(buildFilterPickFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const filterRuntimeId = createRuntimeId('filter', FILTER_FLOW_ID);
+    const pickRuntimeId = createRuntimeId('pick', PICK_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [filterRuntimeId]: {
+            type: 'operator',
+            nodeType: 'filter',
+            props: { expr: FILTER_EXPRESSION },
+          },
+          [pickRuntimeId]: {
+            type: 'operator',
+            nodeType: 'pick',
+            props: { fields: ['temperature', 'humidity'] },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [filterRuntimeId],
+            [filterRuntimeId]: [pickRuntimeId],
+            [pickRuntimeId]: [sinkRuntimeId],
+            [sinkRuntimeId]: [],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [FILTER_FLOW_ID]: filterRuntimeId,
+      [PICK_FLOW_ID]: pickRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildFilterPickFlow());
+    const second = compileFlowToEkuiperGraph(buildFilterPickFlow());
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces a graph that satisfies the audited eKuiper envelope', () => {
+    const result = compileFlowToEkuiperGraph(buildFilterPickFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      isEkuiperGraphRule(result.artifact.ruleDefinition.graph),
+    ).toBe(true);
+  });
+
+  it('fails with a structured diagnostic when the filter expression is missing', () => {
+    const document = buildFilterPickFlow();
+    document.spec.nodes[1]!.config = {};
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(FILTER_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('expression');
+  });
+
+  it('fails with a structured diagnostic when the pick fields are missing', () => {
+    const document = buildFilterPickFlow();
+    document.spec.nodes[2]!.config = {};
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(PICK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('fields');
+  });
+
+  it('fails with a structured diagnostic for an unsupported built-in operation', () => {
+    const document = buildFilterPickFlow();
+    document.spec.nodes.push({
+      id: 'node-func-1',
+      type: 'func',
+      typeVersion: 1,
+      name: 'Function',
+      config: { expression: 'log(temperature) as log_temperature' },
+    });
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(
+      result.diagnostics.some(
+        (diagnostic) => diagnostic.code === 'FLOW_UNKNOWN_NODE_TYPE',
+      ),
+    ).toBe(true);
+    expect(
+      result.diagnostics.some(
+        (diagnostic) => diagnostic.nodeId === 'node-func-1',
+      ),
+    ).toBe(true);
   });
 });
 
