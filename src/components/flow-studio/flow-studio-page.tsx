@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Connection, Edge } from '@xyflow/react';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout';
@@ -15,7 +15,7 @@ import {
   type FlowSpec,
 } from '@/lib/flows/model/flow-document';
 import { FlowStudioShell } from './flow-studio-shell';
-import { FlowStudioHeader, type FlowStudioSaveStatus } from './shell/flow-studio-header';
+import { FlowStudioHeader, type FlowDeploymentStatus, type FlowStudioSaveStatus } from './shell/flow-studio-header';
 import { FlowDeployDialog } from './deploy/deploy-dialog';
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
@@ -54,6 +54,21 @@ interface FlowDraftPayload {
 interface ManagedNodeSummary {
   id: string;
   name: string;
+}
+
+interface FlowDeploymentSummary {
+  id: string;
+  flowId: string;
+  targetNodeId: string | null;
+  semanticHash: string;
+  compilerVersion: number;
+  ruleId: string;
+  createdAt: string;
+}
+
+interface FlowDeploymentPayload {
+  deployment: FlowDeploymentSummary | null;
+  draft: { semanticHash: string } | null;
 }
 
 class FlowPageError extends Error {
@@ -108,6 +123,14 @@ async function fetchDraft(flowId: string): Promise<FlowDraftPayload | null> {
   if (!response.ok) throw new FlowPageError(response.status, await readErrorMessage(response));
   const payload = (await response.json()) as { draft: FlowDraftPayload };
   return payload.draft;
+}
+
+async function fetchDeployment(flowId: string): Promise<FlowDeploymentPayload> {
+  const response = await fetch(`/api/flows/${encodeURIComponent(flowId)}/deployment`, {
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new FlowPageError(response.status, await readErrorMessage(response));
+  return (await response.json()) as FlowDeploymentPayload;
 }
 
 function buildDocument(flow: FlowSummary, draft: FlowDraftPayload | null): FlowDocument {
@@ -239,6 +262,20 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     refetchOnWindowFocus: false,
     retry: false,
   });
+  // FS-0090: latest successful deployment summary for the Deployed /
+  // Undeployed changes / Never deployed header label. Read-only GET with
+  // normal query invalidation (on deploy success below); no polling and
+  // no refetch interval. A lookup failure leaves the label hidden rather
+  // than blocking editing or deployment.
+  const deploymentQuery = useQuery({
+    queryKey: ['flow-deployment', flowId],
+    queryFn: () => fetchDeployment(flowId),
+    enabled: flowQuery.isSuccess,
+    staleTime: 10 * 1000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  const queryClient = useQueryClient();
 
   const loadDocument = useFlowEditorStore((state) => state.loadDocument);
   const storeDocument = useFlowEditorStore((state) => state.document);
@@ -543,6 +580,36 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const dialogSemanticHash =
     savedHashes?.semanticHash ?? draftQuery.data?.semanticHash ?? null;
 
+  // FS-0090: Deployed vs Undeployed semantic state. Compares the current
+  // *saved* semantic hash (chained autosave hashes preferred, same source
+  // as the deploy dialog above) against the latest successful
+  // deployment's semantic hash. Layout state is irrelevant here:
+  // layout-only moves/saves never change the semantic hash, so they keep
+  // the Deployed label. While the summary is loading or has errored, no
+  // label is shown rather than a stale or misleading one.
+  const deploymentDisplay = React.useMemo<{
+    label?: string;
+    status?: FlowDeploymentStatus;
+  }>(() => {
+    if (!deploymentQuery.isSuccess) return {};
+    const latest = deploymentQuery.data.deployment;
+    if (!latest) return { label: 'Never deployed', status: 'never-deployed' };
+    const savedSemanticHash =
+      savedHashes?.semanticHash ?? draftQuery.data?.semanticHash ?? null;
+    if (
+      savedSemanticHash !== null &&
+      savedSemanticHash === latest.semanticHash
+    ) {
+      return { label: 'Deployed', status: 'deployed' };
+    }
+    return { label: 'Undeployed changes', status: 'undeployed' };
+  }, [
+    deploymentQuery.isSuccess,
+    deploymentQuery.data,
+    savedHashes,
+    draftQuery.data,
+  ]);
+
   const handleDeployOpen = React.useCallback(() => {
     setDeployOpen(true);
   }, []);
@@ -553,9 +620,12 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
 
   // FS-0089: deploy success is surfaced by the dialog itself (which keeps
   // the result visible) plus a toast; the editor draft stays untouched.
+  // FS-0090: invalidate the deployment summary so the header label
+  // reflects the new successful deployment without polling.
   const handleDeployed = React.useCallback(() => {
     toast.success('Flow deployed');
-  }, []);
+    void queryClient.invalidateQueries({ queryKey: ['flow-deployment', flowId] });
+  }, [flowId, queryClient]);
 
   // Commit one layout-only move per drag stop. High-frequency drag updates
   // stay inside FlowCanvas view state; no draft PUT happens here (FS-0047).
@@ -910,6 +980,8 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               targetName={targetName}
               deployDisabled={!deployReady}
               onDeploy={handleDeployOpen}
+              deploymentLabel={deploymentDisplay.label}
+              deploymentStatus={deploymentDisplay.status}
             />
           }
           palette={<NodePalette definitions={paletteDefinitions} capabilities={capabilityProfile} />}
@@ -963,7 +1035,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, handleDeployOpen, handleDeployClose, handleDeployed]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, handleDeployOpen, handleDeployClose, handleDeployed]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
