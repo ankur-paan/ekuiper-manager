@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { GET, POST } from '@/app/api/flows/route';
+import { GET as GET_FLOW_BY_ID, PATCH as PATCH_FLOW_BY_ID } from '@/app/api/flows/[id]/route';
 import { getAuthenticatedUser } from '@/lib/auth/session';
 import { query } from '@/lib/db';
 import type { QueryResultRow } from 'pg';
@@ -215,5 +216,254 @@ describe('POST /api/flows', () => {
     expect(mockedQuery).toHaveBeenCalledTimes(1);
     const [text] = mockedQuery.mock.calls[0];
     expect(text).toContain('INSERT INTO flows');
+  });
+});
+
+function getOneRequest(id = 'flow-1') {
+  return new NextRequest(`http://localhost/api/flows/${id}`);
+}
+
+function patchRequest(id: string, body: unknown, origin = 'http://localhost') {
+  return new NextRequest(`http://localhost/api/flows/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      origin,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+function routeParams(id = 'flow-1') {
+  return { params: Promise.resolve({ id }) };
+}
+
+describe('GET /api/flows/:id', () => {
+  it('returns 401 for unauthenticated requests without querying', async () => {
+    mockedGetUser.mockResolvedValueOnce(null);
+
+    const response = await GET_FLOW_BY_ID(getOneRequest(), routeParams());
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'AUTH_REQUIRED', message: 'Sign in required' },
+    });
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it('returns one flow for an authenticated user', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedQuery.mockResolvedValueOnce(queryResult([buildFlowRow()]));
+
+    const response = await GET_FLOW_BY_ID(getOneRequest(), routeParams());
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.flow).toMatchObject({ id: 'flow-1', name: 'Line monitor' });
+    expect(mockedQuery).toHaveBeenCalledTimes(1);
+    expect(mockedQuery.mock.calls[0][0]).toContain('FROM flows');
+  });
+
+  it('returns 404 for a missing flow', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedQuery.mockResolvedValueOnce(queryResult([]));
+
+    const response = await GET_FLOW_BY_ID(getOneRequest('missing'), routeParams('missing'));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'FLOW_NOT_FOUND', message: 'Flow not found' },
+    });
+  });
+});
+
+describe('PATCH /api/flows/:id', () => {
+  it('rejects cross-origin mutations before authentication', async () => {
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { name: 'Renamed' }, 'https://evil.test'),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed' },
+    });
+    expect(mockedGetUser).not.toHaveBeenCalled();
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 for unauthenticated requests', async () => {
+    mockedGetUser.mockResolvedValueOnce(null);
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { name: 'Renamed' }),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(401);
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it('applies a valid metadata patch without touching drafts', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedQuery.mockResolvedValueOnce(queryResult([buildFlowRow()]));
+    mockedQuery.mockResolvedValueOnce(
+      queryResult([buildFlowRow({ name: 'Renamed', description: 'new desc' })]),
+    );
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { name: '  Renamed  ', description: 'new desc' }),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.flow).toMatchObject({ id: 'flow-1', name: 'Renamed' });
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    const updateCall = mockedQuery.mock.calls[1];
+    expect(updateCall[0]).toContain('UPDATE flows SET');
+    expect(updateCall[0]).toContain('updated_at = now()');
+    for (const call of mockedQuery.mock.calls) {
+      expect(String(call[0])).not.toContain('flow_drafts');
+    }
+  });
+
+  it('validates a registered target node before patching', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedQuery.mockResolvedValueOnce(queryResult([buildFlowRow()]));
+    mockedQuery.mockResolvedValueOnce(queryResult([buildNodeRow()]));
+    mockedQuery.mockResolvedValueOnce(
+      queryResult([buildFlowRow({ target_node_id: 'node-1' })]),
+    );
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { targetNodeId: 'node-1' }),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockedQuery).toHaveBeenCalledTimes(3);
+    expect(mockedQuery.mock.calls[1][0]).toContain('FROM managed_nodes');
+    expect(mockedQuery.mock.calls[1][1]).toEqual(['node-1']);
+    expect(mockedQuery.mock.calls[2][0]).toContain('UPDATE flows SET');
+  });
+
+  it('returns 404 for a missing flow without updating', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedQuery.mockResolvedValueOnce(queryResult([]));
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('missing', { name: 'Renamed' }),
+      routeParams('missing'),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'FLOW_NOT_FOUND', message: 'Flow not found' },
+    });
+    expect(mockedQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 404 for an unknown target node without updating', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedQuery.mockResolvedValueOnce(queryResult([buildFlowRow()]));
+    mockedQuery.mockResolvedValueOnce(queryResult([]));
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { targetNodeId: 'missing-node' }),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'NODE_NOT_FOUND', message: 'Target node not found' },
+    });
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    for (const call of mockedQuery.mock.calls) {
+      expect(String(call[0])).not.toContain('UPDATE flows');
+    }
+  });
+
+  it.each([[{ name: 'Renamed', id: 'other-id' }], [{ createdBy: 'attacker-id' }]])(
+    'rejects an immutable-field attempt %s with 400',
+    async (body) => {
+      mockedGetUser.mockResolvedValueOnce(actor);
+
+      const response = await PATCH_FLOW_BY_ID(patchRequest('flow-1', body), routeParams());
+
+      expect(response.status).toBe(400);
+      const payload = await response.json();
+      expect(payload.error.code).toBe('INVALID_FLOW_UPDATE');
+      expect(mockedQuery).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects an empty patch with 400', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+
+    const response = await PATCH_FLOW_BY_ID(patchRequest('flow-1', {}), routeParams());
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'INVALID_FLOW_UPDATE', message: 'No updatable fields provided' },
+    });
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it.each([null, '', '   ', 42])('rejects invalid name %s with 400', async (name) => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { name }),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'INVALID_FLOW_NAME', message: 'Flow name is required' },
+    });
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-string description with 400', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { description: 42 }),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-string target node id with 400', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { targetNodeId: 42 }),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it('treats a blank target node id as clearing the target', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedQuery.mockResolvedValueOnce(queryResult([buildFlowRow()]));
+    mockedQuery.mockResolvedValueOnce(queryResult([buildFlowRow({ target_node_id: null })]));
+
+    const response = await PATCH_FLOW_BY_ID(
+      patchRequest('flow-1', { targetNodeId: '   ' }),
+      routeParams(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    for (const call of mockedQuery.mock.calls) {
+      expect(String(call[0])).not.toContain('managed_nodes');
+    }
+    expect(mockedQuery.mock.calls[1][0]).toContain('UPDATE flows SET');
   });
 });
