@@ -154,6 +154,21 @@ function isFlowStudioEditableTarget(target: EventTarget | null): boolean {
 }
 
 /**
+ * Order-insensitive selection equality for the store mirror above.
+ */
+function sameFlowSelectionIds(
+  current: readonly string[],
+  next: readonly string[],
+): boolean {
+  if (current.length !== next.length) return false;
+  const members = new Set(current);
+  for (const id of next) {
+    if (!members.has(id)) return false;
+  }
+  return true;
+}
+
+/**
  * Map the FS-0047 autosave hook status to the FS-0048 header display.
  * Covers both semantic and layout-only dirty states because the hook
  * reports pending/saving for either domain. Never reports deployment
@@ -471,8 +486,17 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // Mirror XYFlow selection into ephemeral editor state only (FS-0045).
   // Selection never touches the FlowDocument, so hashes are unaffected.
   // Loading a flow calls loadDocument, which clears this selection.
+  // Redundant reports (same id sets, possibly reordered) are ignored so the
+  // controlled canvas props cannot fight the store in a render loop.
   const handleCanvasSelectionChange = React.useCallback(
     (selection: FlowCanvasSelection) => {
+      const current = useFlowEditorStore.getState();
+      if (
+        sameFlowSelectionIds(current.selectedNodeIds, selection.nodeIds) &&
+        sameFlowSelectionIds(current.selectedEdgeIds, selection.edgeIds)
+      ) {
+        return;
+      }
       setSelection({ nodeIds: selection.nodeIds, edgeIds: selection.edgeIds });
     },
     [setSelection],
