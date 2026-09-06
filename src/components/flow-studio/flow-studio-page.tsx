@@ -19,6 +19,7 @@ import { FlowStudioHeader, type FlowStudioSaveStatus } from './shell/flow-studio
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
+import { FlowBottomPanel } from './panels/flow-bottom-panel';
 import { QuickNodePicker } from './palette/quick-node-picker';
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
 import { toFlowCanvasPresentation, toReactFlow } from './canvas/to-react-flow';
@@ -824,29 +825,32 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
           palette={<NodePalette definitions={paletteDefinitions} capabilities={capabilityProfile} />}
           canvas={
             canvasViewWithValidation ? (
-              <>
-                <FlowCanvas
-                  edges={canvasViewWithValidation.edges}
-                  nodes={canvasViewWithValidation.nodes}
-                  selectedNodeIds={selectedNodeIds}
-                  selectedEdgeIds={selectedEdgeIds}
-                  nodeTypes={flowNodeTypes}
-                  onNodeDragStop={handleCanvasNodeDragStop}
-                  onSelectionChange={handleCanvasSelectionChange}
-                  onPaletteDrop={handlePaletteDrop}
-                  onConnect={handleConnect}
-                  isValidConnection={isFlowConnectionValid}
-                  onEmptyDoubleClick={handleEmptyCanvasDoubleClick}
-                />
-                {quickPicker ? (
-                  <QuickNodePicker
-                    definitions={paletteDefinitions}
-                    position={quickPicker.screenPosition}
-                    onSelect={handleQuickPickerSelect}
-                    onClose={handleQuickPickerClose}
+              <div className="flex h-full min-h-0 flex-col" data-testid="flow-studio-canvas-column">
+                <div className="relative min-h-0 flex-1">
+                  <FlowCanvas
+                    edges={canvasViewWithValidation.edges}
+                    nodes={canvasViewWithValidation.nodes}
+                    selectedNodeIds={selectedNodeIds}
+                    selectedEdgeIds={selectedEdgeIds}
+                    nodeTypes={flowNodeTypes}
+                    onNodeDragStop={handleCanvasNodeDragStop}
+                    onSelectionChange={handleCanvasSelectionChange}
+                    onPaletteDrop={handlePaletteDrop}
+                    onConnect={handleConnect}
+                    isValidConnection={isFlowConnectionValid}
+                    onEmptyDoubleClick={handleEmptyCanvasDoubleClick}
                   />
-                ) : null}
-              </>
+                  {quickPicker ? (
+                    <QuickNodePicker
+                      definitions={paletteDefinitions}
+                      position={quickPicker.screenPosition}
+                      onSelect={handleQuickPickerSelect}
+                      onClose={handleQuickPickerClose}
+                    />
+                  ) : null}
+                </div>
+                <FlowBottomPanel flowId={flowId} clientDiagnostics={flowDiagnostics} />
+              </div>
             ) : (
               <div className="flex h-full items-center justify-center p-6">
                 <p className="text-center text-sm text-muted-foreground">Loading canvas…</p>
@@ -857,7 +861,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
