@@ -21,7 +21,7 @@ import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
 import { QuickNodePicker } from './palette/quick-node-picker';
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
-import { toReactFlow } from './canvas/to-react-flow';
+import { toFlowCanvasPresentation, toReactFlow } from './canvas/to-react-flow';
 import { generateFlowNodeId } from '@/lib/flows/model/create-flow-node';
 import { createFlowEdgeForConnection, generateFlowEdgeId } from '@/lib/flows/model/create-flow-edge';
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
@@ -234,8 +234,20 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const canvasSource =
     storeDocument && storeDocument.metadata.id === flowId ? storeDocument : document;
 
+  // R1: resolve the exact (type, typeVersion) definition at the page/view
+  // boundary and attach only presentation fields (category, display name,
+  // input/output ports) to canvas node data. The adapter stays pure; this
+  // closure owns the only registry lookup. Unknown types resolve to
+  // undefined so the adapter marks them unsupported without crashing.
   const canvasView = React.useMemo(
-    () => (canvasSource ? toReactFlow(canvasSource) : null),
+    () =>
+      canvasSource
+        ? toReactFlow(canvasSource, (type, version) => {
+            const definition = builtinRegistry.get(type, version);
+            if (!definition) return undefined;
+            return toFlowCanvasPresentation(definition);
+          })
+        : null,
     [canvasSource],
   );
 
