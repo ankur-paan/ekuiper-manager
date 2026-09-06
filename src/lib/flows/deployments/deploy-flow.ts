@@ -68,6 +68,71 @@ import {
  * parameter anywhere in this module.
  */
 
+/**
+ * Bounded settle window for post-upsert connection health (FS-0155).
+ *
+ * A freshly upserted MQTT rule can report `status: running` while its
+ * source/sink is still dialling. Sample the typed status
+ * (`GET /v2/rules/{name}/status`, `RuleStatus` in
+ * `public/ekuiper-openapi.json` v2.4.1 — `additionalProperties: true`
+ * carries the per-node `*_connection_status` / `*_last_exception`
+ * metrics) a bounded number of times before judging. The window is
+ * `MAX_ATTEMPTS * POLL_INTERVAL_MS`; a healthy first read returns
+ * immediately with no delay.
+ */
+export const FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS = 5;
+export const FLOW_DEPLOY_CONNECTION_POLL_INTERVAL_MS = 500;
+export const FLOW_DEPLOY_CONNECTION_SETTLE_MS =
+  FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS * FLOW_DEPLOY_CONNECTION_POLL_INTERVAL_MS;
+
+/** Server-safe code for a deployed rule whose connection never became healthy. */
+export const FLOW_DEPLOY_CONNECTION_UNHEALTHY_CODE = 'EKRULE_CONNECTION_UNHEALTHY';
+
+/**
+ * Inspect a parsed rule-status body for failed source/sink connections.
+ *
+ * Returns the raw (unsanitized) engine detail when a `*_connection_status`
+ * metric equals -1 (number or "-1" string, covering both the typed v2 and
+ * the legacy string serialization) or when a `source_*`/`sink_*`
+ * `*_last_exception` metric is a non-empty string. Returns null when no
+ * connection metric reports failure. Non-object bodies carry no metrics
+ * and are treated as healthy so pre-existing `{status:'running'}` flows
+ * keep succeeding. Callers must pass the result through
+ * `sanitizeDeploymentError` before persistence or user display.
+ */
+export function getUnhealthyConnectionDetail(status: unknown): string | null {
+  if (typeof status !== 'object' || status === null || Array.isArray(status)) {
+    return null;
+  }
+  const record = status as Record<string, unknown>;
+  const problems: string[] = [];
+  for (const [key, value] of Object.entries(record)) {
+    const normalized = key.toLowerCase();
+    if (normalized.endsWith('connection_status')) {
+      const failed =
+        (typeof value === 'number' && value === -1) ||
+        (typeof value === 'string' && value.trim() === '-1');
+      if (failed) {
+        problems.push(`${key}=-1`);
+      }
+      continue;
+    }
+    if (
+      normalized.endsWith('last_exception') ||
+      normalized.endsWith('lastexception')
+    ) {
+      const isConnectionMetric =
+        normalized.startsWith('source_') || normalized.startsWith('sink_');
+      if (!isConnectionMetric) continue;
+      if (typeof value === 'string' && value.trim().length > 0) {
+        problems.push(`${key}: ${value.trim()}`);
+      }
+    }
+  }
+  if (problems.length === 0) return null;
+  return `eKuiper reports an unhealthy connection: ${problems.join('; ')}`;
+}
+
 export type DeployFlowStage =
   | 'validation'
   | 'compile'
@@ -149,6 +214,12 @@ export interface DeployFlowDependencies {
   fetchRuleStatus?: (args: FetchRuleStatusArgs) => Promise<unknown>;
   /** Transport for the default upsert/status implementations. */
   fetcher?: DeployFetcher;
+  /**
+   * Injectable settle delay between connection-health polls (FS-0155).
+   * Defaults to a real timer; tests inject a no-op and count calls to
+   * prove the window is bounded.
+   */
+  delay?: (ms: number) => Promise<void>;
 }
 
 function normalizeRequiredText(value: unknown, field: string): string {
@@ -458,12 +529,38 @@ export async function deployFlow(
   const fetchRuleStatus =
     dependencies.fetchRuleStatus ??
     ((args: FetchRuleStatusArgs) => defaultFetchRuleStatus(args, fetcher));
+  const delay =
+    dependencies.delay ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  // FS-0155: gate success on runtime connection health. `status: running`
+  // alone is not evidence the flow works — poll the typed status briefly
+  // and fail the attempt when a source/sink reports `connection_status`
+  // -1 or a non-empty connection `last_exception`. A healthy first read
+  // succeeds immediately; only an unhealthy read pays for the settle
+  // window, which stays bounded by FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS.
   let ruleStatus: unknown;
+  let unhealthyDetail: string | null = null;
   try {
-    ruleStatus = await fetchRuleStatus({ targetNodeId, ruleId: artifact.ruleId });
+    for (
+      let attemptNumber = 1;
+      attemptNumber <= FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS;
+      attemptNumber += 1
+    ) {
+      ruleStatus = await fetchRuleStatus({ targetNodeId, ruleId: artifact.ruleId });
+      unhealthyDetail = getUnhealthyConnectionDetail(ruleStatus);
+      if (unhealthyDetail === null) break;
+      if (attemptNumber < FLOW_DEPLOY_CONNECTION_MAX_ATTEMPTS) {
+        await delay(FLOW_DEPLOY_CONNECTION_POLL_INTERVAL_MS);
+      }
+    }
   } catch (error) {
     await recordFailure(attempt.id, error);
     throw toTransportApiError(error, 'EKRULE_STATUS_FAILED');
+  }
+  if (unhealthyDetail !== null) {
+    const sanitized = sanitizeDeploymentError(unhealthyDetail);
+    await recordFailure(attempt.id, sanitized);
+    throw new ApiError(502, sanitized, FLOW_DEPLOY_CONNECTION_UNHEALTHY_CODE);
   }
 
   const succeeded = await recordSuccess(attempt.id);
