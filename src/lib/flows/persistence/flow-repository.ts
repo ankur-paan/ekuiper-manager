@@ -28,6 +28,12 @@ function normalizeOptionalText(value: unknown, field: string): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+export interface UpdateFlowMetadataInput {
+  name?: unknown;
+  description?: unknown;
+  targetNodeId?: unknown;
+}
+
 export async function listFlows(): Promise<FlowRecord[]> {
   const result = await query<FlowRow>(
     `SELECT ${flowColumns} FROM flows ORDER BY created_at DESC, id ASC`,
@@ -66,4 +72,47 @@ export async function createFlow(input: CreateFlowInput): Promise<FlowRecord> {
     throw new Error('Flow creation did not return a row');
   }
   return mapFlowRow(row);
+}
+
+/**
+ * Updates only flow metadata (name, description, target node).
+ * Never modifies id or created_by. Always refreshes updated_at.
+ * Returns null when no flow with the given id exists,
+ * matching the `getFlow` null-on-missing convention.
+ */
+export async function updateFlowMetadata(
+  id: string,
+  input: UpdateFlowMetadataInput,
+): Promise<FlowRecord | null> {
+  const assignments: string[] = [];
+  const values: unknown[] = [];
+
+  if (input.name !== undefined) {
+    values.push(normalizeName(input.name));
+    assignments.push(`name = $${values.length}`);
+  }
+  if (input.description !== undefined) {
+    values.push(normalizeOptionalText(input.description, 'description'));
+    assignments.push(`description = $${values.length}`);
+  }
+  if (input.targetNodeId !== undefined) {
+    values.push(normalizeOptionalText(input.targetNodeId, 'targetNodeId'));
+    assignments.push(`target_node_id = $${values.length}`);
+  }
+
+  if (assignments.length === 0) {
+    throw new Error('No metadata fields to update');
+  }
+
+  assignments.push('updated_at = now()');
+  values.push(id);
+
+  const result = await query<FlowRow>(
+    `UPDATE flows SET ${assignments.join(', ')}
+     WHERE id = $${values.length}
+     RETURNING ${flowColumns}`,
+    values,
+  );
+  const row = result.rows[0];
+  return row ? mapFlowRow(row) : null;
 }
