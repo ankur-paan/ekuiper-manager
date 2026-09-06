@@ -35,6 +35,15 @@ export interface FlowPropertyDefinition {
   options?: Array<{ label: string; value: string | number | boolean }>;
   defaultValue?: unknown;
   /**
+   * Optional dynamic option provider for `select` properties (FS-0147).
+   *
+   * A NAMED provider id resolved server-side against a fixed allowlist
+   * (`FLOW_OPTION_PROVIDER_IDS`); never a URL and never caller-supplied.
+   * The inspector merges the provider's live names/ids with the static
+   * `options` above. Plain string so definitions stay JSON-serialisable.
+   */
+  optionsProvider?: string;
+  /**
    * Optional display/range hints for the property control (FS-0146).
    *
    * Declarative only: plain JSON data, never a function or expression.
@@ -198,4 +207,92 @@ export interface FlowNodeDefinition {
    */
   runtimeKind?: FlowIrNodeKind;
   operation?: string;
+}
+
+/**
+ * Fixed allowlist of dynamic option provider ids (FS-0147).
+ *
+ * The server route (`src/app/api/flows/options/[provider]/route.ts`)
+ * resolves a provider id against exactly this list and fetches from the
+ * selected registered eKuiper node. No other value is valid and no
+ * caller-supplied URL is ever accepted.
+ */
+export const FLOW_OPTION_PROVIDER_IDS = [
+  'streams',
+  'tables',
+  'mqtt-confkeys',
+] as const;
+
+/** A provider id from {@link FLOW_OPTION_PROVIDER_IDS}. */
+export type FlowOptionProviderId = (typeof FLOW_OPTION_PROVIDER_IDS)[number];
+
+/**
+ * Narrow an unknown value to a known provider id.
+ *
+ * Pure read; returns false for unknown ids (including URLs, paths and
+ * empty strings) so the server rejects them instead of fetching.
+ */
+export function isFlowOptionProviderId(
+  value: unknown,
+): value is FlowOptionProviderId {
+  return (
+    typeof value === 'string' &&
+    (FLOW_OPTION_PROVIDER_IDS as readonly string[]).includes(value)
+  );
+}
+
+/** One option row served by a provider: a name/id carried as label+value. */
+export interface FlowOptionItem {
+  label: string;
+  value: string;
+}
+
+/**
+ * Build the Manager API URL serving one provider's options (FS-0147).
+ *
+ * The provider id is path-encoded; the optional target is a registered
+ * node id carried as a query parameter, never a URL. There is no
+ * baseUrl/url/endpoint parameter by design.
+ */
+export function buildFlowOptionsUrl(
+  provider: FlowOptionProviderId,
+  targetNodeId?: string,
+): string {
+  const path = `/api/flows/options/${encodeURIComponent(provider)}`;
+  if (targetNodeId === undefined || targetNodeId.trim().length === 0) {
+    return path;
+  }
+  return `${path}?targetNodeId=${encodeURIComponent(targetNodeId.trim())}`;
+}
+
+/**
+ * Merge static select options with live provider results (FS-0147).
+ *
+ * Static options come first, then provider items whose string form does
+ * not duplicate a static value. Matching is by `String(value)` so a
+ * provider name never creates a visually duplicate row. Never mutates
+ * its inputs; returns a fresh array.
+ */
+export function mergeFlowPropertyOptions(
+  staticOptions:
+    | Array<{ label: string; value: string | number | boolean }>
+    | undefined,
+  providerOptions: readonly FlowOptionItem[],
+): Array<{ label: string; value: string | number | boolean }> {
+  const base = Array.isArray(staticOptions) ? [...staticOptions] : [];
+  const seen = new Set(base.map((option) => String(option.value)));
+  for (const item of providerOptions) {
+    if (typeof item?.label !== 'string' || typeof item?.value !== 'string') {
+      continue;
+    }
+    if (item.label.length === 0 || item.value.length === 0) {
+      continue;
+    }
+    if (seen.has(item.value)) {
+      continue;
+    }
+    seen.add(item.value);
+    base.push({ label: item.label, value: item.value });
+  }
+  return base;
 }
