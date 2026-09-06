@@ -58,6 +58,7 @@ export const navigationGroups: NavGroup[] = [
     title: 'Rules',
     icon: Workflow,
     items: [
+      { title: 'Flows', href: '/flows', icon: Workflow },
       { title: 'Rules', href: '/rules', icon: Workflow },
       { title: 'Designer', href: '/rules/new', icon: WandSparkles },
     ],
