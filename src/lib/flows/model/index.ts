@@ -25,6 +25,7 @@ export {
   type FlowMetadata,
   type FlowNode,
   type FlowNodeLayout,
+  type FlowRuleOptions,
   type FlowSpec,
   type FlowViewport,
 } from './flow-document';

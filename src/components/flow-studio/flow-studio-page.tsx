@@ -18,6 +18,7 @@ import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader, type FlowDeploymentStatus, type FlowStudioSaveStatus } from './shell/flow-studio-header';
 import { FlowDeployDialog } from './deploy/deploy-dialog';
 import { NodeInspector } from './inspector/node-inspector';
+import { FlowSettingsPanel } from './inspector/flow-settings-panel';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
 import { FlowBottomPanel } from './panels/flow-bottom-panel';
@@ -1019,7 +1020,15 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               </div>
             )
           }
-          inspector={<NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} diagnostics={inspectorDiagnostics} documentDiagnostics={documentDiagnostics} />}
+          inspector={
+            // FS-0152: flow-level rule options live above the node
+            // inspector in the same column: they are flow settings, not
+            // node state, and never enter node chrome or canvas data.
+            <div className="flex flex-col">
+              <FlowSettingsPanel />
+              <NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} diagnostics={inspectorDiagnostics} documentDiagnostics={documentDiagnostics} />
+            </div>
+          }
         />
         <FlowDeployDialog
           open={deployOpen}

@@ -1,6 +1,7 @@
 import type { FlowDiagnostic } from '../model/diagnostic';
 import { FLOW_REQUIRED_PROPERTY_MISSING } from '../model/diagnostic';
 import { FLOW_DOCUMENT_VERSION } from '../model/flow-document';
+import { FLOW_INVALID_PROPERTY_VALUE } from './property-validation';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -93,6 +94,9 @@ export function validateFlowDocumentShape(value: unknown): FlowDiagnostic[] {
     } else {
       edges.forEach((edge, index) => validateEdgeShape(edge, index, diagnostics));
     }
+    if (spec['options'] !== undefined) {
+      diagnostics.push(...validateRuleOptionsShape(spec['options']));
+    }
   }
 
   const layout = value['layout'];
@@ -158,4 +162,134 @@ function validateNodeLayoutShape(entry: unknown, key: string, diagnostics: FlowD
   }
   requireFiniteNumber(entry, 'x', prefix, 'Flow layout entry x', diagnostics);
   requireFiniteNumber(entry, 'y', prefix, 'Flow layout entry y', diagnostics);
+}
+
+/**
+ * Narrow shape guard for the v1alpha1 `spec.options` subset (FS-0152).
+ *
+ * The owner-approved subset only: `concurrency`, `bufferLength`, `qos`,
+ * `checkpointInterval`, `isEventTime`, `lateTolerance`, `sendMetaToSink`,
+ * `sendError`. Unknown keys are rejected (fail-closed on the closed
+ * subset) rather than silently dropped, so a typo can never reach the
+ * engine as an unvalidated name. Out-of-range values yield structured
+ * `FLOW_INVALID_PROPERTY_VALUE` diagnostics (reusing the existing
+ * invalid-value code; `diagnostic.ts` is outside this ticket's paths),
+ * never thrown strings. An absent or empty object is valid and compiles
+ * to a rule with NO `options` key. Shared by document-shape validation
+ * and the eKuiper compiler so the editor and the compiler agree. Never
+ * mutates its input and never throws for JSON-compatible input.
+ */
+const FLOW_RULE_OPTION_KEYS = [
+  'concurrency',
+  'bufferLength',
+  'qos',
+  'checkpointInterval',
+  'isEventTime',
+  'lateTolerance',
+  'sendMetaToSink',
+  'sendError',
+] as const;
+
+function pushOption(
+  diagnostics: FlowDiagnostic[],
+  message: string,
+  key?: string,
+): void {
+  diagnostics.push({
+    code: FLOW_INVALID_PROPERTY_VALUE,
+    severity: 'error',
+    message,
+    propertyPath: key === undefined ? 'spec.options' : `spec.options.${key}`,
+  });
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return (
+    typeof value === 'number' && Number.isInteger(value) && value >= 1
+  );
+}
+
+function isDurationValue(value: unknown): boolean {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value >= 0;
+  }
+  return typeof value === 'string' && value.length > 0;
+}
+
+export function validateRuleOptionsShape(value: unknown): FlowDiagnostic[] {
+  const diagnostics: FlowDiagnostic[] = [];
+  if (!isRecord(value)) {
+    pushOption(diagnostics, 'Flow document spec.options must be an object when present.');
+    return diagnostics;
+  }
+  for (const key of Object.keys(value)) {
+    if (!(FLOW_RULE_OPTION_KEYS as readonly string[]).includes(key)) {
+      pushOption(
+        diagnostics,
+        `Flow document spec.options has an unsupported option "${key}". ` +
+          `Only ${FLOW_RULE_OPTION_KEYS.join(', ')} are supported in v1alpha1.`,
+        key,
+      );
+    }
+  }
+  if (value['concurrency'] !== undefined && !isPositiveInteger(value['concurrency'])) {
+    pushOption(
+      diagnostics,
+      'Flow document spec.options.concurrency must be an integer of at least 1.',
+      'concurrency',
+    );
+  }
+  if (value['bufferLength'] !== undefined && !isPositiveInteger(value['bufferLength'])) {
+    pushOption(
+      diagnostics,
+      'Flow document spec.options.bufferLength must be an integer of at least 1.',
+      'bufferLength',
+    );
+  }
+  if (
+    value['qos'] !== undefined &&
+    !(value['qos'] === 0 || value['qos'] === 1 || value['qos'] === 2)
+  ) {
+    pushOption(
+      diagnostics,
+      'Flow document spec.options.qos must be one of 0, 1, 2.',
+      'qos',
+    );
+  }
+  if (value['checkpointInterval'] !== undefined && !isDurationValue(value['checkpointInterval'])) {
+    pushOption(
+      diagnostics,
+      'Flow document spec.options.checkpointInterval must be a non-negative integer or a non-empty duration string.',
+      'checkpointInterval',
+    );
+  }
+  if (value['isEventTime'] !== undefined && typeof value['isEventTime'] !== 'boolean') {
+    pushOption(
+      diagnostics,
+      'Flow document spec.options.isEventTime must be a boolean.',
+      'isEventTime',
+    );
+  }
+  if (value['lateTolerance'] !== undefined && !isDurationValue(value['lateTolerance'])) {
+    pushOption(
+      diagnostics,
+      'Flow document spec.options.lateTolerance must be a non-negative integer or a non-empty duration string.',
+      'lateTolerance',
+    );
+  }
+  if (value['sendMetaToSink'] !== undefined && typeof value['sendMetaToSink'] !== 'boolean') {
+    pushOption(
+      diagnostics,
+      'Flow document spec.options.sendMetaToSink must be a boolean.',
+      'sendMetaToSink',
+    );
+  }
+  if (value['sendError'] !== undefined && typeof value['sendError'] !== 'boolean') {
+    pushOption(
+      diagnostics,
+      'Flow document spec.options.sendError must be a boolean.',
+      'sendError',
+    );
+  }
+  return diagnostics;
 }

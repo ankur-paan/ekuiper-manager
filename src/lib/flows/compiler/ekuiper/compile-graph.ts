@@ -1,7 +1,7 @@
 import { hashFlowSemantic } from '../../hashing/flow-hash';
 import { buildFlowIr } from '../../ir/build-flow-ir';
 import type { FlowIrEdge, FlowIrNode } from '../../ir/flow-ir';
-import type { FlowDocument } from '../../model/flow-document';
+import type { FlowDocument, FlowRuleOptions, FlowSpec } from '../../model/flow-document';
 import {
   FLOW_NO_SINK,
   FLOW_NO_SOURCE,
@@ -34,6 +34,7 @@ import {
 } from '../../registry/builtins/routing';
 import { joinDefinition } from '../../registry/builtins/join';
 import { NodeRegistry } from '../../registry/node-registry';
+import { validateRuleOptionsShape } from '../../validation/document-shape';
 import { createRuntimeId } from '../runtime-id';
 import {
   FLOW_COMPILER_VERSION,
@@ -152,8 +153,12 @@ import type { EkuiperGraphNode } from './graph-types';
  * Edge-array insertion order never carries meaning: switch branches are
  * grouped by stable `sourcePortId` and every target list is sorted.
  * Layout is never read and secrets are never touched: only `metadata.id`
- * and semantic `spec` nodes/edges are consumed, and only whitelisted
+ * and semantic `spec` nodes/edges/options are consumed, and only whitelisted
  * config values are copied into `props`.
+ * - Rule options (FS-0152): the v1alpha1 `spec.options` subset compiles to
+ *   the audited `Rule.options` field (`public/ekuiper-openapi.json`,
+ *   eKuiper 2.4.1, schema `RuleOptions`) emitted alongside `graph` only
+ *   when present and non-empty; absent options emit NO `options` key.
  */
 
 const MEMORY_OPERATION = 'memory';
@@ -1660,6 +1665,58 @@ interface CompiledGraphRule {
 }
 
 /**
+ * Canonical v1alpha1 option key order for deterministic emission.
+ */
+const RULE_OPTION_KEY_ORDER: ReadonlyArray<keyof FlowRuleOptions> = [
+  'concurrency',
+  'bufferLength',
+  'qos',
+  'checkpointInterval',
+  'isEventTime',
+  'lateTolerance',
+  'sendMetaToSink',
+  'sendError',
+];
+
+/**
+ * Read and sanitize the Flow `spec.options` (FS-0152).
+ *
+ * Validation is shared with document-shape validation
+ * (`validateRuleOptionsShape`) so the editor and the compiler agree;
+ * any failure is returned as structured diagnostics, never a thrown
+ * string or a fabricated default. An absent or empty options object
+ * yields no `options` (the caller then emits a rule with NO `options`
+ * key, preserving existing fixtures byte-for-byte). A present,
+ * non-empty options object yields a fresh fixed-order copy holding only
+ * the validated keys, so output is deterministic and the caller's input
+ * is never aliased into the artifact.
+ */
+function readFlowRuleOptions(
+  spec: FlowSpec,
+): { options?: Record<string, unknown> } | { diagnostics: FlowDiagnostic[] } {
+  const raw: unknown = spec.options;
+  if (raw === undefined) {
+    return {};
+  }
+  const diagnostics = validateRuleOptionsShape(raw);
+  if (diagnostics.length > 0) {
+    return { diagnostics };
+  }
+  const record = raw as Record<string, unknown>;
+  const options: Record<string, unknown> = {};
+  for (const key of RULE_OPTION_KEY_ORDER) {
+    const value: unknown = record[key];
+    if (value !== undefined) {
+      options[key] = value;
+    }
+  }
+  if (Object.keys(options).length === 0) {
+    return {};
+  }
+  return { options };
+}
+
+/**
  * Compile a semantic Flow document into an eKuiper graph-rule deployment
  * artifact. Supported shape: one or more memory/mqtt sources feeding a DAG of
  * memory/mqtt/filter/pick/function/window/aggfunc/groupby/orderby/switch/join nodes
@@ -1674,6 +1731,19 @@ export function compileFlowToEkuiperGraph(
 ): CompileFlowResult {
   const semanticHash = hashFlowSemantic(document.spec);
   const ruleId = toSafeRuleId(document.metadata.id);
+
+  // Flow-level rule options (FS-0152): envelope-level and cheap to check,
+  // so they are validated before IR construction. A failure here reports
+  // the option diagnostics; a success carries the sanitized options (or
+  // nothing when absent/empty) for emission alongside `graph` below.
+  const ruleOptions = readFlowRuleOptions(document.spec);
+  if ('diagnostics' in ruleOptions) {
+    return {
+      ok: false,
+      artifact: undefined,
+      diagnostics: ruleOptions.diagnostics,
+    };
+  }
 
   const irResult = buildFlowIr(document, createCompilerRegistry());
   if (!irResult.ok) {
@@ -1799,7 +1869,16 @@ export function compileFlowToEkuiperGraph(
       compilerVersion: FLOW_COMPILER_VERSION,
       semanticHash,
       ruleId,
-      ruleDefinition: { graph },
+      // Rule options (FS-0152, audited `Rule`/`RuleCreateRequest` in
+      // `public/ekuiper-openapi.json` carry `options` alongside `graph`):
+      // emitted only when present and non-empty, so flows without options
+      // keep the exact `{graph}`-only definition they always had.
+      ruleDefinition: {
+        graph,
+        ...(ruleOptions.options !== undefined
+          ? { options: ruleOptions.options }
+          : {}),
+      },
       runtimeNodeMap,
     },
     diagnostics: [],
