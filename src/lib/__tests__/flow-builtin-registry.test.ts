@@ -21,7 +21,7 @@ function buildDefinition(
 }
 
 describe('createBuiltinNodeRegistry', () => {
-  it('lists the memory, MQTT, REST, log, filter, pick, and func definitions', () => {
+  it('lists the memory, MQTT, REST, log, filter, pick, func, and window definitions', () => {
     const registry = createBuiltinNodeRegistry();
 
     expect(registry.has('memory-source', 1)).toBe(true);
@@ -33,6 +33,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(registry.has('filter', 1)).toBe(true);
     expect(registry.has('pick', 1)).toBe(true);
     expect(registry.has('func', 1)).toBe(true);
+    expect(registry.has('window', 1)).toBe(true);
     expect(registry.list().map((item) => `${item.type}@${item.version}`).sort()).toEqual([
       'filter@1',
       'func@1',
@@ -43,6 +44,7 @@ describe('createBuiltinNodeRegistry', () => {
       'mqtt-source@1',
       'pick@1',
       'rest-sink@1',
+      'window@1',
     ]);
   });
 
@@ -308,19 +310,89 @@ describe('createBuiltinNodeRegistry', () => {
     expect(first.get('func', 1)).toEqual(second.get('func', 1));
   });
 
+  it('registers the window definition with stream input and collection output', () => {
+    const registry = createBuiltinNodeRegistry();
+    const window = registry.get('window', 1);
+
+    expect(window?.displayName).toBe('Window');
+    expect(window?.category).toBe('streaming');
+    expect(window?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(window?.outputs).toEqual([{ id: 'out', label: 'Collection', kind: 'collection' }]);
+
+    const length = window?.properties.find((property) => property.key === 'length');
+    expect(length?.required).toBe(true);
+    expect(length?.type).toBe('number');
+
+    const timeUnit = window?.properties.find((property) => property.key === 'timeUnit');
+    expect(timeUnit?.required).toBe(true);
+
+    expect(window?.runtimeKind).toBeUndefined();
+    expect(window?.operation).toBeUndefined();
+  });
+
+  it('validates the required window settings via the generic property validator', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const missing = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-window-1',
+          type: 'window',
+          typeVersion: 1,
+          name: 'Window',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingDiagnostics = validateFlowRequiredProperties(missing, registry).filter(
+      (item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(missingDiagnostics.map((item) => item.propertyPath).sort()).toEqual([
+      'config.length',
+      'config.timeUnit',
+    ]);
+    for (const diagnostic of missingDiagnostics) {
+      expect(diagnostic.nodeId).toBe('node-window-1');
+    }
+
+    const present = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-window-1',
+          type: 'window',
+          typeVersion: 1,
+          name: 'Window',
+          config: { length: 10, timeUnit: 's' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
+  });
+
+  it('registers the window definition deterministically', () => {
+    const first = createBuiltinNodeRegistry();
+    const second = createBuiltinNodeRegistry();
+
+    expect(first.get('window', 1)).toEqual(second.get('window', 1));
+  });
+
   it('returns an isolated registry on each call', () => {
     const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
 
     expect(first).not.toBe(second);
-    expect(first.list()).toHaveLength(9);
-    expect(second.list()).toHaveLength(9);
+    expect(first.list()).toHaveLength(10);
+    expect(second.list()).toHaveLength(10);
 
     first.register(buildDefinition({ type: 'test-custom', version: 1 }));
 
     expect(first.has('test-custom', 1)).toBe(true);
-    expect(first.list()).toHaveLength(10);
-    expect(second.list()).toHaveLength(9);
+    expect(first.list()).toHaveLength(11);
+    expect(second.list()).toHaveLength(10);
     expect(second.has('test-custom', 1)).toBe(false);
     expect(second.get('test-custom', 1)).toBeUndefined();
   });
