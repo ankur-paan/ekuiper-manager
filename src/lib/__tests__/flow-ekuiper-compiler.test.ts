@@ -2235,9 +2235,12 @@ describe('flow eKuiper compiler (rest and log sinks)', () => {
   });
 });
 
-describe('flow eKuiper compiler (func script stays unsupported)', () => {
-  it('fails with a structured diagnostic for a connected func node instead of guessing a mapping', () => {
-    const document: FlowDocument = {
+describe('flow eKuiper compiler (function operator)', () => {
+  const FUNC_FLOW_ID = 'node-func-1';
+  const FUNC_EXPRESSION = 'temperature * 1.8 + 32 as temp_f';
+
+  function buildFuncFlow(): FlowDocument {
+    return {
       apiVersion: FLOW_DOCUMENT_VERSION,
       metadata: { id: 'flow-func-demo', name: 'Func Demo' },
       spec: {
@@ -2250,11 +2253,11 @@ describe('flow eKuiper compiler (func script stays unsupported)', () => {
             config: { topic: SOURCE_TOPIC },
           },
           {
-            id: 'node-func-1',
+            id: FUNC_FLOW_ID,
             type: 'func',
             typeVersion: 1,
             name: 'Function',
-            config: { expression: 'log(temperature) as log_temperature' },
+            config: { expression: FUNC_EXPRESSION },
           },
           {
             id: SINK_FLOW_ID,
@@ -2269,12 +2272,12 @@ describe('flow eKuiper compiler (func script stays unsupported)', () => {
             id: 'edge-1',
             sourceNodeId: SOURCE_FLOW_ID,
             sourcePortId: 'out',
-            targetNodeId: 'node-func-1',
+            targetNodeId: FUNC_FLOW_ID,
             targetPortId: 'in',
           },
           {
             id: 'edge-2',
-            sourceNodeId: 'node-func-1',
+            sourceNodeId: FUNC_FLOW_ID,
             sourcePortId: 'out',
             targetNodeId: SINK_FLOW_ID,
             targetPortId: 'in',
@@ -2284,24 +2287,96 @@ describe('flow eKuiper compiler (func script stays unsupported)', () => {
       layout: {
         nodes: {
           [SOURCE_FLOW_ID]: { x: 0, y: 0 },
-          'node-func-1': { x: 160, y: 0 },
+          [FUNC_FLOW_ID]: { x: 160, y: 0 },
           [SINK_FLOW_ID]: { x: 320, y: 0 },
         },
         viewport: { x: 0, y: 0, zoom: 1 },
       },
     };
+  }
+
+  it('produces the exact expected nodeType/props for source->func->sink', () => {
+    const result = compileFlowToEkuiperGraph(buildFuncFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const funcRuntimeId = createRuntimeId('function', FUNC_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [funcRuntimeId]: {
+            type: 'operator',
+            nodeType: 'function',
+            props: { expr: FUNC_EXPRESSION },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [funcRuntimeId],
+            [funcRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [FUNC_FLOW_ID]: funcRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildFuncFlow());
+    const second = compileFlowToEkuiperGraph(buildFuncFlow());
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces a graph that satisfies the audited eKuiper envelope', () => {
+    const result = compileFlowToEkuiperGraph(buildFuncFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      isEkuiperGraphRule(result.artifact.ruleDefinition.graph),
+    ).toBe(true);
+  });
+
+  it('fails with a structured diagnostic when the function expression is missing', () => {
+    const document = buildFuncFlow();
+    document.spec.nodes[1]!.config = {};
     const result = compileFlowToEkuiperGraph(document);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.artifact).toBeUndefined();
-    expect(
-      result.diagnostics.some(
-        (diagnostic) =>
-          diagnostic.code === 'FLOW_UNKNOWN_NODE_TYPE' &&
-          diagnostic.nodeId === 'node-func-1',
-      ),
-    ).toBe(true);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(FUNC_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('expression');
   });
 });
 
