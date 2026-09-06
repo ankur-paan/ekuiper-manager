@@ -182,4 +182,101 @@ describe('flow editor store', () => {
     ]);
     expect(useFlowEditorStore.getState().document).toBeNull();
   });
+
+  it('updateNodeConfig shallow-merges config into spec only', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const before = useFlowEditorStore.getState().document;
+    expect(before).not.toBeNull();
+    const layoutRef = before!.layout;
+    const edgesRef = before!.spec.edges;
+
+    useFlowEditorStore
+      .getState()
+      .updateNodeConfig('node-source-1', { topic: 'devices/+/data', qos: 1 });
+
+    const after = useFlowEditorStore.getState().document;
+    expect(after?.spec.nodes[0].config).toEqual({
+      topic: 'devices/+/data',
+      qos: 1,
+    });
+    expect(after?.spec.nodes[1].config).toEqual({});
+    expect(after?.layout).toBe(layoutRef);
+    expect(after?.spec.edges).toBe(edgesRef);
+    expect(hashFlowSemantic(after!.spec)).not.toBe(
+      hashFlowSemantic(before!.spec),
+    );
+  });
+
+  it('updateNodeConfig merges over existing keys and cannot change id/type/typeVersion', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    useFlowEditorStore
+      .getState()
+      .updateNodeConfig('node-source-1', { topic: 'a', retained: false });
+    useFlowEditorStore
+      .getState()
+      .updateNodeConfig('node-source-1', {
+        topic: 'b',
+        id: 'hacked',
+        type: 'hacked',
+        typeVersion: 999,
+      });
+
+    const node = useFlowEditorStore
+      .getState()
+      .document?.spec.nodes.find((entry) => entry.id === 'node-source-1');
+    expect(node?.id).toBe('node-source-1');
+    expect(node?.type).toBe('test-source');
+    expect(node?.typeVersion).toBe(1);
+    expect(node?.config).toEqual({
+      topic: 'b',
+      retained: false,
+      id: 'hacked',
+      type: 'hacked',
+      typeVersion: 999,
+    });
+  });
+
+  it('renameNode changes only the node name in spec', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const before = useFlowEditorStore.getState().document;
+    expect(before).not.toBeNull();
+    const layoutRef = before!.layout;
+    const edgesRef = before!.spec.edges;
+
+    useFlowEditorStore.getState().renameNode('node-source-1', 'Renamed Source');
+
+    const after = useFlowEditorStore.getState().document;
+    const renamed = after?.spec.nodes.find(
+      (entry) => entry.id === 'node-source-1',
+    );
+    expect(renamed?.name).toBe('Renamed Source');
+    expect(renamed?.type).toBe('test-source');
+    expect(renamed?.typeVersion).toBe(1);
+    expect(renamed?.config).toEqual({});
+    expect(after?.spec.nodes[1].name).toBe('Sink');
+    expect(after?.layout).toBe(layoutRef);
+    expect(after?.spec.edges).toBe(edgesRef);
+  });
+
+  it('semantic node actions are a no-op for unknown node IDs and without a document', () => {
+    useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+    const before = useFlowEditorStore.getState().document;
+    expect(before).not.toBeNull();
+
+    useFlowEditorStore
+      .getState()
+      .updateNodeConfig('node-unknown', { topic: 'x' });
+    expect(useFlowEditorStore.getState().document).toBe(before);
+
+    useFlowEditorStore.getState().renameNode('node-unknown', 'Ghost');
+    expect(useFlowEditorStore.getState().document).toBe(before);
+
+    useFlowEditorStore.getState().clearDocument();
+    useFlowEditorStore
+      .getState()
+      .updateNodeConfig('node-source-1', { topic: 'x' });
+    expect(useFlowEditorStore.getState().document).toBeNull();
+    useFlowEditorStore.getState().renameNode('node-source-1', 'Ghost');
+    expect(useFlowEditorStore.getState().document).toBeNull();
+  });
 });
