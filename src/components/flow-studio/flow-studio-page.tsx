@@ -16,7 +16,7 @@ import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader } from './shell/flow-studio-header';
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
-import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove } from './canvas/flow-canvas';
+import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection } from './canvas/flow-canvas';
 import { toReactFlow } from './canvas/to-react-flow';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
@@ -120,6 +120,9 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const loadDocument = useFlowEditorStore((state) => state.loadDocument);
   const storeDocument = useFlowEditorStore((state) => state.document);
   const moveNodes = useFlowEditorStore((state) => state.moveNodes);
+  const selectedNodeIds = useFlowEditorStore((state) => state.selectedNodeIds);
+  const selectedEdgeIds = useFlowEditorStore((state) => state.selectedEdgeIds);
+  const setSelection = useFlowEditorStore((state) => state.setSelection);
 
   const document = React.useMemo<FlowDocument | null>(() => {
     if (!flowQuery.isSuccess || !draftQuery.isSuccess) return null;
@@ -160,6 +163,16 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       );
     },
     [moveNodes],
+  );
+
+  // Mirror XYFlow selection into ephemeral editor state only (FS-0045).
+  // Selection never touches the FlowDocument, so hashes are unaffected.
+  // Loading a flow calls loadDocument, which clears this selection.
+  const handleCanvasSelectionChange = React.useCallback(
+    (selection: FlowCanvasSelection) => {
+      setSelection({ nodeIds: selection.nodeIds, edgeIds: selection.edgeIds });
+    },
+    [setSelection],
   );
 
   const body = React.useMemo(() => {
@@ -247,8 +260,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               <FlowCanvas
                 edges={canvasView.edges}
                 nodes={canvasView.nodes}
+                selectedNodeIds={selectedNodeIds}
+                selectedEdgeIds={selectedEdgeIds}
                 nodeTypes={flowNodeTypes}
                 onNodeDragStop={handleCanvasNodeDragStop}
+                onSelectionChange={handleCanvasSelectionChange}
               />
             ) : (
               <div className="flex h-full items-center justify-center p-6">
@@ -260,7 +276,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasView, handleCanvasNodeDragStop]);
+  }, [flowQuery, draftQuery, canvasView, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
