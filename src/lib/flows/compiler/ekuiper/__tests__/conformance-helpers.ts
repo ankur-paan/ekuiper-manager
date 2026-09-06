@@ -305,6 +305,35 @@ export interface ConformanceCase {
 }
 
 /**
+ * Minimal valid flow carrying the v1alpha1 rule options subset (FS-0152).
+ *
+ * Deliberately NOT part of `listConformanceCases()`: the conformance
+ * suite pins that list to exactly the built-in registry (`covers every
+ * built-in node type currently in the registry`), so an extra entry would
+ * break coverage. The live proof that a flow WITH options passes official
+ * validation runs engine-gated from `flow-rule-options.test.ts` instead
+ * (skipped without `EKUIPER_CONFORMANCE_URL`, loud failure against a
+ * configured-but-dead engine, same contract as the suite above).
+ *
+ * Values stay on the safe side of the audited `RuleOptions` schema
+ * (`public/ekuiper-openapi.json`, eKuiper 2.4.1): integers where the
+ * schema allows integers, an in-enum `qos`, and explicit booleans.
+ */
+export function buildRuleOptionsConformanceDocument(): FlowDocument {
+  const document = linearFlow('flow-conformance-rule-options', undefined);
+  document.spec.options = {
+    concurrency: 2,
+    bufferLength: 1024,
+    qos: 1,
+    checkpointInterval: 5000,
+    isEventTime: false,
+    lateTolerance: 1000,
+    sendMetaToSink: false,
+    sendError: true,
+  };
+  return document;
+}
+/**
  * One minimal valid flow per built-in node type currently in the
  * registry (15 types): sources/sinks pair with a memory counterpart and
  * each operator sits alone between a memory source and a memory sink,
