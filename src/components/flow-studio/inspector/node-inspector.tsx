@@ -2,6 +2,9 @@
 
 import * as React from "react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { FlowDiagnostic } from "@/lib/flows/model/diagnostic";
 import { createBuiltinNodeRegistry } from "@/lib/flows/registry/builtin-registry";
@@ -37,6 +40,9 @@ export function NodeInspector({
   const document = useFlowEditorStore((state) => state.document);
   const storeSelectedNodeIds = useFlowEditorStore((state) => state.selectedNodeIds);
   const updateNodeConfig = useFlowEditorStore((state) => state.updateNodeConfig);
+  const renameNode = useFlowEditorStore((state) => state.renameNode);
+  const removeNodes = useFlowEditorStore((state) => state.removeNodes);
+  const nameFieldId = React.useId();
 
   // Prop-driven when provided; otherwise mirror the canvas selection
   // (FS-0045) so the inspector follows the selected node.
@@ -68,12 +74,37 @@ export function NodeInspector({
       </p>
     );
   } else if (!definition) {
+    const unknownNode = selectedNode;
     body = (
       <div className="flex flex-col gap-2">
-        <p className="text-sm font-medium">{selectedNode.name || "Unnamed node"}</p>
+        {/* FS-0069: rename stays available for unsupported nodes; only
+            property editing is unavailable. The saved node is preserved. */}
+        <Label htmlFor={nameFieldId}>Display name</Label>
+        <Input
+          id={nameFieldId}
+          type="text"
+          value={unknownNode.name}
+          onChange={(event) => {
+            renameNode(unknownNode.id, event.target.value);
+          }}
+          data-testid="node-inspector-name-input"
+        />
         <p className="text-xs text-muted-foreground" data-testid="node-inspector-unsupported">
-          {`Unknown node type "${selectedNode.type}@${selectedNode.typeVersion}". Configuration editing is unavailable. The saved node is preserved.`}
+          {`Unknown node type "${unknownNode.type}@${unknownNode.typeVersion}". Configuration editing is unavailable. The saved node is preserved.`}
         </p>
+        {/* FS-0069: immediate delete via the store node-removal command,
+            same single-history semantics (nodes + incident edges + layout)
+            as keyboard delete (FS-0050), which is also immediate. */}
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={() => {
+            removeNodes([unknownNode.id]);
+          }}
+          data-testid="node-inspector-delete"
+        >
+          Delete Node
+        </Button>
       </div>
     );
   } else {
@@ -81,10 +112,23 @@ export function NodeInspector({
     // passes pre-filtered node-scoped diagnostics; default to none so
     // standalone usage without the page stays non-destructive.
     const nodeDiagnostics = diagnostics ?? [];
+    const knownNode = selectedNode;
     body = (
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <p className="text-sm font-medium">{selectedNode.name || definition.displayName}</p>
+          {/* FS-0069: editable display name via renameNode; reflected on
+              node chrome which renders spec node name. */}
+          <Label htmlFor={nameFieldId}>Display name</Label>
+          <Input
+            id={nameFieldId}
+            type="text"
+            value={knownNode.name}
+            placeholder={definition.displayName}
+            onChange={(event) => {
+              renameNode(knownNode.id, event.target.value);
+            }}
+            data-testid="node-inspector-name-input"
+          />
           <p className="text-xs text-muted-foreground">
             {definition.displayName} · {definition.type}@v{definition.version}
           </p>
@@ -124,14 +168,27 @@ export function NodeInspector({
                 definition={property}
                 // Pass the raw config value through untouched so false/0
                 // survive; absent keys arrive as undefined.
-                value={selectedNode.config[property.key]}
+                value={knownNode.config[property.key]}
                 onChange={(next) => {
-                  updateNodeConfig(selectedNode.id, { [property.key]: next });
+                  updateNodeConfig(knownNode.id, { [property.key]: next });
                 }}
               />
             ))}
           </div>
         )}
+        {/* FS-0069: immediate delete via the store node-removal command,
+            same single-history semantics (nodes + incident edges + layout)
+            as keyboard delete (FS-0050), which is also immediate. */}
+        <Button
+          type="button"
+          variant="destructive"
+          onClick={() => {
+            removeNodes([knownNode.id]);
+          }}
+          data-testid="node-inspector-delete"
+        >
+          Delete Node
+        </Button>
       </div>
     );
   }
