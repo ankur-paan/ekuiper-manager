@@ -3,6 +3,7 @@ import { mqttSinkDefinition, mqttSourceDefinition } from './builtins/mqtt';
 import { logSinkDefinition, restSinkDefinition } from './builtins/sinks';
 import { funcDefinition } from './builtins/script';
 import { filterDefinition, pickDefinition } from './builtins/transforms';
+import { aggregateDefinition, groupByDefinition } from './builtins/aggregate';
 import { windowDefinition } from './builtins/window';
 import { NodeRegistry } from './node-registry';
 
@@ -11,7 +12,8 @@ import { NodeRegistry } from './node-registry';
  *
  * Each call returns a fresh {@link NodeRegistry} instance pre-registered
  * with the v1 memory and MQTT source/sink plus REST and log sink plus
- * filter, pick, and func transform plus tumbling window editor-semantic definitions; no mutable global
+ * filter, pick, and func transform plus tumbling window plus aggregate and
+ * group-by editor-semantic definitions; no mutable global
  * singleton is shared. Compiler mapping for these definitions lands in a
  * later ticket, so no compiler code lives here.
  */
@@ -27,5 +29,7 @@ export function createBuiltinNodeRegistry(): NodeRegistry {
   registry.register(pickDefinition);
   registry.register(funcDefinition);
   registry.register(windowDefinition);
+  registry.register(aggregateDefinition);
+  registry.register(groupByDefinition);
   return registry;
 }
