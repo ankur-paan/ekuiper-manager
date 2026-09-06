@@ -6,9 +6,21 @@ import type {
   FlowNodeCategory,
   FlowNodeDefinition,
 } from "@/lib/flows/registry/node-definition";
+import type { TargetCapabilityProfile } from "@/lib/flows/capabilities/types";
+import { isDefinitionSupportedByCapabilities } from "@/lib/flows/validation/capability-validation";
 
 export interface NodePaletteProps {
   definitions?: FlowNodeDefinition[];
+  /**
+   * Normalized target capability profile (FS-0080).
+   *
+   * Consumed only through `isDefinitionSupportedByCapabilities`: no version
+   * comparison lives in this component. When omitted, every definition is
+   * treated as available (existing behavior). When provided, unsupported
+   * definitions render disabled with a reason instead of being hidden, and
+   * cannot start a drag.
+   */
+  capabilities?: TargetCapabilityProfile;
   children?: React.ReactNode;
   className?: string;
 }
@@ -100,7 +112,7 @@ function matchesPaletteSearch(
   return false;
 }
 
-export function NodePalette({ definitions, children, className }: NodePaletteProps) {
+export function NodePalette({ definitions, capabilities, children, className }: NodePaletteProps) {
   const [search, setSearch] = React.useState("");
   const filteredDefinitions = React.useMemo(
     () =>
@@ -137,13 +149,38 @@ export function NodePalette({ definitions, children, className }: NodePalettePro
               {PALETTE_CATEGORY_LABELS[group.category]}
             </h3>
             <ul className="flex flex-col gap-1">
-              {group.items.map((definition) => (
+              {group.items.map((definition) => {
+                // FS-0080: capability-aware availability without version
+                // checks. Unsupported definitions stay visible but disabled
+                // so existing flows remain understandable; only the drag
+                // affordance is removed.
+                const status = capabilities
+                  ? isDefinitionSupportedByCapabilities(definition, capabilities)
+                  : { supported: true as const };
+                const unavailable = !status.supported;
+                const reason =
+                  !status.supported && 'reason' in status && typeof status.reason === 'string'
+                    ? status.reason
+                    : null;
+                return (
                 <li
                   key={`${definition.type}@${definition.version}`}
                   data-testid={`node-palette-item-${definition.type}`}
-                  className="cursor-grab rounded-md border px-3 py-2 active:cursor-grabbing"
-                  draggable
+                  data-capability-unavailable={unavailable ? 'true' : undefined}
+                  aria-disabled={unavailable ? 'true' : undefined}
+                  title={reason ?? undefined}
+                  className={cn(
+                    "rounded-md border px-3 py-2",
+                    unavailable
+                      ? "cursor-not-allowed opacity-50"
+                      : "cursor-grab active:cursor-grabbing",
+                  )}
+                  draggable={!unavailable}
                   onDragStart={(event) => {
+                    if (unavailable) {
+                      event.preventDefault();
+                      return;
+                    }
                     const payload: FlowPaletteDragPayload = {
                       type: definition.type,
                       version: definition.version,
@@ -163,8 +200,14 @@ export function NodePalette({ definitions, children, className }: NodePalettePro
                       {definition.description}
                     </p>
                   ) : null}
+                  {reason ? (
+                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                      Unavailable: {reason}
+                    </p>
+                  ) : null}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </section>
         ))}

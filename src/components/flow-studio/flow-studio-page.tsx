@@ -26,8 +26,13 @@ import { generateFlowNodeId } from '@/lib/flows/model/create-flow-node';
 import { createFlowEdgeForConnection, generateFlowEdgeId } from '@/lib/flows/model/create-flow-edge';
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
+import { resolveTargetCapabilities } from '@/lib/flows/capabilities/resolve-capabilities';
 import { canConnect } from '@/lib/flows/validation/port-compatibility';
 import { validateFlowStructure } from '@/lib/flows/validation/structural';
+import {
+  isDefinitionSupportedByCapabilities,
+  validateFlowCapabilities,
+} from '@/lib/flows/validation/capability-validation';
 import {
   validateFlowEdgePorts,
   validateFlowUnknownNodeTypes,
@@ -239,6 +244,17 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // display order are owned by NodePalette.
   const paletteDefinitions = React.useMemo(() => builtinRegistry.list(), []);
 
+  // FS-0080: normalized target capability profile for palette gating and
+  // capability validation. Temporary audited 2.4.1 reachable baseline until
+  // live target probe wiring lands in a later ticket: every current
+  // built-in stays available, so existing flows remain viewable/editable
+  // and no version comparison leaks into palette or page code (the
+  // resolver owns the only semver check).
+  const capabilityProfile = React.useMemo(
+    () => resolveTargetCapabilities({ version: '2.4.1', reachable: true }),
+    [],
+  );
+
   // FS-0068: node-scoped validation derived from committed store state.
   // Runs existing client structural/registry/property validators against
   // the built-in registry on every document change. Pure read: never
@@ -254,8 +270,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       ...validateFlowEdgePorts(storeDocument, builtinRegistry),
       ...validateFlowRequiredProperties(storeDocument, builtinRegistry),
       ...validateFlowPropertyTypes(storeDocument, builtinRegistry),
+      // FS-0080: capability stage. Unavailable nodes stay in the document
+      // and surface here instead of disappearing from canvas/inspector.
+      ...validateFlowCapabilities(storeDocument, builtinRegistry, capabilityProfile),
     ];
-  }, [storeDocument, flowId]);
+  }, [storeDocument, flowId, capabilityProfile]);
 
   // FS-0068: collapse diagnostics to per-node error/warning counts for the
   // canvas. Diagnostics carrying nodeId count directly; edge-only
@@ -439,17 +458,23 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // the registry identity (type+version); the definition is resolved here
   // and the node is created via the editor-store addNode action as a single
   // history entry. Unknown types are ignored without mutation.
+  // FS-0080: drops for capability-unavailable definitions are rejected so
+  // an unavailable node cannot be newly added from the palette; loaded
+  // unavailable nodes already in the document remain untouched.
   const handlePaletteDrop = React.useCallback(
     (drop: FlowPaletteDrop) => {
       const definition = builtinRegistry.get(drop.type, drop.version);
       if (!definition) return;
+      if (!isDefinitionSupportedByCapabilities(definition, capabilityProfile).supported) {
+        return;
+      }
       addNode({
         id: generateFlowNodeId(),
         definition,
         position: { x: drop.position.x, y: drop.position.y },
       });
     },
-    [addNode],
+    [addNode, capabilityProfile],
   );
 
   // FS-0067: preflight validation shared by connect creation and the
@@ -748,7 +773,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               deployDisabled
             />
           }
-          palette={<NodePalette definitions={paletteDefinitions} />}
+          palette={<NodePalette definitions={paletteDefinitions} capabilities={capabilityProfile} />}
           canvas={
             canvasViewWithValidation ? (
               <>
@@ -784,7 +809,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, inspectorDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, inspectorDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
