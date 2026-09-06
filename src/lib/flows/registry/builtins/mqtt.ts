@@ -29,6 +29,9 @@ export const mqttSourceDefinition: FlowNodeDefinition = {
   displayName: 'MQTT Source',
   description: 'Subscribe to an MQTT topic via a shared connection.',
   category: 'source',
+  icon: 'mqtt',
+  accent: 'source',
+  subtitleKey: 'topic',
   inputs: [],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [
@@ -66,6 +69,9 @@ export const mqttSinkDefinition: FlowNodeDefinition = {
   displayName: 'MQTT Sink',
   description: 'Publish results to an MQTT topic via a shared connection.',
   category: 'sink',
+  icon: 'mqtt',
+  accent: 'sink',
+  subtitleKey: 'topic',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [],
   properties: [

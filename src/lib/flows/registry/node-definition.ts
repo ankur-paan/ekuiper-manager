@@ -186,6 +186,118 @@ export function isFlowPropertyVisible(
   return true;
 }
 
+/**
+ * Fixed set of canvas icon tokens for FS-0148 node presentation.
+ *
+ * A named token only: never a URL, never an inline SVG payload, and never
+ * a remote asset reference. The canvas renderer maps a known token to a
+ * local mark; unknown tokens fall back to the category mark without
+ * throwing. Plain strings so definitions stay JSON-serialisable.
+ */
+export const FLOW_NODE_ICON_TOKENS = [
+  'mqtt',
+  'memory',
+  'rest',
+  'log',
+  'filter',
+  'pick',
+  'function',
+  'window',
+  'aggregate',
+  'join',
+  'switch',
+  'sort',
+] as const;
+
+/** A canvas icon token from {@link FLOW_NODE_ICON_TOKENS}. */
+export type FlowNodeIconToken = (typeof FLOW_NODE_ICON_TOKENS)[number];
+
+/**
+ * Fixed set of canvas accent tokens for FS-0148 node presentation.
+ *
+ * A named token only: never a raw colour (no hex/rgb/hsl literal). The
+ * canvas renderer maps a known token to a bounded local style; unknown
+ * tokens fall back to the neutral style without throwing. Plain strings
+ * so definitions stay JSON-serialisable.
+ */
+export const FLOW_NODE_ACCENT_TOKENS = [
+  'source',
+  'transform',
+  'streaming',
+  'routing',
+  'sink',
+  'neutral',
+] as const;
+
+/** A canvas accent token from {@link FLOW_NODE_ACCENT_TOKENS}. */
+export type FlowNodeAccentToken = (typeof FLOW_NODE_ACCENT_TOKENS)[number];
+
+/**
+ * Narrow an unknown value to a known icon token (FS-0148).
+ *
+ * Pure read; returns false for unknown tokens (including URLs, paths,
+ * SVG payloads and empty strings) so the renderer falls back to the
+ * category mark instead of loading anything.
+ */
+export function isFlowNodeIconToken(
+  value: unknown,
+): value is FlowNodeIconToken {
+  return (
+    typeof value === 'string' &&
+    (FLOW_NODE_ICON_TOKENS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Narrow an unknown value to a known accent token (FS-0148).
+ *
+ * Pure read; returns false for unknown tokens (including raw colours)
+ * so the renderer falls back to the neutral style.
+ */
+export function isFlowNodeAccentToken(
+  value: unknown,
+): value is FlowNodeAccentToken {
+  return (
+    typeof value === 'string' &&
+    (FLOW_NODE_ACCENT_TOKENS as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Resolve the canvas subtitle for a node (FS-0148).
+ *
+ * Reads `config[subtitleKey]` and returns a short display string for
+ * scalar values (string as-is, finite numbers and booleans via
+ * `String(value)`). Returns undefined when the key is absent, the config
+ * is missing, or the value is not a displayable scalar (objects, arrays,
+ * null, undefined, empty/blank strings, non-finite numbers). Truncation
+ * itself is a canvas CSS concern (`truncate`); this helper never throws
+ * for well-typed input and never mutates its inputs.
+ */
+export function resolveFlowNodeSubtitle(
+  config: Record<string, unknown> | undefined,
+  subtitleKey: string | undefined,
+): string | undefined {
+  if (
+    config === undefined ||
+    subtitleKey === undefined ||
+    subtitleKey.length === 0
+  ) {
+    return undefined;
+  }
+  const value: unknown = config[subtitleKey];
+  if (typeof value === 'string') {
+    return value.trim().length > 0 ? value : undefined;
+  }
+  if (typeof value === 'boolean') {
+    return String(value);
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
 export interface FlowNodeDefinition {
   type: string;
   version: number;
@@ -195,6 +307,33 @@ export interface FlowNodeDefinition {
   inputs: FlowPortDefinition[];
   outputs: FlowPortDefinition[];
   properties: FlowPropertyDefinition[];
+  /**
+   * Optional canvas icon token (FS-0148).
+   *
+   * Must be a member of {@link FLOW_NODE_ICON_TOKENS}; never a URL or
+   * SVG payload and never a remote asset. The renderer falls back to the
+   * category mark for unknown tokens. Plain string so definitions stay
+   * JSON-serialisable.
+   */
+  icon?: FlowNodeIconToken;
+  /**
+   * Optional canvas accent token (FS-0148).
+   *
+   * Must be a member of {@link FLOW_NODE_ACCENT_TOKENS}; never a raw
+   * colour. The renderer falls back to the neutral style for unknown
+   * tokens. Plain string so definitions stay JSON-serialisable.
+   */
+  accent?: FlowNodeAccentToken;
+  /**
+   * Optional canvas subtitle key (FS-0148).
+   *
+   * Names exactly one property key whose scalar value renders as the
+   * canvas subtitle (truncated, never wrapped). Must reference an
+   * existing property key when present; nodes without a suitable scalar
+   * property omit it. Plain string so definitions stay
+   * JSON-serialisable.
+   */
+  subtitleKey?: string;
   /**
    * Internal-only runtime metadata consumed by the Flow-to-IR builder.
    *

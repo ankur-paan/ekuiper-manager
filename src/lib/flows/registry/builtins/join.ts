@@ -50,6 +50,9 @@ export const joinDefinition: FlowNodeDefinition = {
   displayName: 'Join',
   description: 'Combine two windowed streams identified by config.',
   category: 'streaming',
+  icon: 'join',
+  accent: 'streaming',
+  subtitleKey: 'from',
   inputs: [{ id: 'in', label: 'Collection', kind: 'collection' }],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [

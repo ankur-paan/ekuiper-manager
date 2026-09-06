@@ -25,6 +25,9 @@ export const memorySourceDefinition: FlowNodeDefinition = {
   displayName: 'Memory Source',
   description: 'Read events from an in-memory topic.',
   category: 'source',
+  icon: 'memory',
+  accent: 'source',
+  subtitleKey: 'topic',
   inputs: [],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [
@@ -62,6 +65,9 @@ export const memorySinkDefinition: FlowNodeDefinition = {
   displayName: 'Memory Sink',
   description: 'Publish results to an in-memory topic.',
   category: 'sink',
+  icon: 'memory',
+  accent: 'sink',
+  subtitleKey: 'topic',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [],
   properties: [

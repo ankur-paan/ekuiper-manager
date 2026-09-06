@@ -10,16 +10,21 @@ import {
 import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type {
-  FlowNodeCategory,
-  FlowPortDefinition,
+import {
+  isFlowNodeAccentToken,
+  isFlowNodeIconToken,
+  resolveFlowNodeSubtitle,
+  type FlowNodeAccentToken,
+  type FlowNodeCategory,
+  type FlowNodeIconToken,
+  type FlowPortDefinition,
 } from "@/lib/flows/registry/node-definition";
 
 /**
  * Subset of FlowNodeDefinition metadata the canvas chrome may render.
  *
- * Only display/ports metadata is carried; property forms, docs, Monaco,
- * metrics, and runtime state are never rendered here
+ * Only display/ports/presentation metadata is carried; property forms,
+ * docs, Monaco, metrics, and runtime state are never rendered here
  * (see UI_PERFORMANCE_SPEC canvas rendering rules).
  */
 export interface FlowNodeDefinitionSummary {
@@ -27,6 +32,22 @@ export interface FlowNodeDefinitionSummary {
   category?: FlowNodeCategory;
   inputs?: FlowPortDefinition[];
   outputs?: FlowPortDefinition[];
+  /**
+   * FS-0148: optional canvas icon token. A named token from the fixed
+   * set only (never a URL/SVG payload); unknown tokens fall back to the
+   * category mark.
+   */
+  icon?: string;
+  /**
+   * FS-0148: optional canvas accent token. A named token only (never a
+   * raw colour); unknown tokens fall back to the neutral style.
+   */
+  accent?: string;
+  /**
+   * FS-0148: optional canvas subtitle key naming one property whose
+   * scalar value renders as the truncated canvas subtitle.
+   */
+  subtitleKey?: string;
 }
 
 /**
@@ -42,6 +63,11 @@ export interface FlowNodeData extends Record<string, unknown> {
   category?: FlowNodeCategory;
   inputs?: FlowPortDefinition[];
   outputs?: FlowPortDefinition[];
+  /**
+   * FS-0148: Flow node config carried for subtitle resolution
+   * (`definition.subtitleKey`). Display-only read; never mutated here.
+   */
+  config?: Record<string, unknown>;
   definition?: FlowNodeDefinitionSummary;
   /**
    * Set by the page/view adapter when the (type, typeVersion) definition
@@ -77,15 +103,63 @@ function handleTop(index: number, total: number): string {
   return `${((index + 1) / (total + 1)) * 100}%`;
 }
 
+/**
+ * FS-0148: bounded local accent styles keyed by accent token.
+ *
+ * Tokens only; the definition never carries a raw colour and this map is
+ * the only place a token becomes a style. Unknown tokens use neutral.
+ */
+const FLOW_NODE_ACCENT_BAR_CLASS: Record<FlowNodeAccentToken, string> = {
+  source: "bg-sky-500",
+  transform: "bg-violet-500",
+  streaming: "bg-emerald-500",
+  routing: "bg-amber-500",
+  sink: "bg-slate-500",
+  neutral: "bg-transparent",
+};
+
+/**
+ * FS-0148: local glyph for a known icon token.
+ *
+ * Text mark only; no remote asset, no URL, no SVG payload is ever
+ * loaded. Unknown tokens return undefined so the caller falls back to
+ * the category mark.
+ */
+export function resolveFlowNodeIconMark(icon: unknown): string | undefined {
+  if (!isFlowNodeIconToken(icon)) {
+    return undefined;
+  }
+  const token: FlowNodeIconToken = icon;
+  return token.slice(0, 1).toUpperCase();
+}
+
 export function FlowNode({ data, selected }: FlowNodeProps) {
   const unsupported = data.unsupported === true;
   const category = data.definition?.category ?? data.category;
   const inputs = resolvePorts(data.inputs, data.definition?.inputs);
   const outputs = resolvePorts(data.outputs, data.definition?.outputs);
   const title = data.name || "Unnamed node";
-  const subtitle =
+  // FS-0148: presentation metadata. Guards fail open to the legacy chrome
+  // (category mark, neutral style, displayName subtitle) without throwing.
+  const iconMark = resolveFlowNodeIconMark(data.definition?.icon);
+  const rawAccent = data.definition?.accent;
+  const accentToken: FlowNodeAccentToken = isFlowNodeAccentToken(rawAccent)
+    ? rawAccent
+    : "neutral";
+  const config =
+    typeof data.config === "object" && data.config !== null
+      ? (data.config as Record<string, unknown>)
+      : undefined;
+  const subtitleKey = data.definition?.subtitleKey;
+  const legacySubtitle =
     data.definition?.displayName ??
     (typeof data.displayName === "string" ? data.displayName : undefined);
+  // When a subtitleKey is declared the subtitle is the referenced
+  // property value only; otherwise the legacy displayName applies.
+  const subtitle =
+    subtitleKey !== undefined
+      ? resolveFlowNodeSubtitle(config, subtitleKey)
+      : legacySubtitle;
   const showSubtitle = subtitle !== undefined && subtitle !== title;
   // FS-0068: badge chrome only. Counts arrive via node data; messages stay
   // in the inspector. Non-color cues: numeric count plus accessible label.
@@ -109,6 +183,7 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
           ? "border-2 border-primary ring-2 ring-primary ring-offset-2"
           : "border-border",
       )}
+      data-accent={accentToken}
       data-selected={selected === true ? "true" : undefined}
       data-testid="flow-node"
     >
@@ -150,12 +225,23 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
           </span>
         ) : null}
         <span
-          aria-label={category !== undefined ? `Category: ${category}` : "Category: uncategorized"}
+          aria-label={
+            iconMark !== undefined
+              ? `Icon: ${data.definition?.icon}`
+              : category !== undefined
+                ? `Category: ${category}`
+                : "Category: uncategorized"
+          }
           className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded border border-border bg-muted px-1 text-[10px] font-semibold uppercase leading-none text-muted-foreground"
+          data-icon={iconMark !== undefined ? data.definition?.icon : undefined}
           data-testid="flow-node-category"
-          title={category ?? "uncategorized"}
+          title={
+            iconMark !== undefined
+              ? String(data.definition?.icon)
+              : (category ?? "uncategorized")
+          }
         >
-          {(category ?? "?").slice(0, 1).toUpperCase()}
+          {iconMark ?? (category ?? "?").slice(0, 1).toUpperCase()}
         </span>
         <span className="min-w-0 flex-1 truncate text-sm font-medium" data-testid="flow-node-title" title={title}>
           {title}
@@ -213,7 +299,9 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
         aria-hidden="true"
         className={cn(
           "mx-3 mb-2 mt-1 h-0.5 rounded",
-          selected === true ? "bg-primary" : "bg-transparent",
+          selected === true
+            ? "bg-primary"
+            : FLOW_NODE_ACCENT_BAR_CLASS[accentToken],
         )}
       />
     </div>
