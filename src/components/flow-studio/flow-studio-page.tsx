@@ -16,6 +16,9 @@ import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader } from './shell/flow-studio-header';
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
+import { FlowCanvas, flowNodeTypes } from './canvas/flow-canvas';
+import { toReactFlow } from './canvas/to-react-flow';
+import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
 interface FlowSummary {
   id: string;
@@ -114,6 +117,35 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     retry: false,
   });
 
+  const loadDocument = useFlowEditorStore((state) => state.loadDocument);
+  const storeDocument = useFlowEditorStore((state) => state.document);
+
+  const document = React.useMemo<FlowDocument | null>(() => {
+    if (!flowQuery.isSuccess || !draftQuery.isSuccess) return null;
+    return buildDocument(flowQuery.data, draftQuery.data ?? null);
+  }, [flowQuery.isSuccess, flowQuery.data, draftQuery.isSuccess, draftQuery.data]);
+
+  const documentKey = React.useMemo<string | null>(() => {
+    if (!document) return null;
+    return `${document.metadata.id}::${JSON.stringify({ spec: document.spec, layout: document.layout })}`;
+  }, [document]);
+
+  const loadedKeyRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!document || !documentKey) return;
+    if (loadedKeyRef.current === documentKey) return;
+    loadedKeyRef.current = documentKey;
+    loadDocument(document);
+  }, [document, documentKey, loadDocument]);
+
+  const canvasSource =
+    storeDocument && storeDocument.metadata.id === flowId ? storeDocument : document;
+
+  const canvasView = React.useMemo(
+    () => (canvasSource ? toReactFlow(canvasSource) : null),
+    [canvasSource],
+  );
+
   const body = React.useMemo(() => {
     if (flowQuery.isPending) {
       return (
@@ -182,7 +214,6 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
 
     const flow = flowQuery.data;
     const draft = draftQuery.data ?? null;
-    const document = buildDocument(flow, draft);
 
     return (
       <div className="h-[calc(100vh-10rem)] min-h-[480px]">
@@ -196,19 +227,23 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
           }
           palette={<NodePalette />}
           canvas={
-            <div className="flex h-full items-center justify-center p-6">
-              <p className="text-center text-sm text-muted-foreground">
-                {document.spec.nodes.length === 0 && document.spec.edges.length === 0
-                  ? 'Empty flow — canvas binding arrives next.'
-                  : `Draft with ${document.spec.nodes.length} nodes — canvas binding arrives next.`}
-              </p>
-            </div>
+            canvasView ? (
+              <FlowCanvas
+                edges={canvasView.edges}
+                nodes={canvasView.nodes}
+                nodeTypes={flowNodeTypes}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center p-6">
+                <p className="text-center text-sm text-muted-foreground">Loading canvas…</p>
+              </div>
+            )
           }
           inspector={<NodeInspector selectedNodeId={null} />}
         />
       </div>
     );
-  }, [flowQuery, draftQuery]);
+  }, [flowQuery, draftQuery, canvasView]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
