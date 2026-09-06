@@ -106,6 +106,32 @@ function buildDocument(flow: FlowSummary, draft: FlowDraftPayload | null): FlowD
 }
 
 /**
+ * FS-0050: editing shortcuts must not fire while typing. Inputs,
+ * textareas, selects, contenteditable regions, and Monaco (which renders
+ * a textarea inside `.monaco-editor`) all opt out so Backspace/Z keys
+ * edit text instead of mutating the graph.
+ */
+function isFlowStudioEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  ) {
+    return true;
+  }
+  if (target.isContentEditable) return true;
+  if (
+    target.closest(
+      '[contenteditable="true"], [contenteditable=""], .monaco-editor',
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Map the FS-0047 autosave hook status to the FS-0048 header display.
  * Covers both semantic and layout-only dirty states because the hook
  * reports pending/saving for either domain. Never reports deployment
@@ -257,6 +283,40 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     },
     [setSelection],
   );
+
+  // FS-0050: keyboard undo/redo and delete. Ctrl/Cmd+Z undoes,
+  // Ctrl/Cmd+Shift+Z redoes, and Delete/Backspace removes the current
+  // selection (nodes plus incident edges plus selected edges) as one
+  // history command via the editor store. Editable targets opt out so
+  // typing never mutates the graph. Capture phase plus stopPropagation
+  // keeps XYFlow's built-in delete key handling from double-deleting.
+  React.useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const mod = event.ctrlKey || event.metaKey;
+      if (mod && event.key.toLowerCase() === 'z') {
+        if (isFlowStudioEditableTarget(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.shiftKey) {
+          useFlowEditorStore.getState().redo();
+        } else {
+          useFlowEditorStore.getState().undo();
+        }
+        return;
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (isFlowStudioEditableTarget(event.target)) return;
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        event.preventDefault();
+        event.stopPropagation();
+        useFlowEditorStore.getState().deleteSelected();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, []);
 
   const body = React.useMemo(() => {
     if (flowQuery.isPending) {
