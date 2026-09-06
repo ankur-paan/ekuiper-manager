@@ -18,7 +18,9 @@ import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader, type FlowStudioSaveStatus } from './shell/flow-studio-header';
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
-import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
+import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
+import { QuickNodePicker } from './palette/quick-node-picker';
+import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
 import { toReactFlow } from './canvas/to-react-flow';
 import { generateFlowNodeId } from '@/lib/flows/model/create-flow-node';
 import { createFlowEdgeForConnection, generateFlowEdgeId } from '@/lib/flows/model/create-flow-edge';
@@ -366,6 +368,16 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   React.useEffect(() => {
     setSavedBaseline(null);
   }, [flowId]);
+
+  // FS-0070: quick node picker opened by double-clicking empty canvas.
+  // Holds the clicked flow coordinate (node creation point) plus the
+  // viewport client coordinate (picker placement). Null means closed;
+  // closing never mutates the document. Reset per flow so a stale picker
+  // never creates a node in a different flow.
+  const [quickPicker, setQuickPicker] = React.useState<FlowCanvasEmptyDoubleClick | null>(null);
+  React.useEffect(() => {
+    setQuickPicker(null);
+  }, [flowId]);
   const baseline = savedBaseline ?? queryBaseline;
   const dirtyState = React.useMemo(() => {
     if (!storeDocument || !baseline) {
@@ -578,6 +590,40 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     [addEdge, flowId],
   );
 
+  // FS-0070: open the searchable compact picker at/near the cursor when
+  // empty canvas is double-clicked. No document mutation happens here; the
+  // picker selection below performs the single creation. Double-clicks on
+  // existing nodes never reach this handler (filtered in FlowCanvas).
+  const handleEmptyCanvasDoubleClick = React.useCallback(
+    (event: FlowCanvasEmptyDoubleClick) => {
+      setQuickPicker(event);
+    },
+    [],
+  );
+
+  const handleQuickPickerClose = React.useCallback(() => {
+    setQuickPicker(null);
+  }, []);
+
+  // FS-0070: create one node at the clicked flow coordinate from a picker
+  // selection. The definition comes from the registry-driven picker list,
+  // so no catalog is duplicated here. addNode appends the node plus its
+  // initial layout entry as a single history entry with a fresh authoring
+  // UUID; compiler runtime IDs remain unrelated.
+  const handleQuickPickerSelect = React.useCallback(
+    (definition: FlowNodeDefinition) => {
+      const placement = quickPicker;
+      if (!placement) return;
+      addNode({
+        id: generateFlowNodeId(),
+        definition,
+        position: { x: placement.position.x, y: placement.position.y },
+      });
+      setQuickPicker(null);
+    },
+    [addNode, quickPicker],
+  );
+
   // FS-0050: keyboard undo/redo and delete. Ctrl/Cmd+Z undoes,
   // Ctrl/Cmd+Shift+Z redoes, and Delete/Backspace removes the current
   // selection (nodes plus incident edges plus selected edges) as one
@@ -705,18 +751,29 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
           palette={<NodePalette definitions={paletteDefinitions} />}
           canvas={
             canvasViewWithValidation ? (
-              <FlowCanvas
-                edges={canvasViewWithValidation.edges}
-                nodes={canvasViewWithValidation.nodes}
-                selectedNodeIds={selectedNodeIds}
-                selectedEdgeIds={selectedEdgeIds}
-                nodeTypes={flowNodeTypes}
-                onNodeDragStop={handleCanvasNodeDragStop}
-                onSelectionChange={handleCanvasSelectionChange}
-                onPaletteDrop={handlePaletteDrop}
-                onConnect={handleConnect}
-                isValidConnection={isFlowConnectionValid}
-              />
+              <>
+                <FlowCanvas
+                  edges={canvasViewWithValidation.edges}
+                  nodes={canvasViewWithValidation.nodes}
+                  selectedNodeIds={selectedNodeIds}
+                  selectedEdgeIds={selectedEdgeIds}
+                  nodeTypes={flowNodeTypes}
+                  onNodeDragStop={handleCanvasNodeDragStop}
+                  onSelectionChange={handleCanvasSelectionChange}
+                  onPaletteDrop={handlePaletteDrop}
+                  onConnect={handleConnect}
+                  isValidConnection={isFlowConnectionValid}
+                  onEmptyDoubleClick={handleEmptyCanvasDoubleClick}
+                />
+                {quickPicker ? (
+                  <QuickNodePicker
+                    definitions={paletteDefinitions}
+                    position={quickPicker.screenPosition}
+                    onSelect={handleQuickPickerSelect}
+                    onClose={handleQuickPickerClose}
+                  />
+                ) : null}
+              </>
             ) : (
               <div className="flex h-full items-center justify-center p-6">
                 <p className="text-center text-sm text-muted-foreground">Loading canvas…</p>
@@ -727,7 +784,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, inspectorDiagnostics]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, inspectorDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
