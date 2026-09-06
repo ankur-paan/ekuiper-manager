@@ -13,13 +13,13 @@ import {
   type FlowSpec,
 } from '@/lib/flows/model/flow-document';
 import { FlowStudioShell } from './flow-studio-shell';
-import { FlowStudioHeader } from './shell/flow-studio-header';
+import { FlowStudioHeader, type FlowStudioSaveStatus } from './shell/flow-studio-header';
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection } from './canvas/flow-canvas';
 import { toReactFlow } from './canvas/to-react-flow';
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
-import { useFlowAutosave, type FlowAutosaveSaved } from './hooks/use-flow-autosave';
+import { useFlowAutosave, type FlowAutosaveSaved, type FlowAutosaveStatus } from './hooks/use-flow-autosave';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
 interface FlowSummary {
@@ -103,6 +103,29 @@ function buildDocument(flow: FlowSummary, draft: FlowDraftPayload | null): FlowD
     spec: { nodes: [], edges: [] },
     layout: { nodes: {} },
   };
+}
+
+/**
+ * Map the FS-0047 autosave hook status to the FS-0048 header display.
+ * Covers both semantic and layout-only dirty states because the hook
+ * reports pending/saving for either domain. Never reports deployment
+ * state here; deploy affordances remain disabled until the deployment phase.
+ */
+function resolveFlowSaveDisplay(status: FlowAutosaveStatus): {
+  text: string;
+  status: FlowStudioSaveStatus;
+} {
+  switch (status) {
+    case 'error':
+      return { text: 'Save failed', status: 'error' };
+    case 'saving':
+      return { text: 'Saving…', status: 'saving' };
+    case 'pending':
+      return { text: 'Unsaved changes', status: 'unsaved' };
+    case 'idle':
+    default:
+      return { text: 'Saved', status: 'saved' };
+  }
 }
 
 export function FlowStudioPage({ flowId }: { flowId: string }) {
@@ -196,8 +219,8 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
 
   // FS-0047: debounced draft autosave. Fires only for committed store
   // changes while dirty, PUTs {spec,layout} to the Manager draft API (never
-  // eKuiper), and clears dirty state via handleAutosaved on success. Header
-  // save-state display is intentionally untouched here (FS-0048).
+  // eKuiper), and clears dirty state via handleAutosaved on success. The
+  // autosave status is mapped to header display below (FS-0048).
   const autosave = useFlowAutosave({
     flowId,
     spec: storeDocument?.spec ?? null,
@@ -302,7 +325,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     }
 
     const flow = flowQuery.data;
-    const draft = draftQuery.data ?? null;
+    // FS-0048: header save-state display is derived solely from the autosave
+    // hook status so semantic edits and layout-only moves share the same
+    // Saved / Saving… / Unsaved changes / Save failed states. A failed save
+    // stays visible as "Save failed" and is never shown as Saved.
+    const saveDisplay = resolveFlowSaveDisplay(autosave.status);
 
     return (
       <div
@@ -316,7 +343,8 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
           header={
             <FlowStudioHeader
               flowName={flow.name}
-              saveState={draft ? 'Draft loaded' : 'No saved draft yet'}
+              saveState={saveDisplay.text}
+              saveStatus={saveDisplay.status}
               deployDisabled
             />
           }
