@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   Background,
   ReactFlow,
+  applyEdgeChanges,
   applyNodeChanges,
   type Connection,
   type Edge,
@@ -81,6 +82,20 @@ export interface FlowCanvasProps {
   className?: string;
 }
 
+/**
+ * Order-insensitive id-set equality for selection dedup. ReactFlow may
+ * report the same selection in a different order; treating that as equal
+ * keeps a redundant update from re-triggering itself (no render loop).
+ */
+function sameIdSet(current: readonly string[], next: readonly string[]): boolean {
+  if (current.length !== next.length) return false;
+  const members = new Set(current);
+  for (const id of next) {
+    if (!members.has(id)) return false;
+  }
+  return true;
+}
+
 export function FlowCanvas({
   nodes = [],
   edges = [],
@@ -101,6 +116,7 @@ export function FlowCanvas({
   // The editor store is only notified once per drag stop (FS-0042), so no
   // semantic hash, autosave, or history work runs per pointer event.
   const [viewNodes, setViewNodes] = React.useState<Node[]>(nodes);
+  const [viewEdges, setViewEdges] = React.useState<Edge[]>(edges);
 
   // Adopt committed document positions (flow load or drag-stop commit).
   // The prop reference only changes when the parent derives a new view
@@ -108,13 +124,86 @@ export function FlowCanvas({
   React.useEffect(() => {
     setViewNodes(nodes);
   }, [nodes]);
+  React.useEffect(() => {
+    setViewEdges(edges);
+  }, [edges]);
 
+  // Latest committed selection (store-driven props) plus optimistic
+  // updates emitted from click-driven changes below. The ref is updated
+  // synchronously on emit so a node-select and an edge-select arriving in
+  // the same tick each see the other's update instead of clobbering it
+  // with a stale prop closure. Prop sync happens in an effect (after
+  // render), never between the two synchronous emits.
+  const selectionRef = React.useRef<{ nodeIds: string[]; edgeIds: string[] }>({
+    nodeIds: [...(selectedNodeIds ?? [])],
+    edgeIds: [...(selectedEdgeIds ?? [])],
+  });
+  React.useEffect(() => {
+    selectionRef.current = {
+      nodeIds: [...(selectedNodeIds ?? [])],
+      edgeIds: [...(selectedEdgeIds ?? [])],
+    };
+  }, [selectedNodeIds, selectedEdgeIds]);
+
+  // Single deduped emit path. A redundant update (same id sets, possibly in
+  // a different order) never reaches the parent, so the controlled
+  // displayNodes/displayEdges props cannot fight the store in a loop.
+  const emitSelection = React.useCallback(
+    (nodeIds: string[], edgeIds: string[]) => {
+      const previous = selectionRef.current;
+      if (
+        sameIdSet(previous.nodeIds, nodeIds) &&
+        sameIdSet(previous.edgeIds, edgeIds)
+      ) {
+        return;
+      }
+      selectionRef.current = { nodeIds: [...nodeIds], edgeIds: [...edgeIds] };
+      onSelectionChange?.({ nodeIds: [...nodeIds], edgeIds: [...edgeIds] });
+    },
+    [onSelectionChange],
+  );
+
+  const displayNodesRef = React.useRef<Node[]>([]);
+  const displayEdgesRef = React.useRef<Edge[]>([]);
+
+  // Close the selection round trip (P1): ReactFlow is fully controlled by
+  // displayNodes/displayEdges below (selected is force-overwritten from the
+  // store on every render), so a click-driven 'select' change applied only
+  // to view state would be immediately clobbered back to false and
+  // onSelectionChange would never report the node. Forwarding the applied
+  // selection here lets the store latch it; the next render then reflects
+  // it via displayNodes. Only 'select' changes emit; position/drag updates
+  // stay local until onNodeDragStop. Chosen over leaving ReactFlow
+  // uncontrolled because the store must stay the source of truth for
+  // undo/redo/delete-driven selection (FS-0045 intent kept).
   const handleNodesChange = React.useCallback(
     (changes: NodeChange[]) => {
-      setViewNodes((current) => applyNodeChanges(changes, current));
+      const nextNodes = applyNodeChanges(changes, displayNodesRef.current);
+      setViewNodes(nextNodes);
+      if (changes.some((change) => change.type === 'select')) {
+        emitSelection(
+          nextNodes.filter((node) => node.selected).map((node) => node.id),
+          selectionRef.current.edgeIds,
+        );
+      }
       onNodesChange?.(changes);
     },
-    [onNodesChange],
+    [emitSelection, onNodesChange],
+  );
+
+  const handleEdgesChange = React.useCallback(
+    (changes: EdgeChange[]) => {
+      const nextEdges = applyEdgeChanges(changes, displayEdgesRef.current);
+      setViewEdges(nextEdges);
+      if (changes.some((change) => change.type === 'select')) {
+        emitSelection(
+          selectionRef.current.nodeIds,
+          nextEdges.filter((edge) => edge.selected).map((edge) => edge.id),
+        );
+      }
+      onEdgesChange?.(changes);
+    },
+    [emitSelection, onEdgesChange],
   );
 
   const handleNodeDragStop: OnNodeDrag = React.useCallback(
@@ -134,14 +223,16 @@ export function FlowCanvas({
   // Selection lives outside the FlowDocument: XYFlow reports selection
   // changes and the caller mirrors them into ephemeral editor state (FS-0045).
   // Blank-canvas clicks arrive here as empty arrays, clearing the selection.
+  // Routed through the deduped emit so the post-round-trip echo of our own
+  // handleNodesChange/handleEdgesChange forward does not re-trigger the parent.
   const handleSelectionChange: OnSelectionChangeFunc = React.useCallback(
     ({ nodes: selectedNodes, edges: selectedEdges }) => {
-      onSelectionChange?.({
-        nodeIds: selectedNodes.map((selectedNode) => selectedNode.id),
-        edgeIds: selectedEdges.map((selectedEdge) => selectedEdge.id),
-      });
+      emitSelection(
+        selectedNodes.map((selectedNode) => selectedNode.id),
+        selectedEdges.map((selectedEdge) => selectedEdge.id),
+      );
     },
-    [onSelectionChange],
+    [emitSelection],
   );
 
   // XYFlow instance for external palette drops (FS-0066). Screen/client
@@ -253,13 +344,16 @@ export function FlowCanvas({
   const displayEdges = React.useMemo(
     () =>
       selectedEdgeSet
-        ? edges.map((edge) => ({
-            ...edge,
-            selected: selectedEdgeSet.has(edge.id),
+        ? viewEdges.map((viewEdge) => ({
+            ...viewEdge,
+            selected: selectedEdgeSet.has(viewEdge.id),
           }))
-        : edges,
-    [edges, selectedEdgeSet],
+        : viewEdges,
+    [viewEdges, selectedEdgeSet],
   );
+
+  displayNodesRef.current = displayNodes;
+  displayEdgesRef.current = displayEdges;
 
   return (
     <div
@@ -274,7 +368,7 @@ export function FlowCanvas({
         nodeTypes={nodeTypes}
         onInit={handleInit}
         onNodesChange={handleNodesChange}
-        onEdgesChange={onEdgesChange}
+        onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         isValidConnection={isValidConnection}
         onNodeDragStop={handleNodeDragStop}
