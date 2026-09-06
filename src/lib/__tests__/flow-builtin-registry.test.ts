@@ -21,7 +21,7 @@ function buildDefinition(
 }
 
 describe('createBuiltinNodeRegistry', () => {
-  it('lists the memory, MQTT, REST, log, filter, and pick definitions', () => {
+  it('lists the memory, MQTT, REST, log, filter, pick, and func definitions', () => {
     const registry = createBuiltinNodeRegistry();
 
     expect(registry.has('memory-source', 1)).toBe(true);
@@ -32,8 +32,10 @@ describe('createBuiltinNodeRegistry', () => {
     expect(registry.has('log-sink', 1)).toBe(true);
     expect(registry.has('filter', 1)).toBe(true);
     expect(registry.has('pick', 1)).toBe(true);
+    expect(registry.has('func', 1)).toBe(true);
     expect(registry.list().map((item) => `${item.type}@${item.version}`).sort()).toEqual([
       'filter@1',
+      'func@1',
       'log-sink@1',
       'memory-sink@1',
       'memory-source@1',
@@ -243,19 +245,82 @@ describe('createBuiltinNodeRegistry', () => {
     expect(first.get('pick', 1)).toEqual(second.get('pick', 1));
   });
 
+  it('registers the func transform with stream in/out and a required expression', () => {
+    const registry = createBuiltinNodeRegistry();
+    const func = registry.get('func', 1);
+
+    expect(func?.displayName).toBe('Function');
+    expect(func?.category).toBe('transform');
+    expect(func?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(func?.outputs).toEqual([{ id: 'out', label: 'Stream', kind: 'stream' }]);
+
+    const expression = func?.properties.find((property) => property.key === 'expression');
+    expect(expression?.required).toBe(true);
+    expect(expression?.type).toBe('expression');
+
+    expect(func?.runtimeKind).toBeUndefined();
+    expect(func?.operation).toBeUndefined();
+  });
+
+  it('validates the required func expression via the generic property validator', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const missing = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-func-1',
+          type: 'func',
+          typeVersion: 1,
+          name: 'Function',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingDiagnostics = validateFlowRequiredProperties(missing, registry).filter(
+      (item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(missingDiagnostics).toHaveLength(1);
+    expect(missingDiagnostics[0]?.nodeId).toBe('node-func-1');
+    expect(missingDiagnostics[0]?.propertyPath).toBe('config.expression');
+
+    const present = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-func-1',
+          type: 'func',
+          typeVersion: 1,
+          name: 'Function',
+          config: { expression: 'concat(firstname, lastname)' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
+  });
+
+  it('registers the func definition deterministically', () => {
+    const first = createBuiltinNodeRegistry();
+    const second = createBuiltinNodeRegistry();
+
+    expect(first.get('func', 1)).toEqual(second.get('func', 1));
+  });
+
   it('returns an isolated registry on each call', () => {
     const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
 
     expect(first).not.toBe(second);
-    expect(first.list()).toHaveLength(8);
-    expect(second.list()).toHaveLength(8);
+    expect(first.list()).toHaveLength(9);
+    expect(second.list()).toHaveLength(9);
 
     first.register(buildDefinition({ type: 'test-custom', version: 1 }));
 
     expect(first.has('test-custom', 1)).toBe(true);
-    expect(first.list()).toHaveLength(9);
-    expect(second.list()).toHaveLength(8);
+    expect(first.list()).toHaveLength(10);
+    expect(second.list()).toHaveLength(9);
     expect(second.has('test-custom', 1)).toBe(false);
     expect(second.get('test-custom', 1)).toBeUndefined();
   });
