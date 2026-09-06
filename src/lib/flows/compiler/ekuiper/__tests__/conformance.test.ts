@@ -1,8 +1,8 @@
 import { createBuiltinNodeRegistry } from '../../../registry/builtin-registry';
 import { compileFlowToEkuiperGraph } from '../compile-graph';
 import {
+  assertEngineReachable,
   getConformanceUrl,
-  isEngineReachable,
   listConformanceCases,
   postRuleForValidation,
   readValidFlag,
@@ -17,12 +17,19 @@ import {
  * `valid: true` per the audited `public/ekuiper-openapi.json`
  * (eKuiper 2.4.1) contract.
  *
- * The engine base URL comes from `EKUIPER_CONFORMANCE_URL`. When it is
- * unset — or the engine is unreachable — the suite skips/passes without
- * asserting so environments without an engine (including the CI quality
- * job) never fail. This file changes no compiler or registry code: node
- * types that fail official validation fail here by name so a later
- * ticket can fix the mapping.
+ * The engine base URL comes from `EKUIPER_CONFORMANCE_URL`.
+ *
+ * - When it is unset or blank the suite is not applicable and is skipped
+ *   via `describe.skip`, so environments without an engine (including the
+ *   CI quality job) report SKIPPED, never passed.
+ * - When it is set, reachability is asserted: an unreachable engine (or a
+ *   validation request that cannot be completed) fails loudly, naming the
+ *   URL and the underlying error. A configured run must never pass while
+ *   asserting nothing.
+ *
+ * This file changes no compiler or registry code: node types that fail
+ * official validation fail here by name so a later ticket can fix the
+ * mapping.
  */
 
 const conformanceUrl = getConformanceUrl();
@@ -35,25 +42,15 @@ const suiteLabel =
     : 'eKuiper live-engine node conformance';
 
 describeConformance(suiteLabel, () => {
-  let engineReachable = false;
-
   beforeAll(async () => {
-    engineReachable = await isEngineReachable(engineBaseUrl);
-    if (!engineReachable) {
-      console.warn(
-        `[conformance] eKuiper engine at "${engineBaseUrl}" is unreachable; ` +
-          'conformance assertions will pass without contacting the engine.',
-      );
-    }
+    await assertEngineReachable(engineBaseUrl);
+    const caseCount = listConformanceCases().length;
+    console.log(
+      `[conformance] validating ${caseCount} node types against "${engineBaseUrl}".`,
+    );
   }, 15000);
 
   it('covers every built-in node type currently in the registry', () => {
-    if (!engineReachable) {
-      console.warn(
-        '[conformance] skipping registry-coverage check: engine unreachable.',
-      );
-      return;
-    }
     const registered = createBuiltinNodeRegistry()
       .list()
       .map((definition) => definition.type)
@@ -68,12 +65,6 @@ describeConformance(suiteLabel, () => {
     it(
       `official validation accepts the ${entry.nodeType} flow (valid: true)`,
       async () => {
-        if (!engineReachable) {
-          console.warn(
-            `[conformance] skipping ${entry.nodeType}: engine unreachable.`,
-          );
-          return;
-        }
         const document = entry.buildDocument();
         const compiled = compileFlowToEkuiperGraph(document);
         if (!compiled.ok) {
@@ -91,7 +82,7 @@ describeConformance(suiteLabel, () => {
           !readValidFlag(outcome.parsed)
         ) {
           throw new Error(
-            `[conformance] ${entry.nodeType} rejected by official validation: ` +
+            `[conformance] ${entry.nodeType} rejected by official validation at "${engineBaseUrl}": ` +
               `HTTP ${outcome.httpStatus} body ${outcome.bodyText.slice(0, 2000)}`,
           );
         }

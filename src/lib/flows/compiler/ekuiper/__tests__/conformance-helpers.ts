@@ -389,12 +389,22 @@ export async function postRuleForValidation(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`${baseUrl}/rules/validate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: artifact.ruleId, ...artifact.ruleDefinition }),
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/rules/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: artifact.ruleId, ...artifact.ruleDefinition }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      throw new Error(
+        `[conformance] validation request to "${baseUrl}/rules/validate" failed: ${detail}. ` +
+          `The engine at "${baseUrl}" is unreachable or timed out.`,
+      );
+    }
     const bodyText = await response.text();
     let parsed: unknown = bodyText;
     try {
@@ -417,15 +427,15 @@ export function readValidFlag(parsed: unknown): boolean {
 }
 
 /**
- * Side-effect-free reachability probe. Any HTTP response (even an error
+ * Fail when the engine cannot be reached. Any HTTP response (even an error
  * status) proves the engine is there; only a network failure or timeout
- * reports unreachable so the suite passes without asserting instead of
- * failing in environments without an engine.
+ * throws, naming the base URL and the underlying error so a run against a
+ * configured-but-dead engine fails instead of silently passing.
  */
-export async function isEngineReachable(
+export async function assertEngineReachable(
   baseUrl: string,
   timeoutMs = 5000,
-): Promise<boolean> {
+): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -433,10 +443,32 @@ export async function isEngineReachable(
       method: 'GET',
       signal: controller.signal,
     });
+  } catch (error) {
+    const detail =
+      error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    throw new Error(
+      `[conformance] eKuiper engine at "${baseUrl}" is unreachable: ${detail}. ` +
+        `Set EKUIPER_CONFORMANCE_URL to a reachable engine URL or unset it to skip conformance.`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Side-effect-free reachability probe. Any HTTP response (even an error
+ * status) proves the engine is there; only a network failure or timeout
+ * reports unreachable. Prefer `assertEngineReachable` in the conformance
+ * suite so a configured-but-dead engine fails loudly instead of passing.
+ */
+export async function isEngineReachable(
+  baseUrl: string,
+  timeoutMs = 5000,
+): Promise<boolean> {
+  try {
+    await assertEngineReachable(baseUrl, timeoutMs);
     return true;
   } catch {
     return false;
-  } finally {
-    clearTimeout(timer);
   }
 }
