@@ -7,13 +7,20 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { FlowPropertyDefinition } from "@/lib/flows/registry/node-definition";
+import type { FlowOptionItem, FlowPropertyDefinition } from "@/lib/flows/registry/node-definition";
+import { mergeFlowPropertyOptions } from "@/lib/flows/registry/node-definition";
 
 export interface PropertyFieldProps {
   definition: FlowPropertyDefinition;
   value: unknown;
   onChange: (next: unknown) => void;
   className?: string;
+  /**
+   * FS-0147: optional registered eKuiper node id used when a select
+   * property declares `optionsProvider`. Carried as a query id only,
+   * never a URL. When omitted the server uses the selected/default node.
+   */
+  optionsTargetNodeId?: string;
 }
 
 /**
@@ -31,8 +38,12 @@ export interface PropertyFieldProps {
  * string as a textarea, `password` masks a string input (display only;
  * storage semantics unchanged), and `placeholder`/`min`/`max`/`step`
  * are passed through to the underlying control.
+ *
+ * FS-0147: a `select` property may declare `optionsProvider` (a named
+ * provider id, never a URL). The select then merges its static `options`
+ * with the live names/ids served by `GET /api/flows/options/[provider]`.
  */
-export function PropertyField({ definition, value, onChange, className }: PropertyFieldProps) {
+export function PropertyField({ definition, value, onChange, className, optionsTargetNodeId }: PropertyFieldProps) {
   const fieldId = React.useId();
   const descriptionId = definition.description ? `${fieldId}-description` : undefined;
 
@@ -79,6 +90,7 @@ export function PropertyField({ definition, value, onChange, className }: Proper
               onChange={onChange}
               fieldId={fieldId}
               descriptionId={descriptionId}
+              targetNodeId={optionsTargetNodeId}
             />
           ) : definition.type === "json" ? (
             <JsonField
@@ -263,18 +275,76 @@ function SelectField({
   onChange,
   fieldId,
   descriptionId,
+  targetNodeId,
 }: {
   definition: FlowPropertyDefinition;
   value: unknown;
   onChange: (next: unknown) => void;
   fieldId: string;
   descriptionId: string | undefined;
+  targetNodeId?: string;
 }) {
-  const options = Array.isArray(definition.options) ? definition.options : [];
+  // FS-0147: a named provider id (never a URL) whose live options are
+  // merged with the static options below. The provider id comes from the
+  // registry-authored definition and is path-encoded; the server resolves
+  // it against a fixed allowlist and rejects anything unknown.
+  const provider =
+    typeof definition.optionsProvider === "string" && definition.optionsProvider.length > 0
+      ? definition.optionsProvider
+      : null;
+  const [providerOptions, setProviderOptions] = React.useState<FlowOptionItem[] | null>(null);
+  const [providerFailed, setProviderFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    if (provider === null) {
+      setProviderOptions(null);
+      setProviderFailed(false);
+      return;
+    }
+    let cancelled = false;
+    setProviderOptions(null);
+    setProviderFailed(false);
+    const trimmedTarget = typeof targetNodeId === "string" ? targetNodeId.trim() : "";
+    const url =
+      trimmedTarget.length > 0
+        ? `/api/flows/options/${encodeURIComponent(provider)}?targetNodeId=${encodeURIComponent(trimmedTarget)}`
+        : `/api/flows/options/${encodeURIComponent(provider)}`;
+    fetch(url, { headers: { Accept: "application/json" } })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const payload: unknown = await response.json().catch(() => null);
+        if (cancelled) {
+          return;
+        }
+        setProviderOptions(readFlowOptionItems(payload));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProviderFailed(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [provider, targetNodeId]);
+
+  // Static options stay available while the provider loads (and when it
+  // fails); provider rows that duplicate a static value are skipped.
+  const options = React.useMemo(
+    () =>
+      mergeFlowPropertyOptions(
+        Array.isArray(definition.options) ? definition.options : [],
+        providerOptions ?? [],
+      ),
+    [definition.options, providerOptions],
+  );
   // Match by strict option value so false/0 select the correct option.
   const matched = options.find((option) => Object.is(option.value, value));
   const domValue = matched ? String(matched.value) : value === undefined || value === null ? "" : String(value);
   const showUnmatchedNote = matched === undefined && domValue !== "";
+  const showLoadingNote = provider !== null && providerOptions === null && !providerFailed;
 
   return (
     <React.Fragment>
@@ -304,11 +374,53 @@ function SelectField({
           </option>
         ))}
       </select>
+      {showLoadingNote ? (
+        <p className="text-xs text-muted-foreground">Loading options…</p>
+      ) : null}
+      {providerFailed ? (
+        <p className="text-xs text-muted-foreground">
+          Live options could not be loaded. Saved value is preserved.
+        </p>
+      ) : null}
       {showUnmatchedNote ? (
         <p className="text-xs text-muted-foreground">Saved value is preserved but is not a known option.</p>
       ) : null}
     </React.Fragment>
   );
+}
+
+/**
+ * Read `{ options: [{ label, value }] }` rows from a provider response.
+ *
+ * Client-side mirror of the server's names/ids-only contract: only rows
+ * with non-empty string label/value survive; anything else is dropped so
+ * a malformed payload can never corrupt the select or the saved config.
+ */
+function readFlowOptionItems(payload: unknown): FlowOptionItem[] {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return [];
+  }
+  const raw = (payload as Record<string, unknown>).options;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const items: FlowOptionItem[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    if (
+      typeof record.label !== "string" ||
+      typeof record.value !== "string" ||
+      record.label.length === 0 ||
+      record.value.length === 0
+    ) {
+      continue;
+    }
+    items.push({ label: record.label, value: record.value });
+  }
+  return items;
 }
 
 function toJsonText(value: unknown): string {
