@@ -426,7 +426,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               </div>
             )
           }
-          inspector={<NodeInspector selectedNodeId={null} />}
+          inspector={<NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} />}
         />
       </div>
     );
