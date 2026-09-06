@@ -3,9 +3,12 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+export type FlowStudioSaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
+
 export interface FlowStudioHeaderProps {
   flowName: string;
   saveState: string;
+  saveStatus?: FlowStudioSaveStatus;
   targetName?: string;
   deployDisabled: boolean;
   onDeploy?: () => void;
@@ -15,6 +18,7 @@ export interface FlowStudioHeaderProps {
 export function FlowStudioHeader({
   flowName,
   saveState,
+  saveStatus,
   targetName,
   deployDisabled,
   onDeploy,
@@ -34,7 +38,12 @@ export function FlowStudioHeader({
         </h1>
         <p
           aria-live="polite"
-          className="truncate text-xs text-muted-foreground"
+          data-save-status={saveStatus}
+          title={saveState}
+          className={cn(
+            'truncate text-xs',
+            saveStatus === 'error' ? 'font-medium text-destructive' : 'text-muted-foreground',
+          )}
         >
           {saveState}
         </p>
