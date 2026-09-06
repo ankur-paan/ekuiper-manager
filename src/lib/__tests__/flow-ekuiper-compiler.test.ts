@@ -1579,12 +1579,13 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
   const MQTT_SINK_FLOW_ID = 'node-mqtt-sink-1';
   const MQTT_TOPIC_IN = 'devices/mqtt-in';
   const MQTT_TOPIC_OUT = 'devices/mqtt-out';
-  const MQTT_CONNECTION = 'conn-shared-1';
+  const MQTT_CONF_KEY = 'test-mqtt-confkey';
+  const MQTT_SERVER = 'tcp://test.mosquitto.org:1883';
 
   function buildMqttSourceFlow(
     sourceConfig: Record<string, unknown> = {
       topic: MQTT_TOPIC_IN,
-      connectionSelector: MQTT_CONNECTION,
+      confKey: MQTT_CONF_KEY,
     },
   ): FlowDocument {
     return {
@@ -1630,7 +1631,7 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
   function buildMqttSinkFlow(
     sinkConfig: Record<string, unknown> = {
       topic: MQTT_TOPIC_OUT,
-      connectionSelector: MQTT_CONNECTION,
+      server: MQTT_SERVER,
     },
   ): FlowDocument {
     return {
@@ -1673,7 +1674,7 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
     };
   }
 
-  it('produces the exact expected mqtt source nodeType/props with datasource and shared connection', () => {
+  it('produces the exact expected mqtt source nodeType/props with datasource and confKey', () => {
     const result = compileFlowToEkuiperGraph(buildMqttSourceFlow());
 
     expect(result.ok).toBe(true);
@@ -1690,7 +1691,7 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
             nodeType: 'mqtt',
             props: {
               datasource: MQTT_TOPIC_IN,
-              connectionSelector: MQTT_CONNECTION,
+              confKey: MQTT_CONF_KEY,
             },
           },
           [sinkRuntimeId]: {
@@ -1714,9 +1715,31 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
     expect(result.diagnostics).toEqual([]);
   });
 
-  it('compiles an mqtt source without a shared connection to datasource-only props without fabricating a server', () => {
+  it('never emits server or connectionSelector on mqtt sources', () => {
+    const result = compileFlowToEkuiperGraph(buildMqttSourceFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sourceRuntimeId = createRuntimeId('source', MQTT_SOURCE_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+    const props = graph.nodes[sourceRuntimeId]?.props ?? {};
+
+    expect('server' in props).toBe(false);
+    expect('connectionSelector' in props).toBe(false);
+    expect(props).toEqual({
+      datasource: MQTT_TOPIC_IN,
+      confKey: MQTT_CONF_KEY,
+    });
+  });
+
+  it('maps a legacy connectionSelector source binding to confKey without emitting it', () => {
     const result = compileFlowToEkuiperGraph(
-      buildMqttSourceFlow({ topic: MQTT_TOPIC_IN }),
+      buildMqttSourceFlow({
+        topic: MQTT_TOPIC_IN,
+        connectionSelector: 'conn-shared-1',
+      }),
     );
 
     expect(result.ok).toBe(true);
@@ -1725,13 +1748,33 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
     const graph = result.artifact.ruleDefinition.graph as {
       nodes: Record<string, { props: Record<string, unknown> }>;
     };
+    const props = graph.nodes[sourceRuntimeId]?.props ?? {};
 
-    expect(graph.nodes[sourceRuntimeId]?.props).toEqual({
+    expect(props).toEqual({
       datasource: MQTT_TOPIC_IN,
+      confKey: 'conn-shared-1',
     });
+    expect('server' in props).toBe(false);
+    expect('connectionSelector' in props).toBe(false);
   });
 
-  it('produces the exact expected mqtt sink nodeType/props with topic and shared connection', () => {
+  it('fails with a structured diagnostic when the mqtt source confKey is missing instead of silently omitting it', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSourceFlow({ topic: MQTT_TOPIC_IN }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SOURCE_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('confKey');
+  });
+
+  it('produces the exact expected mqtt sink nodeType/props with topic and server', () => {
     const result = compileFlowToEkuiperGraph(buildMqttSinkFlow());
 
     expect(result.ok).toBe(true);
@@ -1753,7 +1796,7 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
             nodeType: 'mqtt',
             props: {
               topic: MQTT_TOPIC_OUT,
-              connectionSelector: MQTT_CONNECTION,
+              server: MQTT_SERVER,
             },
           },
         },
@@ -1770,6 +1813,24 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
       [MQTT_SINK_FLOW_ID]: sinkRuntimeId,
     });
     expect(result.diagnostics).toEqual([]);
+  });
+
+  it('never emits connectionSelector on mqtt sinks', () => {
+    const result = compileFlowToEkuiperGraph(buildMqttSinkFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sinkRuntimeId = createRuntimeId('sink', MQTT_SINK_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+    const props = graph.nodes[sinkRuntimeId]?.props ?? {};
+
+    expect('connectionSelector' in props).toBe(false);
+    expect(props).toEqual({
+      topic: MQTT_TOPIC_OUT,
+      server: MQTT_SERVER,
+    });
   });
 
   it('emits no secret fields in mqtt props', () => {
@@ -1838,7 +1899,62 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
     expect(result.diagnostics[0]?.propertyPath).toBe('topic');
   });
 
-  it('fails with a structured diagnostic for a malformed shared-connection binding instead of deploying against an unintended broker', () => {
+  it('maps a legacy connectionSelector sink binding to server without emitting it', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSinkFlow({
+        topic: MQTT_TOPIC_OUT,
+        connectionSelector: 'conn-shared-1',
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sinkRuntimeId = createRuntimeId('sink', MQTT_SINK_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+    const props = graph.nodes[sinkRuntimeId]?.props ?? {};
+
+    expect(props).toEqual({
+      topic: MQTT_TOPIC_OUT,
+      server: 'conn-shared-1',
+    });
+    expect('connectionSelector' in props).toBe(false);
+  });
+
+  it('fails with a structured diagnostic when the mqtt sink server is missing instead of silently omitting it', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSinkFlow({ topic: MQTT_TOPIC_OUT }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SINK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('server');
+  });
+
+  it('fails with a structured diagnostic for a malformed broker reference instead of deploying against an unintended broker', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSinkFlow({ topic: MQTT_TOPIC_OUT, server: 42 }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SINK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('server');
+  });
+
+  it('fails with a structured diagnostic for a malformed legacy shared-connection binding', () => {
     const result = compileFlowToEkuiperGraph(
       buildMqttSinkFlow({ topic: MQTT_TOPIC_OUT, connectionSelector: 42 }),
     );
@@ -1851,7 +1967,7 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
       'FLOW_REQUIRED_PROPERTY_MISSING',
     );
     expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SINK_FLOW_ID);
-    expect(result.diagnostics[0]?.propertyPath).toBe('connectionSelector');
+    expect(result.diagnostics[0]?.propertyPath).toBe('server');
   });
 });
 
