@@ -18,6 +18,7 @@ import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection } from './canvas/flow-canvas';
 import { toReactFlow } from './canvas/to-react-flow';
+import { buildFlowDirtyBaseline, computeFlowDirtyState } from '@/lib/flows/model/flow-dirty-state';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
 interface FlowSummary {
@@ -31,6 +32,8 @@ interface FlowDraftPayload {
   flowId: string;
   semanticDocument: FlowSpec;
   layoutDocument: FlowLayout;
+  semanticHash: string;
+  layoutHash: string;
 }
 
 class FlowPageError extends Error {
@@ -150,6 +153,33 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     [canvasSource],
   );
 
+  // FS-0046: compare current editor canonical snapshots against the last
+  // server draft documents, each domain independently and never by object
+  // identity. The baseline is built client-side from the loaded draft
+  // documents with the pure canonical serializer, so no `node:crypto`
+  // import reaches this browser component; server sha256 hashes stay
+  // server-side only. Computed from committed store state only, so
+  // high-frequency drag pointer events never recompute snapshots (drag
+  // commits land once per drag stop via FS-0042). The FS-0047 autosave
+  // hook consumes this; the data attributes below expose it for
+  // instrumentation without changing save-state display (FS-0048 owns
+  // that mapping).
+  const draftBaseline = React.useMemo(() => {
+    const draft = draftQuery.data ?? null;
+    if (!draft) return null;
+    return buildFlowDirtyBaseline(draft.semanticDocument, draft.layoutDocument);
+  }, [draftQuery.data]);
+  const dirtyState = React.useMemo(() => {
+    if (!storeDocument || !draftBaseline) {
+      return { semanticDirty: false, layoutDirty: false };
+    }
+    return computeFlowDirtyState(
+      storeDocument.spec,
+      storeDocument.layout,
+      draftBaseline,
+    );
+  }, [storeDocument, draftBaseline]);
+
   // Commit one layout-only move per drag stop. High-frequency drag updates
   // stay inside FlowCanvas view state; no draft PUT happens here (FS-0047).
   const handleCanvasNodeDragStop = React.useCallback(
@@ -245,7 +275,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     const draft = draftQuery.data ?? null;
 
     return (
-      <div className="h-[calc(100vh-10rem)] min-h-[480px]">
+      <div
+        className="h-[calc(100vh-10rem)] min-h-[480px]"
+        data-semantic-dirty={dirtyState.semanticDirty ? 'true' : 'false'}
+        data-layout-dirty={dirtyState.layoutDirty ? 'true' : 'false'}
+      >
         <FlowStudioShell
           header={
             <FlowStudioHeader
@@ -276,7 +310,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasView, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange]);
+  }, [flowQuery, draftQuery, canvasView, dirtyState, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
