@@ -43,6 +43,13 @@ export interface FlowNodeData extends Record<string, unknown> {
   inputs?: FlowPortDefinition[];
   outputs?: FlowPortDefinition[];
   definition?: FlowNodeDefinitionSummary;
+  /**
+   * FS-0068: node-scoped validation counts computed by the page from
+   * existing client validators. Counts/status only; detailed messages
+   * live in the inspector. Never persisted into the Flow document.
+   */
+  validationErrorCount?: number;
+  validationWarningCount?: number;
 }
 
 export type FlowNodeProps = NodeProps<Node<FlowNodeData>>;
@@ -73,6 +80,18 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
     data.definition?.displayName ??
     (typeof data.displayName === "string" ? data.displayName : undefined);
   const showSubtitle = subtitle !== undefined && subtitle !== title;
+  // FS-0068: badge chrome only. Counts arrive via node data; messages stay
+  // in the inspector. Non-color cues: numeric count plus accessible label.
+  const validationErrorCount =
+    typeof data.validationErrorCount === "number" && Number.isFinite(data.validationErrorCount) && data.validationErrorCount > 0
+      ? Math.floor(data.validationErrorCount)
+      : 0;
+  const validationWarningCount =
+    typeof data.validationWarningCount === "number" && Number.isFinite(data.validationWarningCount) && data.validationWarningCount > 0
+      ? Math.floor(data.validationWarningCount)
+      : 0;
+  const hasValidationError = validationErrorCount > 0;
+  const hasValidationWarning = !hasValidationError && validationWarningCount > 0;
 
   return (
     <div
@@ -134,6 +153,27 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
         <span className="min-w-0 flex-1 truncate text-sm font-medium" data-testid="flow-node-title" title={title}>
           {title}
         </span>
+        {hasValidationError ? (
+          <span
+            aria-label={`${validationErrorCount} validation error${validationErrorCount === 1 ? "" : "s"}`}
+            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border border-destructive bg-destructive px-1 text-[11px] font-bold leading-none text-destructive-foreground"
+            data-testid="flow-node-validation-badge"
+            data-validation="error"
+            title={`${validationErrorCount} validation error${validationErrorCount === 1 ? "" : "s"}. See inspector for details.`}
+          >
+            {validationErrorCount}
+          </span>
+        ) : hasValidationWarning ? (
+          <span
+            aria-label={`${validationWarningCount} validation warning${validationWarningCount === 1 ? "" : "s"}`}
+            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border border-yellow-500 bg-yellow-400 px-1 text-[11px] font-bold leading-none text-yellow-950"
+            data-testid="flow-node-validation-badge"
+            data-validation="warning"
+            title={`${validationWarningCount} validation warning${validationWarningCount === 1 ? "" : "s"}. See inspector for details.`}
+          >
+            {validationWarningCount}
+          </span>
+        ) : null}
       </div>
 
       {showSubtitle === true ? (

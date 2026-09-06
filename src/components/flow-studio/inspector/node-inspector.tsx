@@ -3,12 +3,19 @@
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import type { FlowDiagnostic } from "@/lib/flows/model/diagnostic";
 import { createBuiltinNodeRegistry } from "@/lib/flows/registry/builtin-registry";
 import { useFlowEditorStore } from "@/stores/flow-editor-store";
 import { PropertyField } from "./property-field";
 
 export interface NodeInspectorProps {
   selectedNodeId?: string | null;
+  /**
+   * FS-0068: pre-filtered diagnostics for the selected node, computed by
+   * the page from existing client validators. Detailed messages render
+   * here; the node chrome receives only counts. Never persisted.
+   */
+  diagnostics?: FlowDiagnostic[];
   children?: React.ReactNode;
   className?: string;
 }
@@ -23,6 +30,7 @@ const builtinRegistry = createBuiltinNodeRegistry();
 
 export function NodeInspector({
   selectedNodeId,
+  diagnostics,
   children,
   className,
 }: NodeInspectorProps) {
@@ -69,6 +77,10 @@ export function NodeInspector({
       </div>
     );
   } else {
+    // FS-0068: inspector owns detailed validation messages. The page
+    // passes pre-filtered node-scoped diagnostics; default to none so
+    // standalone usage without the page stays non-destructive.
+    const nodeDiagnostics = diagnostics ?? [];
     body = (
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
@@ -80,6 +92,26 @@ export function NodeInspector({
             <p className="text-xs text-muted-foreground">{definition.description}</p>
           ) : null}
         </div>
+        {nodeDiagnostics.length > 0 ? (
+          <div className="flex flex-col gap-2" data-testid="node-inspector-diagnostics">
+            <p className="text-xs font-semibold">Validation</p>
+            <ul className="flex flex-col gap-1.5">
+              {nodeDiagnostics.map((diagnostic) => (
+                <li
+                  key={`${diagnostic.code}|${diagnostic.nodeId ?? ""}|${diagnostic.edgeId ?? ""}|${diagnostic.propertyPath ?? ""}|${diagnostic.message}`}
+                  className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+                  data-testid="node-inspector-diagnostic"
+                  data-severity={diagnostic.severity}
+                  role={diagnostic.severity === "error" ? "alert" : "status"}
+                >
+                  <span className="font-medium">{diagnostic.code}</span>
+                  {": "}
+                  {diagnostic.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {definition.properties.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             This node has no configurable properties.
