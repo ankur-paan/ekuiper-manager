@@ -96,6 +96,11 @@ export async function PUT(
       layoutDocument: layout,
       updatedBy: actor.id,
     });
+    // FS-0030: draft autosave PUTs are intentionally not audited. This
+    // endpoint fires on every editor autosave (high frequency), so one audit
+    // row per save would flood audit_events, unlike the discrete flow
+    // create/update actions audited in the sibling flow routes. Draft
+    // content itself must never enter audit metadata unredacted.
     return NextResponse.json({ draft });
   } catch (error) {
     return apiErrorResponse(error);
