@@ -26,6 +26,8 @@ export const windowDefinition: FlowNodeDefinition = {
   displayName: 'Window',
   description: 'Group events into fixed tumbling windows.',
   category: 'streaming',
+  icon: 'window',
+  accent: 'streaming',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [{ id: 'out', label: 'Collection', kind: 'collection' }],
   properties: [

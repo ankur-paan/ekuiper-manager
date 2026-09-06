@@ -23,6 +23,9 @@ export const restSinkDefinition: FlowNodeDefinition = {
   displayName: 'REST Sink',
   description: 'Send results to an HTTP endpoint.',
   category: 'sink',
+  icon: 'rest',
+  accent: 'sink',
+  subtitleKey: 'url',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [],
   properties: [
@@ -87,6 +90,8 @@ export const logSinkDefinition: FlowNodeDefinition = {
   displayName: 'Log Sink',
   description: 'Write result rows to the eKuiper log.',
   category: 'sink',
+  icon: 'log',
+  accent: 'sink',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [],
   properties: [],

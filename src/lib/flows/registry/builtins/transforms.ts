@@ -21,6 +21,9 @@ export const filterDefinition: FlowNodeDefinition = {
   displayName: 'Filter',
   description: 'Keep only events matching an expression.',
   category: 'transform',
+  icon: 'filter',
+  accent: 'transform',
+  subtitleKey: 'expression',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [
@@ -57,6 +60,9 @@ export const pickDefinition: FlowNodeDefinition = {
   displayName: 'Pick',
   description: 'Select output fields from each event.',
   category: 'transform',
+  icon: 'pick',
+  accent: 'transform',
+  subtitleKey: 'fields',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [
