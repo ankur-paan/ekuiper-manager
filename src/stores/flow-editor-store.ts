@@ -43,6 +43,8 @@ interface FlowEditorState {
   renameNode: (nodeId: string, name: string) => void;
   addEdge: (edge: FlowEdge) => void;
   removeEdges: (ids: readonly string[]) => void;
+  removeNodes: (ids: readonly string[]) => void;
+  deleteSelected: () => void;
   undo: () => void;
   redo: () => void;
 }
@@ -292,6 +294,133 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
             edges: nextEdges,
           },
         },
+        ...pushHistory(state.past, state.document),
+      };
+    }),
+
+  // FS-0050: remove nodes plus incident edges and layout entries as a
+  // single history command. Unknown IDs are a no-op without history.
+  removeNodes: (ids) =>
+    set((state) => {
+      if (!state.document || ids.length === 0) {
+        return state;
+      }
+      const existing = new Set(
+        state.document.spec.nodes.map((entry) => entry.id),
+      );
+      const toRemove = new Set(ids.filter((id) => existing.has(id)));
+      if (toRemove.size === 0) {
+        return state;
+      }
+      const nextNodes = state.document.spec.nodes.filter(
+        (entry) => !toRemove.has(entry.id),
+      );
+      const removedEdgeIds = new Set(
+        state.document.spec.edges
+          .filter(
+            (entry) =>
+              toRemove.has(entry.sourceNodeId) ||
+              toRemove.has(entry.targetNodeId),
+          )
+          .map((entry) => entry.id),
+      );
+      const nextEdges = state.document.spec.edges.filter(
+        (entry) => !removedEdgeIds.has(entry.id),
+      );
+      const nextLayoutNodes = { ...state.document.layout.nodes };
+      for (const id of toRemove) {
+        delete nextLayoutNodes[id];
+      }
+      return {
+        document: {
+          ...state.document,
+          spec: {
+            ...state.document.spec,
+            nodes: nextNodes,
+            edges: nextEdges,
+          },
+          layout: {
+            ...state.document.layout,
+            nodes: nextLayoutNodes,
+          },
+        },
+        selectedNodeIds: state.selectedNodeIds.filter(
+          (id) => !toRemove.has(id),
+        ),
+        selectedEdgeIds: state.selectedEdgeIds.filter(
+          (id) => !removedEdgeIds.has(id),
+        ),
+        ...pushHistory(state.past, state.document),
+      };
+    }),
+
+  // FS-0050: delete the current selection (selected nodes plus incident
+  // edges plus explicitly selected edges) as one history command.
+  // Selection/viewport stay out of the snapshot; selection is pruned for
+  // removed ids and undo restores document content only.
+  deleteSelected: () =>
+    set((state) => {
+      if (!state.document) {
+        return state;
+      }
+      const existingNodes = new Set(
+        state.document.spec.nodes.map((entry) => entry.id),
+      );
+      const existingEdges = new Set(
+        state.document.spec.edges.map((entry) => entry.id),
+      );
+      const nodesToRemove = new Set(
+        state.selectedNodeIds.filter((id) => existingNodes.has(id)),
+      );
+      const edgesToRemove = new Set(
+        state.selectedEdgeIds.filter((id) => existingEdges.has(id)),
+      );
+      for (const entry of state.document.spec.edges) {
+        if (
+          nodesToRemove.has(entry.sourceNodeId) ||
+          nodesToRemove.has(entry.targetNodeId)
+        ) {
+          edgesToRemove.add(entry.id);
+        }
+      }
+      if (nodesToRemove.size === 0 && edgesToRemove.size === 0) {
+        return state;
+      }
+      const nextNodes = state.document.spec.nodes.filter(
+        (entry) => !nodesToRemove.has(entry.id),
+      );
+      const nextEdges = state.document.spec.edges.filter(
+        (entry) => !edgesToRemove.has(entry.id),
+      );
+      if (
+        nextNodes.length === state.document.spec.nodes.length &&
+        nextEdges.length === state.document.spec.edges.length
+      ) {
+        return state;
+      }
+      const nextLayoutNodes = { ...state.document.layout.nodes };
+      for (const id of nodesToRemove) {
+        delete nextLayoutNodes[id];
+      }
+      return {
+        document: {
+          ...state.document,
+          spec: {
+            ...state.document.spec,
+            nodes: nextNodes,
+            edges: nextEdges,
+          },
+          layout: {
+            ...state.document.layout,
+            nodes: nextLayoutNodes,
+          },
+        },
+        selectedNodeIds: state.selectedNodeIds.filter(
+          (id) => !nodesToRemove.has(id),
+        ),
+        selectedEdgeIds: state.selectedEdgeIds.filter(
+          (id) => !edgesToRemove.has(id),
+        ),
         ...pushHistory(state.past, state.document),
       };
     }),
