@@ -70,6 +70,17 @@ must not be violated.
 - Initial implementation stays in current app paths; no monorepo rewrite and no
   public SDK/package extraction until built-ins dogfood the internal contract.
 
+## 7. Script operator (JavaScript) decision (FS-0154)
+
+- The eKuiper `script` operator (JavaScript) is NOT exposed in Flow Studio v1.
+- Rationale: MODEL_RULES section 2 bans arbitrary JavaScript execution inside
+  Manager; eKuiper sandboxes `script` execution in the engine, so this is not a
+  hard architectural conflict, but exposing a JS execution surface warrants an
+  explicit security decision rather than a default-on.
+- Revisit conditions: a security review of the engine sandbox plus a human-owner
+  ADR. Until then, do not add a `script` node type, compiler mapping, or
+  extension that emits the eKuiper `script` operator.
+
 ## Changes require owner ADR
 
 - These boundaries are locked. Implementation tickets may not change them.
