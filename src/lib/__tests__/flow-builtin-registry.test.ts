@@ -23,7 +23,7 @@ function buildDefinition(
 }
 
 describe('createBuiltinNodeRegistry', () => {
-  it('lists the memory, MQTT, REST, log, filter, pick, func, window, aggregate, and group-by definitions', () => {
+  it('lists the memory, MQTT, REST, log, filter, pick, func, window, aggregate, group-by, switch, and sort definitions', () => {
     const registry = createBuiltinNodeRegistry();
 
     expect(registry.has('memory-source', 1)).toBe(true);
@@ -38,6 +38,8 @@ describe('createBuiltinNodeRegistry', () => {
     expect(registry.has('window', 1)).toBe(true);
     expect(registry.has('aggregate', 1)).toBe(true);
     expect(registry.has('group-by', 1)).toBe(true);
+    expect(registry.has('switch', 1)).toBe(true);
+    expect(registry.has('sort', 1)).toBe(true);
     expect(registry.list().map((item) => `${item.type}@${item.version}`).sort()).toEqual([
       'aggregate@1',
       'filter@1',
@@ -50,6 +52,8 @@ describe('createBuiltinNodeRegistry', () => {
       'mqtt-source@1',
       'pick@1',
       'rest-sink@1',
+      'sort@1',
+      'switch@1',
       'window@1',
     ]);
   });
@@ -574,19 +578,189 @@ describe('createBuiltinNodeRegistry', () => {
     expect(first.get('group-by', 1)).toEqual(second.get('group-by', 1));
   });
 
+  it('registers the switch definition with one stream input and stable named stream outputs', () => {
+    const registry = createBuiltinNodeRegistry();
+    const switchNode = registry.get('switch', 1);
+
+    expect(switchNode?.displayName).toBe('Switch');
+    expect(switchNode?.category).toBe('routing');
+    expect(switchNode?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(switchNode?.outputs).toEqual([
+      { id: 'branch-1', label: 'Branch 1', kind: 'stream' },
+      { id: 'branch-2', label: 'Branch 2', kind: 'stream' },
+      { id: 'default', label: 'Default', kind: 'stream' },
+    ]);
+
+    const cases = switchNode?.properties.find((property) => property.key === 'cases');
+    expect(cases?.required).toBe(true);
+    expect(cases?.type).toBe('expression');
+
+    expect(switchNode?.runtimeKind).toBeUndefined();
+    expect(switchNode?.operation).toBeUndefined();
+  });
+
+  it('uses stable string output port IDs on switch with no array-index edge semantics', () => {
+    const registry = createBuiltinNodeRegistry();
+    const switchNode = registry.get('switch', 1);
+
+    const outputIds = (switchNode?.outputs ?? []).map((port) => port.id);
+    expect(outputIds).toEqual(['branch-1', 'branch-2', 'default']);
+    for (const id of outputIds) {
+      expect(typeof id).toBe('string');
+      expect(Number.isNaN(Number(id))).toBe(true);
+    }
+
+    const document = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-switch-1',
+          type: 'switch',
+          typeVersion: 1,
+          name: 'Switch',
+          config: { cases: 'temperature > 30 => branch-1; humidity > 80 => branch-2' },
+        }),
+        createFlowNode({
+          id: 'node-log-1',
+          type: 'log-sink',
+          typeVersion: 1,
+          name: 'Log',
+          config: {},
+        }),
+      ],
+      edges: [
+        createFlowEdge({
+          id: 'edge-switch-default-log',
+          sourceNodeId: 'node-switch-1',
+          sourcePortId: 'default',
+          targetNodeId: 'node-log-1',
+          targetPortId: 'in',
+        }),
+      ],
+    });
+
+    expect(validateFlowEdgePorts(document, registry)).toEqual([]);
+    for (const edge of document.spec.edges) {
+      expect(typeof edge.sourcePortId).toBe('string');
+      expect(typeof edge.targetPortId).toBe('string');
+    }
+  });
+
+  it('validates the required switch cases via the generic property validator', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const missing = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-switch-1',
+          type: 'switch',
+          typeVersion: 1,
+          name: 'Switch',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingDiagnostics = validateFlowRequiredProperties(missing, registry).filter(
+      (item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(missingDiagnostics).toHaveLength(1);
+    expect(missingDiagnostics[0]?.nodeId).toBe('node-switch-1');
+    expect(missingDiagnostics[0]?.propertyPath).toBe('config.cases');
+
+    const present = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-switch-1',
+          type: 'switch',
+          typeVersion: 1,
+          name: 'Switch',
+          config: { cases: 'temperature > 30 => branch-1; humidity > 80 => branch-2' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
+  });
+
+  it('registers the sort definition with stream in/out and a required order expression', () => {
+    const registry = createBuiltinNodeRegistry();
+    const sort = registry.get('sort', 1);
+
+    expect(sort?.displayName).toBe('Sort');
+    expect(sort?.category).toBe('routing');
+    expect(sort?.inputs).toEqual([{ id: 'in', label: 'Stream', kind: 'stream' }]);
+    expect(sort?.outputs).toEqual([{ id: 'out', label: 'Stream', kind: 'stream' }]);
+
+    const orderBy = sort?.properties.find((property) => property.key === 'orderBy');
+    expect(orderBy?.required).toBe(true);
+    expect(orderBy?.type).toBe('expression');
+
+    expect(sort?.runtimeKind).toBeUndefined();
+    expect(sort?.operation).toBeUndefined();
+  });
+
+  it('validates the required sort order via the generic property validator', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const missing = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-sort-1',
+          type: 'sort',
+          typeVersion: 1,
+          name: 'Sort',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingDiagnostics = validateFlowRequiredProperties(missing, registry).filter(
+      (item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(missingDiagnostics).toHaveLength(1);
+    expect(missingDiagnostics[0]?.nodeId).toBe('node-sort-1');
+    expect(missingDiagnostics[0]?.propertyPath).toBe('config.orderBy');
+
+    const present = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-sort-1',
+          type: 'sort',
+          typeVersion: 1,
+          name: 'Sort',
+          config: { orderBy: 'mean_power DESC' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(present, registry)).toEqual([]);
+  });
+
+  it('registers the switch and sort definitions deterministically', () => {
+    const first = createBuiltinNodeRegistry();
+    const second = createBuiltinNodeRegistry();
+
+    expect(first.get('switch', 1)).toEqual(second.get('switch', 1));
+    expect(first.get('sort', 1)).toEqual(second.get('sort', 1));
+  });
+
   it('returns an isolated registry on each call', () => {
     const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
 
     expect(first).not.toBe(second);
-    expect(first.list()).toHaveLength(12);
-    expect(second.list()).toHaveLength(12);
+    expect(first.list()).toHaveLength(14);
+    expect(second.list()).toHaveLength(14);
 
     first.register(buildDefinition({ type: 'test-custom', version: 1 }));
 
     expect(first.has('test-custom', 1)).toBe(true);
-    expect(first.list()).toHaveLength(13);
-    expect(second.list()).toHaveLength(12);
+    expect(first.list()).toHaveLength(15);
+    expect(second.list()).toHaveLength(14);
     expect(second.has('test-custom', 1)).toBe(false);
     expect(second.get('test-custom', 1)).toBeUndefined();
   });
