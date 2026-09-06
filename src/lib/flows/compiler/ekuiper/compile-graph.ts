@@ -12,6 +12,14 @@ import {
 } from '../../model/diagnostic';
 import { createBuiltinNodeRegistry } from '../../registry/builtin-registry';
 import {
+  mqttSinkDefinition,
+  mqttSourceDefinition,
+} from '../../registry/builtins/mqtt';
+import {
+  logSinkDefinition,
+  restSinkDefinition,
+} from '../../registry/builtins/sinks';
+import {
   filterDefinition,
   pickDefinition,
 } from '../../registry/builtins/transforms';
@@ -35,12 +43,12 @@ import type { EkuiperGraphNode } from './graph-types';
 
 /**
  * Minimal eKuiper graph-rule compiler (FS-0074, extended by
- * FS-0075/FS-0076/FS-0077).
+ * FS-0075/FS-0076/FS-0077/FS-0078).
  *
  * Scope: compiles a validated Flow DAG into one eKuiper graph rule
- * definition. Supported nodes: one or more memory sources, the
+ * definition. Supported nodes: one or more memory/mqtt sources, the
  * filter/pick/window/aggfunc/groupby/orderby/switch/join operators, and
- * one or more memory sinks. Linear operators carry exactly one input and
+ * one or more memory/mqtt/rest/log sinks. Linear operators carry exactly one input and
  * one output; switch fans out by stable branch port; join fans in from
  * explicit left/right ports. Any other shape yields structured
  * `FlowDiagnostic` failures; nodes are never silently dropped.
@@ -106,6 +114,31 @@ import type { EkuiperGraphNode } from './graph-types';
  *     (graph source-node keys for inline sources, which is what this
  *     compiler emits), and more than one non-lookup input to a join is
  *     rejected (`"does not allow multiple stream inputs"`).
+ * - Connector values (FS-0078): the same official graph_rule doc shows
+ *   an MQTT source as `{type: "source", nodeType: "mqtt",
+ *   props: {datasource: "<topic>"}}` (source props share stream-definition
+ *   properties, so the Flow `topic` compiles to `datasource`, exactly like
+ *   the memory source) and an MQTT sink as `{type: "sink",
+ *   nodeType: "mqtt", props: {server: "<broker>", topic: "<topic>"}}`.
+ *   The v1 MQTT definitions expose only the confirmed non-secret fields
+ *   `topic` (required) and `connectionSelector` (optional shared-connection
+ *   reference, confirmed by `MqttSink.mqtt`/`MqttSourceConfig` in
+ *   `src/lib/ekuiper/types.ts` and `KNOWN_FIELDS.mqtt` in
+ *   `src/lib/ekuiper/rule-designer.ts`); there is no v1 `server` field,
+ *   so the compiler never fabricates one and passes `connectionSelector`
+ *   through verbatim when present. No plaintext credential is ever read
+ *   or emitted.
+ * - Sink values (FS-0078): sink `nodeType` mirrors the sink connector
+ *   name (same graph_rule-doc rule as memory/mqtt). The REST sink maps the
+ *   confirmed `RestSink`/`KNOWN_FIELDS.rest` subset (`url` required plus
+ *   optional `method`/`bodyType`/`headers`); advanced props (`timeout`,
+ *   `insecureSkipVerify`) stay out of scope. The log sink maps the
+ *   confirmed `LogSink`/`KNOWN_FIELDS.log` contract (no required keys) to
+ *   empty `props`.
+ * - Script values (FS-0078): FS-0056 explicitly leaves the exact eKuiper
+ *   graph `func` node property shape unconfirmed, so the `func` Flow type
+ *   keeps no compiler mapping and still fails with a structured
+ *   diagnostic; no code is ever executed in Manager.
  *
  * Determinism: same Flow document always yields the same artifact
  * (deterministic runtime IDs, sorted IR input, canonical semantic hash,
@@ -118,6 +151,9 @@ import type { EkuiperGraphNode } from './graph-types';
  */
 
 const MEMORY_OPERATION = 'memory';
+const MQTT_OPERATION = 'mqtt';
+const REST_OPERATION = 'rest';
+const LOG_OPERATION = 'log';
 const FILTER_OPERATION = 'filter';
 const PICK_OPERATION = 'pick';
 const WINDOW_OPERATION = 'window';
@@ -215,23 +251,284 @@ function toMemorySinkNode(
 }
 
 /**
- * Compiler-local registry overlay (FS-0075, extended by FS-0076/FS-0077).
+ * Read the v1 MQTT `topic` editor-semantic config.
+ *
+ * `topic` is the only required MQTT field (confirmed by
+ * `KNOWN_FIELDS.mqtt` and the `MqttSink.mqtt.topic` / MQTT stream
+ * `DATASOURCE` contract). A missing or empty topic is a missing required
+ * property, never a reason to fabricate a broker or topic default.
+ */
+function readMqttTopic(
+  config: Record<string, unknown>,
+  nodeId: string,
+): { topic: string } | { diagnostic: FlowDiagnostic } {
+  const topic: unknown = config.topic;
+  if (typeof topic === 'string' && topic.length > 0) {
+    return { topic };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message: `MQTT node "${nodeId}" requires a non-empty "topic" property.`,
+      nodeId,
+      propertyPath: 'topic',
+    },
+  };
+}
+
+/**
+ * Read the optional v1 MQTT `connectionSelector` shared-connection
+ * reference.
+ *
+ * The value is passed through verbatim when it is a non-empty string and
+ * omitted otherwise; an absent reference yields no `server` fabrication
+ * (the v1 definition exposes no `server` field) and no secret is ever
+ * read. A present-but-malformed value is a missing-binding diagnostic so
+ * the flow fails before deployment instead of deploying against an
+ * unintended broker.
+ */
+function readConnectionSelector(
+  config: Record<string, unknown>,
+  nodeId: string,
+): { connectionSelector?: string } | { diagnostic: FlowDiagnostic } {
+  const selector: unknown = config.connectionSelector;
+  if (selector === undefined || selector === null || selector === '') {
+    return {};
+  }
+  if (typeof selector === 'string' && selector.length > 0) {
+    return { connectionSelector: selector };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message:
+        `MQTT node "${nodeId}" has an invalid "connectionSelector" property: ` +
+        `expected the ID of an existing shared eKuiper MQTT connection.`,
+      nodeId,
+      propertyPath: 'connectionSelector',
+    },
+  };
+}
+
+function toMqttSourceNode(
+  irNode: FlowIrNode,
+): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const topic = readMqttTopic(irNode.config, irNode.id);
+  if ('diagnostic' in topic) {
+    return topic;
+  }
+  const binding = readConnectionSelector(irNode.config, irNode.id);
+  if ('diagnostic' in binding) {
+    return binding;
+  }
+  return {
+    node: {
+      type: 'source',
+      nodeType: MQTT_OPERATION,
+      props: {
+        datasource: topic.topic,
+        ...(binding.connectionSelector !== undefined
+          ? { connectionSelector: binding.connectionSelector }
+          : {}),
+      },
+    },
+  };
+}
+
+function toMqttSinkNode(
+  irNode: FlowIrNode,
+): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const topic = readMqttTopic(irNode.config, irNode.id);
+  if ('diagnostic' in topic) {
+    return topic;
+  }
+  const binding = readConnectionSelector(irNode.config, irNode.id);
+  if ('diagnostic' in binding) {
+    return binding;
+  }
+  return {
+    node: {
+      type: 'sink',
+      nodeType: MQTT_OPERATION,
+      props: {
+        topic: topic.topic,
+        ...(binding.connectionSelector !== undefined
+          ? { connectionSelector: binding.connectionSelector }
+          : {}),
+      },
+    },
+  };
+}
+
+const REST_METHODS = ['POST', 'PUT', 'PATCH', 'GET', 'DELETE'] as const;
+const REST_BODY_TYPES = ['json', 'text', 'form'] as const;
+
+/**
+ * Read the v1 REST sink editor config.
+ *
+ * Only the confirmed `rest-sink` subset is mapped: `url` (required) plus
+ * optional `method`/`bodyType`/`headers`. `method`/`bodyType` must match
+ * the confirmed definition options; `headers` must be a JSON object of
+ * string values (the Flow config contract holds parsed JSON values, never
+ * raw text). Anything else is a missing required property, never a silent
+ * drop. Advanced props (`timeout`, `insecureSkipVerify`) stay out of
+ * scope and are never fabricated.
+ */
+function readRestConfig(
+  config: Record<string, unknown>,
+  nodeId: string,
+):
+  | {
+      url: string;
+      method?: string;
+      bodyType?: string;
+      headers?: Record<string, string>;
+    }
+  | { diagnostic: FlowDiagnostic } {
+  const fail = (
+    message: string,
+    propertyPath: string,
+  ): { diagnostic: FlowDiagnostic } => ({
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message,
+      nodeId,
+      propertyPath,
+    },
+  });
+
+  const url: unknown = config.url;
+  if (typeof url !== 'string' || url.length === 0) {
+    return fail(
+      `REST sink node "${nodeId}" requires a non-empty "url" property.`,
+      'url',
+    );
+  }
+
+  let method: string | undefined;
+  const rawMethod: unknown = config.method;
+  if (rawMethod !== undefined && rawMethod !== null && rawMethod !== '') {
+    if (
+      typeof rawMethod !== 'string' ||
+      !(REST_METHODS as readonly string[]).includes(rawMethod)
+    ) {
+      return fail(
+        `REST sink node "${nodeId}" has an invalid "method" property: ` +
+          `expected one of ${REST_METHODS.join(', ')}.`,
+        'method',
+      );
+    }
+    method = rawMethod;
+  }
+
+  let bodyType: string | undefined;
+  const rawBodyType: unknown = config.bodyType;
+  if (rawBodyType !== undefined && rawBodyType !== null && rawBodyType !== '') {
+    if (
+      typeof rawBodyType !== 'string' ||
+      !(REST_BODY_TYPES as readonly string[]).includes(rawBodyType)
+    ) {
+      return fail(
+        `REST sink node "${nodeId}" has an invalid "bodyType" property: ` +
+          `expected one of ${REST_BODY_TYPES.join(', ')}.`,
+        'bodyType',
+      );
+    }
+    bodyType = rawBodyType;
+  }
+
+  let headers: Record<string, string> | undefined;
+  const rawHeaders: unknown = config.headers;
+  if (rawHeaders !== undefined && rawHeaders !== null && rawHeaders !== '') {
+    if (
+      typeof rawHeaders !== 'object' ||
+      Array.isArray(rawHeaders) ||
+      Object.values(rawHeaders as Record<string, unknown>).some(
+        (entry) => typeof entry !== 'string',
+      )
+    ) {
+      return fail(
+        `REST sink node "${nodeId}" has an invalid "headers" property: ` +
+          `expected a JSON object of string values.`,
+        'headers',
+      );
+    }
+    headers = { ...(rawHeaders as Record<string, string>) };
+  }
+
+  return {
+    url,
+    ...(method !== undefined ? { method } : {}),
+    ...(bodyType !== undefined ? { bodyType } : {}),
+    ...(headers !== undefined ? { headers } : {}),
+  };
+}
+
+function toRestSinkNode(
+  irNode: FlowIrNode,
+): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const rest = readRestConfig(irNode.config, irNode.id);
+  if ('diagnostic' in rest) {
+    return rest;
+  }
+  return {
+    node: {
+      type: 'sink',
+      nodeType: REST_OPERATION,
+      props: {
+        url: rest.url,
+        ...(rest.method !== undefined ? { method: rest.method } : {}),
+        ...(rest.bodyType !== undefined ? { bodyType: rest.bodyType } : {}),
+        ...(rest.headers !== undefined ? { headers: rest.headers } : {}),
+      },
+    },
+  };
+}
+
+/**
+ * Map the v1 log sink (no editor-semantic properties) to its eKuiper
+ * graph node. The audited `LogSink`/`KNOWN_FIELDS.log` contract confirms
+ * no required keys, so the compiler emits empty `props` and never copies
+ * Flow config into it.
+ */
+function toLogSinkNode(irNode: FlowIrNode): { node: EkuiperGraphNode } {
+  void irNode;
+  return {
+    node: {
+      type: 'sink',
+      nodeType: LOG_OPERATION,
+      props: {},
+    },
+  };
+}
+
+/**
+ * Compiler-local registry overlay (FS-0075, extended by FS-0076/FS-0077/
+ * FS-0078).
  *
  * `filter`/`pick`/`window`/`aggregate`/`group-by`/`switch`/`sort`/`join`
  * definitions intentionally carry no `runtimeKind` / `operation` metadata
  * (transforms.ts, window.ts, aggregate.ts, routing.ts, and join.ts defer
  * that mapping to "a later compiler ticket"), so the shared
- * `createBuiltinNodeRegistry()` cannot build IR for them yet. This
+ * `createBuiltinNodeRegistry()` cannot build IR for them yet. The same
+ * holds for the FS-0078 connectors: mqtt.ts and sinks.ts intentionally
+ * omit `runtimeKind`/`operation` until this compiler ticket. This
  * ticket's allowed paths exclude the builtins files, so the compiler
- * supplies the small operator mapping locally: each definition is
+ * supplies the small operator/connector mapping locally: each definition is
  * re-registered with `runtimeKind: 'operator'` plus its eKuiper operator
  * name (`filter`, `pick`, `window`, `aggfunc` for the `aggregate` Flow
  * type, `groupby` for the `group-by` Flow type, `switch` for the `switch`
  * Flow type, `orderby` for the `sort` Flow type, `join` for the `join`
- * Flow type), and every other definition is passed through untouched.
- * Definitions for later compiler tickets (mqtt, ...) therefore still fail
- * IR building with a structured diagnostic instead of being silently
- * dropped.
+ * Flow type), each MQTT definition with its kind (`source`/`sink`) plus
+ * the `mqtt` connector name, and each REST/log sink definition with
+ * `runtimeKind: 'sink'` plus its connector name (`rest`, `log`).
+ * The `func` script definition (script.ts) keeps no mapping: FS-0056
+ * leaves its exact eKuiper graph property shape unconfirmed, so per
+ * FS-0078 it still fails IR building with a structured diagnostic instead
+ * of being silently dropped or guessed.
  */
 function createCompilerRegistry(): NodeRegistry {
   const registry = new NodeRegistry();
@@ -307,6 +604,42 @@ function createCompilerRegistry(): NodeRegistry {
         ...definition,
         runtimeKind: 'operator',
         operation: JOIN_OPERATION,
+      });
+    } else if (
+      definition.type === mqttSourceDefinition.type &&
+      definition.version === mqttSourceDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'source',
+        operation: MQTT_OPERATION,
+      });
+    } else if (
+      definition.type === mqttSinkDefinition.type &&
+      definition.version === mqttSinkDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'sink',
+        operation: MQTT_OPERATION,
+      });
+    } else if (
+      definition.type === restSinkDefinition.type &&
+      definition.version === restSinkDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'sink',
+        operation: REST_OPERATION,
+      });
+    } else if (
+      definition.type === logSinkDefinition.type &&
+      definition.version === logSinkDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'sink',
+        operation: LOG_OPERATION,
       });
     } else {
       registry.register(definition);
@@ -840,8 +1173,20 @@ function toEkuiperNode(
   if (irNode.kind === 'source' && irNode.operation === MEMORY_OPERATION) {
     return toMemorySourceNode(irNode);
   }
+  if (irNode.kind === 'source' && irNode.operation === MQTT_OPERATION) {
+    return toMqttSourceNode(irNode);
+  }
   if (irNode.kind === 'sink' && irNode.operation === MEMORY_OPERATION) {
     return toMemorySinkNode(irNode);
+  }
+  if (irNode.kind === 'sink' && irNode.operation === MQTT_OPERATION) {
+    return toMqttSinkNode(irNode);
+  }
+  if (irNode.kind === 'sink' && irNode.operation === REST_OPERATION) {
+    return toRestSinkNode(irNode);
+  }
+  if (irNode.kind === 'sink' && irNode.operation === LOG_OPERATION) {
+    return toLogSinkNode(irNode);
   }
   if (irNode.kind === 'operator' && irNode.operation === FILTER_OPERATION) {
     return toFilterNode(irNode);
@@ -1237,9 +1582,9 @@ interface CompiledGraphRule {
 
 /**
  * Compile a semantic Flow document into an eKuiper graph-rule deployment
- * artifact. Supported shape: one or more memory sources feeding a DAG of
- * memory/filter/pick/window/aggfunc/groupby/orderby/switch/join nodes
- * into one or more memory sinks, validated by `validateDagShape`.
+ * artifact. Supported shape: one or more memory/mqtt sources feeding a DAG of
+ * memory/mqtt/filter/pick/window/aggfunc/groupby/orderby/switch/join nodes
+ * into one or more memory/mqtt/rest/log sinks, validated by `validateDagShape`.
  *
  * Every user-correctable failure is returned as a structured diagnostic
  * (never a thrown string); only an empty Flow metadata ID or a missing
