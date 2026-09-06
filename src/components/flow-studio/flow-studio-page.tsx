@@ -16,6 +16,7 @@ import {
 } from '@/lib/flows/model/flow-document';
 import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader, type FlowStudioSaveStatus } from './shell/flow-studio-header';
+import { FlowDeployDialog } from './deploy/deploy-dialog';
 import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
@@ -48,6 +49,11 @@ interface FlowDraftPayload {
   layoutDocument: FlowLayout;
   semanticHash: string;
   layoutHash: string;
+}
+
+interface ManagedNodeSummary {
+  id: string;
+  name: string;
 }
 
 class FlowPageError extends Error {
@@ -205,6 +211,31 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     queryFn: () => fetchDraft(flowId),
     enabled: flowQuery.isSuccess,
     staleTime: 5 * 1000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  // FS-0089: managed-node names for the Deploy preflight dialog and the
+  // header target indicator. Display-only: a lookup failure falls back to
+  // the stored target id and never blocks editing or deployment.
+  const nodesQuery = useQuery({
+    queryKey: ['managed-nodes'],
+    queryFn: async (): Promise<ManagedNodeSummary[]> => {
+      const response = await fetch('/api/nodes', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new FlowPageError(response.status, await readErrorMessage(response));
+      }
+      const payload = (await response.json()) as { nodes: unknown };
+      if (!Array.isArray(payload.nodes)) return [];
+      return payload.nodes.filter(
+        (entry): entry is ManagedNodeSummary =>
+          !!entry &&
+          typeof entry === 'object' &&
+          !Array.isArray(entry) &&
+          typeof (entry as Record<string, unknown>)['id'] === 'string' &&
+          typeof (entry as Record<string, unknown>)['name'] === 'string',
+      );
+    },
+    staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
     retry: false,
   });
@@ -416,6 +447,14 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     setSavedHashes(null);
   }, [flowId]);
 
+  // FS-0089: deploy preflight dialog visibility. Reset per flow so a stale
+  // dialog never deploys a different flow. Opening the dialog never mutates
+  // the document; the dialog validates and deploys the saved server draft.
+  const [deployOpen, setDeployOpen] = React.useState(false);
+  React.useEffect(() => {
+    setDeployOpen(false);
+  }, [flowId]);
+
   // FS-0070: quick node picker opened by double-clicking empty canvas.
   // Holds the clicked flow coordinate (node creation point) plus the
   // viewport client coordinate (picker placement). Null means closed;
@@ -468,6 +507,55 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       storeDocument.metadata.id !== flowId,
     onSaved: handleAutosaved,
   });
+
+  // FS-0089: Deploy header enablement. Deploy requires a saved draft
+  // (autosave settled with no failure, so neither semantic nor layout edits
+  // are pending) and no client error diagnostics. Layout-only dirtiness
+  // disables the action only until it is saved; once saved it never implies
+  // a runtime change.
+  const clientErrorCount = flowDiagnostics.filter(
+    (diagnostic) => diagnostic.severity === 'error',
+  ).length;
+  const hasSavedDraft =
+    (draftQuery.data ?? null) !== null || savedBaseline !== null;
+  const deployReady =
+    hasSavedDraft &&
+    autosave.status === 'idle' &&
+    clientErrorCount === 0 &&
+    !!storeDocument &&
+    storeDocument.metadata.id === flowId;
+
+  // FS-0089: display name for the flow's registered target. Falls back to
+  // the stored target id when the node list is unavailable; deploy itself
+  // never depends on this lookup.
+  const targetName = React.useMemo(() => {
+    const targetNodeId = flowQuery.data?.targetNodeId ?? null;
+    if (!targetNodeId) return undefined;
+    const match = (nodesQuery.data ?? []).find(
+      (entry) => entry.id === targetNodeId,
+    );
+    return match ? match.name : targetNodeId;
+  }, [flowQuery.data, nodesQuery.data]);
+
+  // FS-0089: saved semantic hash shown in the deploy dialog. Prefer the
+  // chained hashes from the last successful autosave so a first save on a
+  // flow without a loaded draft still reports its hash.
+  const dialogSemanticHash =
+    savedHashes?.semanticHash ?? draftQuery.data?.semanticHash ?? null;
+
+  const handleDeployOpen = React.useCallback(() => {
+    setDeployOpen(true);
+  }, []);
+
+  const handleDeployClose = React.useCallback(() => {
+    setDeployOpen(false);
+  }, []);
+
+  // FS-0089: deploy success is surfaced by the dialog itself (which keeps
+  // the result visible) plus a toast; the editor draft stays untouched.
+  const handleDeployed = React.useCallback(() => {
+    toast.success('Flow deployed');
+  }, []);
 
   // Commit one layout-only move per drag stop. High-frequency drag updates
   // stay inside FlowCanvas view state; no draft PUT happens here (FS-0047).
@@ -819,7 +907,9 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               flowName={flow.name}
               saveState={saveDisplay.text}
               saveStatus={saveDisplay.status}
-              deployDisabled
+              targetName={targetName}
+              deployDisabled={!deployReady}
+              onDeploy={handleDeployOpen}
             />
           }
           palette={<NodePalette definitions={paletteDefinitions} capabilities={capabilityProfile} />}
@@ -859,9 +949,21 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
           }
           inspector={<NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} diagnostics={inspectorDiagnostics} documentDiagnostics={documentDiagnostics} />}
         />
+        <FlowDeployDialog
+          open={deployOpen}
+          flowId={flowId}
+          flowName={flow.name}
+          targetName={targetName}
+          targetNodeId={flow.targetNodeId}
+          semanticHash={dialogSemanticHash}
+          semanticDirty={dirtyState.semanticDirty}
+          layoutDirty={dirtyState.layoutDirty}
+          onClose={handleDeployClose}
+          onDeployed={handleDeployed}
+        />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, handleDeployOpen, handleDeployClose, handleDeployed]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
