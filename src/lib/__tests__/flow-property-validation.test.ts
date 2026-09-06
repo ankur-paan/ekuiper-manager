@@ -4,7 +4,11 @@ import {
   createFlowNode,
   createMinimalFlowDocument,
 } from '@/lib/flows/testing/flow-fixtures';
-import { validateFlowRequiredProperties } from '@/lib/flows/validation/property-validation';
+import {
+  FLOW_INVALID_PROPERTY_VALUE,
+  validateFlowPropertyTypes,
+  validateFlowRequiredProperties,
+} from '@/lib/flows/validation/property-validation';
 
 function buildDefinition(
   overrides: Partial<FlowNodeDefinition> & { type: string; version: number },
@@ -262,5 +266,217 @@ describe('validateFlowRequiredProperties', () => {
     });
 
     expect(validateFlowRequiredProperties(doc, registry)).toEqual([]);
+  });
+});
+
+describe('validateFlowPropertyTypes (FS-0062)', () => {
+  function buildTypedRegistry(): NodeRegistry {
+    const registry = new NodeRegistry();
+    registry.register(
+      buildDefinition({
+        type: 'test-node',
+        version: 1,
+        properties: [
+          { key: 'count', label: 'Count', type: 'number' },
+          { key: 'enabled', label: 'Enabled', type: 'boolean' },
+          {
+            key: 'mode',
+            label: 'Mode',
+            type: 'select',
+            options: [
+              { label: 'Fast', value: 'fast' },
+              { label: 'Slow', value: 'slow' },
+              { label: 'Zero', value: 0 },
+              { label: 'Off', value: false },
+            ],
+          },
+          { key: 'headers', label: 'Headers', type: 'json' },
+          { key: 'filter', label: 'Filter', type: 'expression' },
+          { key: 'nickname', label: 'Nickname', type: 'string' },
+        ],
+      }),
+    );
+    return registry;
+  }
+
+  function buildDoc(config: Record<string, unknown>) {
+    return createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-1',
+          type: 'test-node',
+          typeVersion: 1,
+          name: 'Node',
+          config,
+        }),
+      ],
+      edges: [],
+    });
+  }
+
+  it('passes when every typed value matches its definition', () => {
+    const registry = buildTypedRegistry();
+    const doc = buildDoc({
+      count: 3,
+      enabled: true,
+      mode: 'fast',
+      headers: { Authorization: 'Bearer x' },
+      filter: 'temperature > 30',
+      nickname: 'anything goes',
+    });
+
+    expect(validateFlowPropertyTypes(doc, registry)).toEqual([]);
+  });
+
+  it('accepts false and 0 as valid typed values', () => {
+    const registry = buildTypedRegistry();
+    const doc = buildDoc({ count: 0, enabled: false, mode: 0 });
+
+    expect(validateFlowPropertyTypes(doc, registry)).toEqual([]);
+  });
+
+  it('accepts false select option via strict match', () => {
+    const registry = buildTypedRegistry();
+    const doc = buildDoc({ mode: false });
+
+    expect(validateFlowPropertyTypes(doc, registry)).toEqual([]);
+  });
+
+  it('flags a numeric string for a number property without coercing', () => {
+    const registry = buildTypedRegistry();
+    const doc = buildDoc({ count: '3' });
+
+    const diagnostics = validateFlowPropertyTypes(doc, registry);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.code).toBe(FLOW_INVALID_PROPERTY_VALUE);
+    expect(diagnostics[0]?.code).toBe('FLOW_INVALID_PROPERTY_VALUE');
+    expect(diagnostics[0]?.severity).toBe('error');
+    expect(diagnostics[0]?.nodeId).toBe('node-1');
+    expect(diagnostics[0]?.propertyPath).toBe('config.count');
+  });
+
+  it('flags NaN and Infinity for number properties', () => {
+    const registry = buildTypedRegistry();
+
+    expect(
+      validateFlowPropertyTypes(buildDoc({ count: NaN }), registry),
+    ).toHaveLength(1);
+    expect(
+      validateFlowPropertyTypes(buildDoc({ count: Infinity }), registry),
+    ).toHaveLength(1);
+  });
+
+  it('flags a non-boolean for a boolean property', () => {
+    const registry = buildTypedRegistry();
+    const doc = buildDoc({ enabled: 'true' });
+
+    const diagnostics = validateFlowPropertyTypes(doc, registry);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.code).toBe(FLOW_INVALID_PROPERTY_VALUE);
+    expect(diagnostics[0]?.nodeId).toBe('node-1');
+    expect(diagnostics[0]?.propertyPath).toBe('config.enabled');
+  });
+
+  it('flags an unknown select value loaded from an existing document', () => {
+    const registry = buildTypedRegistry();
+    const doc = buildDoc({ mode: 'not-a-listed-option' });
+
+    const diagnostics = validateFlowPropertyTypes(doc, registry);
+
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.code).toBe(FLOW_INVALID_PROPERTY_VALUE);
+    expect(diagnostics[0]?.severity).toBe('error');
+    expect(diagnostics[0]?.nodeId).toBe('node-1');
+    expect(diagnostics[0]?.propertyPath).toBe('config.mode');
+  });
+
+  it('flags raw text and primitives for json properties', () => {
+    const registry = buildTypedRegistry();
+
+    expect(
+      validateFlowPropertyTypes(buildDoc({ headers: '{"a": 1' }), registry),
+    ).toHaveLength(1);
+    expect(
+      validateFlowPropertyTypes(buildDoc({ headers: 42 }), registry),
+    ).toHaveLength(1);
+    expect(
+      validateFlowPropertyTypes(buildDoc({ headers: 'text' }), registry),
+    ).toHaveLength(1);
+  });
+
+  it('accepts objects and arrays for json properties', () => {
+    const registry = buildTypedRegistry();
+
+    expect(
+      validateFlowPropertyTypes(buildDoc({ headers: { a: 1 } }), registry),
+    ).toEqual([]);
+    expect(
+      validateFlowPropertyTypes(buildDoc({ headers: [{ a: 1 }] }), registry),
+    ).toEqual([]);
+  });
+
+  it('skips absent values and leaves them to required validation', () => {
+    const registry = buildTypedRegistry();
+    const doc = buildDoc({});
+
+    expect(validateFlowPropertyTypes(doc, registry)).toEqual([]);
+  });
+
+  it('does not validate string, expression, or secret-ref types', () => {
+    const registry = new NodeRegistry();
+    registry.register(
+      buildDefinition({
+        type: 'test-node',
+        version: 1,
+        properties: [
+          { key: 'nickname', label: 'Nickname', type: 'string' },
+          { key: 'filter', label: 'Filter', type: 'expression' },
+          { key: 'token', label: 'Token', type: 'secret-ref' },
+        ],
+      }),
+    );
+    const doc = buildDoc({
+      nickname: 42,
+      filter: 42,
+      token: 42,
+    });
+
+    expect(validateFlowPropertyTypes(doc, registry)).toEqual([]);
+  });
+
+  it('skips nodes with unknown definitions', () => {
+    const registry = buildTypedRegistry();
+    const doc = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-mystery-1',
+          type: 'not-registered',
+          typeVersion: 1,
+          name: 'Mystery',
+          config: { count: 'not-a-number' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowPropertyTypes(doc, registry)).toEqual([]);
+  });
+
+  it('reports every mismatch in one pass without mutating input', () => {
+    const registry = buildTypedRegistry();
+    const doc = buildDoc({ count: 'x', enabled: 'y', mode: 'z' });
+    const snapshot = JSON.stringify(doc);
+
+    const diagnostics = validateFlowPropertyTypes(doc, registry);
+
+    expect(diagnostics).toHaveLength(3);
+    expect(
+      diagnostics.every(
+        (item) => item.code === FLOW_INVALID_PROPERTY_VALUE,
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(doc)).toBe(snapshot);
   });
 });

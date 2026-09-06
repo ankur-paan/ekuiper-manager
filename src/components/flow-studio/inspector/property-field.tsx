@@ -5,6 +5,7 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { FlowPropertyDefinition } from "@/lib/flows/registry/node-definition";
 
@@ -17,12 +18,14 @@ export interface PropertyFieldProps {
 
 /**
  * FS-0061: generic property control renderer.
+ * FS-0062: adds json (plain textarea with local parse error) and
+ * expression (plain textarea, opaque text; Monaco comes later) controls.
  *
- * Renders only string/number/boolean/select controls from a
- * FlowPropertyDefinition. Other definition types (json, expression,
- * secret-ref, or future types) render a non-destructive placeholder and
- * never write into node config; dedicated tickets own those controls.
- * No node-specific React editor lives here.
+ * Renders string/number/boolean/select/json/expression controls from a
+ * FlowPropertyDefinition. Other definition types (secret-ref or future
+ * types) render a non-destructive placeholder and never write into node
+ * config; dedicated tickets own those controls. No node-specific React
+ * editor lives here.
  */
 export function PropertyField({ definition, value, onChange, className }: PropertyFieldProps) {
   const fieldId = React.useId();
@@ -60,6 +63,16 @@ export function PropertyField({ definition, value, onChange, className }: Proper
               fieldId={fieldId}
               descriptionId={descriptionId}
             />
+          ) : definition.type === "json" ? (
+            <JsonField
+              definition={definition}
+              value={value}
+              onChange={onChange}
+              fieldId={fieldId}
+              descriptionId={descriptionId}
+            />
+          ) : definition.type === "expression" ? (
+            <ExpressionField value={value} onChange={onChange} fieldId={fieldId} descriptionId={descriptionId} />
           ) : (
             <p className="text-xs text-muted-foreground" data-testid={`property-field-unsupported-${definition.key}`}>
               {`Property type "${definition.type}" is not editable yet. Saved value is preserved.`}
@@ -234,5 +247,145 @@ function SelectField({
         <p className="text-xs text-muted-foreground">Saved value is preserved but is not a known option.</p>
       ) : null}
     </React.Fragment>
+  );
+}
+
+function toJsonText(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    const serialized = JSON.stringify(value, null, 2);
+    return typeof serialized === "string" ? serialized : String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function stableJson(value: unknown): string {
+  try {
+    const serialized = JSON.stringify(value);
+    return typeof serialized === "string" ? serialized : String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function JsonField({
+  definition,
+  value,
+  onChange,
+  fieldId,
+  descriptionId,
+}: {
+  definition: FlowPropertyDefinition;
+  value: unknown;
+  onChange: (next: unknown) => void;
+  fieldId: string;
+  descriptionId: string | undefined;
+}) {
+  // Interaction (FS-0062): plain textarea; parse on every change and
+  // re-validate on blur. Invalid text (unparseable JSON, or parsed JSON
+  // that is not an object/array since the config contract expects an
+  // object) stays local as a visible error and is never written into
+  // node config, so saved config cannot be corrupted by a typo. Empty
+  // text clears the value. External value changes (e.g. undo) resync
+  // the local text; locally committed values never trigger a resync so
+  // typing is never reformatted or clobbered.
+  const [text, setText] = React.useState(() => toJsonText(value));
+  const [parseError, setParseError] = React.useState<string | null>(null);
+  const committedValueRef = React.useRef<unknown>(value);
+
+  React.useEffect(() => {
+    if (stableJson(value) !== stableJson(committedValueRef.current)) {
+      committedValueRef.current = value;
+      setText(toJsonText(value));
+      setParseError(null);
+    }
+  }, [value]);
+
+  const attemptCommit = (raw: string) => {
+    if (raw.trim() === "") {
+      committedValueRef.current = undefined;
+      setParseError(null);
+      onChange(undefined);
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      setParseError(error instanceof Error ? error.message : "Invalid JSON.");
+      return;
+    }
+    if (typeof parsed !== "object" || parsed === null) {
+      setParseError("JSON must be an object or array.");
+      return;
+    }
+    committedValueRef.current = parsed;
+    setParseError(null);
+    onChange(parsed);
+  };
+
+  return (
+    <React.Fragment>
+      <Textarea
+        id={fieldId}
+        aria-describedby={descriptionId}
+        aria-invalid={parseError !== null}
+        value={text}
+        rows={4}
+        spellCheck={false}
+        onChange={(event) => {
+          const raw = event.target.value;
+          setText(raw);
+          attemptCommit(raw);
+        }}
+        onBlur={(event) => {
+          attemptCommit(event.target.value);
+        }}
+        data-testid={`property-field-json-${definition.key}`}
+      />
+      {parseError ? (
+        <p
+          className="text-xs text-destructive"
+          role="alert"
+          data-testid={`property-field-error-${definition.key}`}
+        >
+          {`Invalid JSON: ${parseError} Saved value is unchanged.`}
+        </p>
+      ) : null}
+    </React.Fragment>
+  );
+}
+
+function ExpressionField({
+  value,
+  onChange,
+  fieldId,
+  descriptionId,
+}: {
+  value: unknown;
+  onChange: (next: unknown) => void;
+  fieldId: string;
+  descriptionId: string | undefined;
+}) {
+  // FS-0062: expression is opaque text; no parsing or Monaco here.
+  // Preserve explicit values; only null/undefined render as empty text.
+  const text = typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
+  return (
+    <Textarea
+      id={fieldId}
+      aria-describedby={descriptionId}
+      value={text}
+      rows={3}
+      spellCheck={false}
+      onChange={(event) => {
+        onChange(event.target.value);
+      }}
+    />
   );
 }
