@@ -1574,6 +1574,621 @@ describe('flow eKuiper compiler (join operator)', () => {
   });
 });
 
+describe('flow eKuiper compiler (mqtt source and sink)', () => {
+  const MQTT_SOURCE_FLOW_ID = 'node-mqtt-source-1';
+  const MQTT_SINK_FLOW_ID = 'node-mqtt-sink-1';
+  const MQTT_TOPIC_IN = 'devices/mqtt-in';
+  const MQTT_TOPIC_OUT = 'devices/mqtt-out';
+  const MQTT_CONNECTION = 'conn-shared-1';
+
+  function buildMqttSourceFlow(
+    sourceConfig: Record<string, unknown> = {
+      topic: MQTT_TOPIC_IN,
+      connectionSelector: MQTT_CONNECTION,
+    },
+  ): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-mqtt-source-demo', name: 'MQTT Source Demo' },
+      spec: {
+        nodes: [
+          {
+            id: MQTT_SOURCE_FLOW_ID,
+            type: 'mqtt-source',
+            typeVersion: 1,
+            name: 'MQTT Source',
+            config: sourceConfig,
+          },
+          {
+            id: SINK_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Sink',
+            config: { topic: SINK_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: MQTT_SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [MQTT_SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [SINK_FLOW_ID]: { x: 320, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  function buildMqttSinkFlow(
+    sinkConfig: Record<string, unknown> = {
+      topic: MQTT_TOPIC_OUT,
+      connectionSelector: MQTT_CONNECTION,
+    },
+  ): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-mqtt-sink-demo', name: 'MQTT Sink Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: MQTT_SINK_FLOW_ID,
+            type: 'mqtt-sink',
+            typeVersion: 1,
+            name: 'MQTT Sink',
+            config: sinkConfig,
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: MQTT_SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [MQTT_SINK_FLOW_ID]: { x: 320, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected mqtt source nodeType/props with datasource and shared connection', () => {
+    const result = compileFlowToEkuiperGraph(buildMqttSourceFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', MQTT_SOURCE_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'mqtt',
+            props: {
+              datasource: MQTT_TOPIC_IN,
+              connectionSelector: MQTT_CONNECTION,
+            },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [MQTT_SOURCE_FLOW_ID]: sourceRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('compiles an mqtt source without a shared connection to datasource-only props without fabricating a server', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSourceFlow({ topic: MQTT_TOPIC_IN }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sourceRuntimeId = createRuntimeId('source', MQTT_SOURCE_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+
+    expect(graph.nodes[sourceRuntimeId]?.props).toEqual({
+      datasource: MQTT_TOPIC_IN,
+    });
+  });
+
+  it('produces the exact expected mqtt sink nodeType/props with topic and shared connection', () => {
+    const result = compileFlowToEkuiperGraph(buildMqttSinkFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', MQTT_SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'mqtt',
+            props: {
+              topic: MQTT_TOPIC_OUT,
+              connectionSelector: MQTT_CONNECTION,
+            },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [MQTT_SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('emits no secret fields in mqtt props', () => {
+    const result = compileFlowToEkuiperGraph(buildMqttSinkFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(canonicalJson(result.artifact)).not.toContain('password');
+    expect(canonicalJson(result.artifact)).not.toContain('privateKey');
+    expect(canonicalJson(result.artifact)).not.toContain('secret');
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildMqttSinkFlow());
+    const second = compileFlowToEkuiperGraph(buildMqttSinkFlow());
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces graphs that satisfy the audited eKuiper envelope', () => {
+    const fromMqtt = compileFlowToEkuiperGraph(buildMqttSourceFlow());
+    const toMqtt = compileFlowToEkuiperGraph(buildMqttSinkFlow());
+
+    expect(fromMqtt.ok).toBe(true);
+    expect(toMqtt.ok).toBe(true);
+    if (!fromMqtt.ok || !toMqtt.ok) return;
+
+    expect(isEkuiperGraphRule(fromMqtt.artifact.ruleDefinition.graph)).toBe(
+      true,
+    );
+    expect(isEkuiperGraphRule(toMqtt.artifact.ruleDefinition.graph)).toBe(
+      true,
+    );
+  });
+
+  it('fails with a structured diagnostic when the mqtt source topic is missing', () => {
+    const result = compileFlowToEkuiperGraph(buildMqttSourceFlow({}));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SOURCE_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('topic');
+  });
+
+  it('fails with a structured diagnostic when the mqtt sink topic is missing', () => {
+    const result = compileFlowToEkuiperGraph(buildMqttSinkFlow({}));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SINK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('topic');
+  });
+
+  it('fails with a structured diagnostic for a malformed shared-connection binding instead of deploying against an unintended broker', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSinkFlow({ topic: MQTT_TOPIC_OUT, connectionSelector: 42 }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SINK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('connectionSelector');
+  });
+});
+
+describe('flow eKuiper compiler (rest and log sinks)', () => {
+  const REST_SINK_FLOW_ID = 'node-rest-sink-1';
+  const LOG_SINK_FLOW_ID = 'node-log-sink-1';
+  const REST_URL = 'https://example.test/events';
+  const REST_HEADERS = {
+    Authorization: 'Bearer abc',
+    'X-Tenant': 't1',
+  };
+
+  function buildRestSinkFlow(
+    sinkConfig: Record<string, unknown> = {
+      url: REST_URL,
+      method: 'POST',
+      bodyType: 'json',
+      headers: REST_HEADERS,
+    },
+  ): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-rest-sink-demo', name: 'REST Sink Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: REST_SINK_FLOW_ID,
+            type: 'rest-sink',
+            typeVersion: 1,
+            name: 'REST Sink',
+            config: sinkConfig,
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: REST_SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [REST_SINK_FLOW_ID]: { x: 320, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  function buildLogSinkFlow(): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-log-sink-demo', name: 'Log Sink Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: LOG_SINK_FLOW_ID,
+            type: 'log-sink',
+            typeVersion: 1,
+            name: 'Log Sink',
+            config: {},
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: LOG_SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          [LOG_SINK_FLOW_ID]: { x: 320, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected rest sink nodeType/props', () => {
+    const result = compileFlowToEkuiperGraph(buildRestSinkFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', REST_SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'rest',
+            props: {
+              url: REST_URL,
+              method: 'POST',
+              bodyType: 'json',
+              headers: REST_HEADERS,
+            },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [REST_SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('compiles a url-only rest sink to url-only props without fabricating advanced fields', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildRestSinkFlow({ url: REST_URL }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sinkRuntimeId = createRuntimeId('sink', REST_SINK_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+
+    expect(graph.nodes[sinkRuntimeId]?.props).toEqual({ url: REST_URL });
+  });
+
+  it('produces the exact expected log sink nodeType/props', () => {
+    const result = compileFlowToEkuiperGraph(buildLogSinkFlow());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', SOURCE_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', LOG_SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: 'memory',
+            props: { datasource: SOURCE_TOPIC },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'log',
+            props: {},
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [SOURCE_FLOW_ID]: sourceRuntimeId,
+      [LOG_SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(buildRestSinkFlow());
+    const second = compileFlowToEkuiperGraph(buildRestSinkFlow());
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces graphs that satisfy the audited eKuiper envelope', () => {
+    const rest = compileFlowToEkuiperGraph(buildRestSinkFlow());
+    const log = compileFlowToEkuiperGraph(buildLogSinkFlow());
+
+    expect(rest.ok).toBe(true);
+    expect(log.ok).toBe(true);
+    if (!rest.ok || !log.ok) return;
+
+    expect(isEkuiperGraphRule(rest.artifact.ruleDefinition.graph)).toBe(true);
+    expect(isEkuiperGraphRule(log.artifact.ruleDefinition.graph)).toBe(true);
+  });
+
+  it('fails with a structured diagnostic when the rest url is missing', () => {
+    const result = compileFlowToEkuiperGraph(buildRestSinkFlow({}));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(REST_SINK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('url');
+  });
+
+  it('fails with a structured diagnostic for an unconfirmed rest method', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildRestSinkFlow({ url: REST_URL, method: 'HEAD' }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(REST_SINK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('method');
+  });
+
+  it('fails with a structured diagnostic for non-object rest headers', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildRestSinkFlow({ url: REST_URL, headers: 'Authorization: Bearer abc' }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(REST_SINK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('headers');
+  });
+});
+
+describe('flow eKuiper compiler (func script stays unsupported)', () => {
+  it('fails with a structured diagnostic for a connected func node instead of guessing a mapping', () => {
+    const document: FlowDocument = {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-func-demo', name: 'Func Demo' },
+      spec: {
+        nodes: [
+          {
+            id: SOURCE_FLOW_ID,
+            type: 'memory-source',
+            typeVersion: 1,
+            name: 'Source',
+            config: { topic: SOURCE_TOPIC },
+          },
+          {
+            id: 'node-func-1',
+            type: 'func',
+            typeVersion: 1,
+            name: 'Function',
+            config: { expression: 'log(temperature) as log_temperature' },
+          },
+          {
+            id: SINK_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Sink',
+            config: { topic: SINK_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: SOURCE_FLOW_ID,
+            sourcePortId: 'out',
+            targetNodeId: 'node-func-1',
+            targetPortId: 'in',
+          },
+          {
+            id: 'edge-2',
+            sourceNodeId: 'node-func-1',
+            sourcePortId: 'out',
+            targetNodeId: SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [SOURCE_FLOW_ID]: { x: 0, y: 0 },
+          'node-func-1': { x: 160, y: 0 },
+          [SINK_FLOW_ID]: { x: 320, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(
+      result.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === 'FLOW_UNKNOWN_NODE_TYPE' &&
+          diagnostic.nodeId === 'node-func-1',
+      ),
+    ).toBe(true);
+  });
+});
+
 describe('toSafeRuleId', () => {
   it('keeps an already-safe flow id unchanged', () => {
     expect(toSafeRuleId('flow-memory-demo')).toBe('flow-memory-demo');
