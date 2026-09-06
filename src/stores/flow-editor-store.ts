@@ -6,6 +6,8 @@ import type {
   FlowNodeLayout,
   FlowViewport,
 } from '@/lib/flows/model/flow-document';
+import { createFlowNodeForDefinition } from '@/lib/flows/model/create-flow-node';
+import type { CreateFlowNodeInput } from '@/lib/flows/model/create-flow-node';
 
 export const DEFAULT_FLOW_VIEWPORT: FlowViewport = { x: 0, y: 0, zoom: 1 };
 
@@ -41,6 +43,7 @@ interface FlowEditorState {
   moveNodes: (moves: readonly FlowNodeMove[]) => void;
   updateNodeConfig: (nodeId: string, patch: Record<string, unknown>) => void;
   renameNode: (nodeId: string, name: string) => void;
+  addNode: (input: CreateFlowNodeInput) => string | null;
   addEdge: (edge: FlowEdge) => void;
   removeEdges: (ids: readonly string[]) => void;
   removeNodes: (ids: readonly string[]) => void;
@@ -253,6 +256,43 @@ export const useFlowEditorStore = create<FlowEditorState>((set) => ({
         ...pushHistory(state.past, state.document),
       };
     }),
+
+  // FS-0065: append one authoring node plus its initial layout entry as a
+  // single history command. Defaults come from the definition via the node
+  // factory; no edges are added and no compiler/runtime IDs are generated.
+  // Duplicate IDs throw an internal error (mirrors addEdge). Without a
+  // loaded document this is a no-op returning null.
+  addNode: (input) => {
+    let createdId: string | null = null;
+    set((state) => {
+      if (!state.document) {
+        return state;
+      }
+      if (state.document.spec.nodes.some((entry) => entry.id === input.id)) {
+        throw new Error(`Duplicate flow node id "${input.id}".`);
+      }
+      const created = createFlowNodeForDefinition(input);
+      createdId = created.node.id;
+      return {
+        document: {
+          ...state.document,
+          spec: {
+            ...state.document.spec,
+            nodes: [...state.document.spec.nodes, created.node],
+          },
+          layout: {
+            ...state.document.layout,
+            nodes: {
+              ...state.document.layout.nodes,
+              [created.node.id]: created.position,
+            },
+          },
+        },
+        ...pushHistory(state.past, state.document),
+      };
+    });
+    return createdId;
+  },
 
   addEdge: (edge) =>
     set((state) => {

@@ -1,6 +1,11 @@
 import { createMinimalFlowDocument } from '@/lib/flows/testing/flow-fixtures';
 import { hashFlowSemantic } from '@/lib/flows/hashing/flow-hash';
 import {
+  createFlowNodeForDefinition,
+  generateFlowNodeId,
+} from '@/lib/flows/model/create-flow-node';
+import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
+import {
   DEFAULT_FLOW_VIEWPORT,
   useFlowEditorStore,
 } from '@/stores/flow-editor-store';
@@ -388,5 +393,220 @@ describe('flow editor store', () => {
     expect(useFlowEditorStore.getState().document).toBeNull();
     useFlowEditorStore.getState().renameNode('node-source-1', 'Ghost');
     expect(useFlowEditorStore.getState().document).toBeNull();
+  });
+
+  describe('addNode', () => {
+    const definitionWithDefaults: FlowNodeDefinition = {
+      type: 'test-transform',
+      version: 2,
+      displayName: 'Test Transform',
+      description: 'Transform fixture with property defaults.',
+      category: 'transform',
+      inputs: [{ id: 'in', kind: 'stream' }],
+      outputs: [{ id: 'out', kind: 'stream' }],
+      properties: [
+        { key: 'label', label: 'Label', type: 'string', defaultValue: 'hello' },
+        { key: 'count', label: 'Count', type: 'number', defaultValue: 3 },
+        {
+          key: 'enabled',
+          label: 'Enabled',
+          type: 'boolean',
+          defaultValue: true,
+        },
+        {
+          key: 'options',
+          label: 'Options',
+          type: 'json',
+          defaultValue: { nested: [1, 2] },
+        },
+        { key: 'topic', label: 'Topic', type: 'string' },
+      ],
+    };
+
+    it('appends a semantic node and layout entry with definition defaults', () => {
+      useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+      const before = useFlowEditorStore.getState().document;
+      expect(before).not.toBeNull();
+      const edgesRef = before!.spec.edges;
+
+      const createdId = useFlowEditorStore.getState().addNode({
+        id: 'node-transform-1',
+        definition: definitionWithDefaults,
+        position: { x: 120, y: 80 },
+      });
+
+      expect(createdId).toBe('node-transform-1');
+      const after = useFlowEditorStore.getState().document;
+      expect(after?.spec.nodes).toHaveLength(3);
+      const node = after?.spec.nodes.find(
+        (entry) => entry.id === 'node-transform-1',
+      );
+      // Exact shape: no compiler/runtime IDs or other extra fields.
+      expect(node).toEqual({
+        id: 'node-transform-1',
+        type: 'test-transform',
+        typeVersion: 2,
+        name: 'Test Transform',
+        config: {
+          label: 'hello',
+          count: 3,
+          enabled: true,
+          options: { nested: [1, 2] },
+        },
+      });
+      expect(after?.layout.nodes['node-transform-1']).toEqual({
+        x: 120,
+        y: 80,
+      });
+      expect(after?.spec.edges).toBe(edgesRef);
+      expect(after?.spec.edges).toHaveLength(1);
+    });
+
+    it('supports a name override and copies the position', () => {
+      useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+      const position = { x: 7, y: 9 };
+
+      useFlowEditorStore.getState().addNode({
+        id: 'node-transform-1',
+        definition: definitionWithDefaults,
+        position,
+        name: 'Custom Name',
+      });
+      position.x = 999;
+
+      const state = useFlowEditorStore.getState();
+      const node = state.document?.spec.nodes.find(
+        (entry) => entry.id === 'node-transform-1',
+      );
+      expect(node?.name).toBe('Custom Name');
+      expect(state.document?.layout.nodes['node-transform-1']).toEqual({
+        x: 7,
+        y: 9,
+      });
+    });
+
+    it('copies mutable defaults without sharing objects between nodes', () => {
+      useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+
+      useFlowEditorStore.getState().addNode({
+        id: 'node-a',
+        definition: definitionWithDefaults,
+        position: { x: 0, y: 0 },
+      });
+      useFlowEditorStore.getState().addNode({
+        id: 'node-b',
+        definition: definitionWithDefaults,
+        position: { x: 10, y: 10 },
+      });
+
+      const doc = useFlowEditorStore.getState().document;
+      const nodeA = doc?.spec.nodes.find((entry) => entry.id === 'node-a');
+      const nodeB = doc?.spec.nodes.find((entry) => entry.id === 'node-b');
+      expect(nodeA?.config['options']).toEqual({ nested: [1, 2] });
+      expect(nodeB?.config['options']).toEqual({ nested: [1, 2] });
+      expect(nodeA?.config['options']).not.toBe(nodeB?.config['options']);
+
+      ((nodeA?.config['options'] as { nested: number[] }).nested).push(3);
+      expect(nodeB?.config['options']).toEqual({ nested: [1, 2] });
+      expect(definitionWithDefaults.properties[3]?.defaultValue).toEqual({
+        nested: [1, 2],
+      });
+    });
+
+    it('undo removes the added node and its layout entry', () => {
+      useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+
+      useFlowEditorStore.getState().addNode({
+        id: 'node-transform-1',
+        definition: definitionWithDefaults,
+        position: { x: 120, y: 80 },
+      });
+      expect(
+        useFlowEditorStore.getState().document?.spec.nodes,
+      ).toHaveLength(3);
+
+      useFlowEditorStore.getState().undo();
+
+      const after = useFlowEditorStore.getState().document;
+      expect(after?.spec.nodes.map((entry) => entry.id)).toEqual([
+        'node-source-1',
+        'node-sink-1',
+      ]);
+      expect(after?.layout.nodes['node-transform-1']).toBeUndefined();
+      expect(after?.spec.edges).toHaveLength(1);
+
+      useFlowEditorStore.getState().redo();
+      expect(
+        useFlowEditorStore.getState().document?.spec.nodes,
+      ).toHaveLength(3);
+      expect(
+        useFlowEditorStore.getState().document?.layout.nodes[
+          'node-transform-1'
+        ],
+      ).toEqual({ x: 120, y: 80 });
+    });
+
+    it('rejects a duplicate node ID with an internal error', () => {
+      useFlowEditorStore.getState().loadDocument(createMinimalFlowDocument());
+
+      expect(() =>
+        useFlowEditorStore.getState().addNode({
+          id: 'node-source-1',
+          definition: definitionWithDefaults,
+          position: { x: 1, y: 1 },
+        }),
+      ).toThrow('Duplicate flow node id "node-source-1".');
+      expect(
+        useFlowEditorStore.getState().document?.spec.nodes,
+      ).toHaveLength(2);
+    });
+
+    it('is a no-op without a loaded document', () => {
+      const createdId = useFlowEditorStore.getState().addNode({
+        id: 'node-transform-1',
+        definition: definitionWithDefaults,
+        position: { x: 1, y: 1 },
+      });
+
+      expect(createdId).toBeNull();
+      expect(useFlowEditorStore.getState().document).toBeNull();
+    });
+  });
+
+  describe('createFlowNodeForDefinition', () => {
+    const definition: FlowNodeDefinition = {
+      type: 'test-source',
+      version: 1,
+      displayName: 'Test Source',
+      description: 'Source fixture.',
+      category: 'source',
+      inputs: [],
+      outputs: [{ id: 'out', kind: 'stream' }],
+      properties: [
+        { key: 'topic', label: 'Topic', type: 'string' },
+        { key: 'qos', label: 'QoS', type: 'number', defaultValue: 0 },
+      ],
+    };
+
+    it('omits properties without defaults and preserves false/0 values', () => {
+      const created = createFlowNodeForDefinition({
+        id: 'node-1',
+        definition,
+        position: { x: 3, y: 4 },
+      });
+
+      expect(created.node.config).toEqual({ qos: 0 });
+      expect(created.node.name).toBe('Test Source');
+      expect(created.position).toEqual({ x: 3, y: 4 });
+    });
+
+    it('generates unique non-empty authoring IDs', () => {
+      const first = generateFlowNodeId();
+      const second = generateFlowNodeId();
+
+      expect(typeof first).toBe('string');
+      expect(first.length).toBeGreaterThan(0);
+      expect(second).not.toBe(first);
+    });
   });
 });
