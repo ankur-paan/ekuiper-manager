@@ -28,19 +28,8 @@ import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline }
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
 import { resolveTargetCapabilities } from '@/lib/flows/capabilities/resolve-capabilities';
 import { canConnect } from '@/lib/flows/validation/port-compatibility';
-import { validateFlowStructure } from '@/lib/flows/validation/structural';
-import {
-  isDefinitionSupportedByCapabilities,
-  validateFlowCapabilities,
-} from '@/lib/flows/validation/capability-validation';
-import {
-  validateFlowEdgePorts,
-  validateFlowUnknownNodeTypes,
-} from '@/lib/flows/validation/registry-validation';
-import {
-  validateFlowPropertyTypes,
-  validateFlowRequiredProperties,
-} from '@/lib/flows/validation/property-validation';
+import { validateFlowForEditor } from '@/lib/flows/validation/editor-validation';
+import { isDefinitionSupportedByCapabilities } from '@/lib/flows/validation/capability-validation';
 import type { FlowDiagnostic } from '@/lib/flows/model/diagnostic';
 import { useFlowAutosave, type FlowAutosaveSaved, type FlowAutosaveStatus } from './hooks/use-flow-autosave';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
@@ -267,25 +256,16 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     [],
   );
 
-  // FS-0068: node-scoped validation derived from committed store state.
-  // Runs existing client structural/registry/property validators against
-  // the built-in registry on every document change. Pure read: never
-  // mutates the document, never writes diagnostics into store state, and
-  // therefore never alters the semantic hash. Diagnostics stay in memo
-  // state only; only counts flow to node chrome while messages render in
-  // the inspector.
+  // FS-0068: editor validation derived from committed store state via the
+  // single named pipeline in src/lib/flows/validation/editor-validation.ts
+  // (defect R4: previously the page composed validators inline and never
+  // invoked join topology validation). Pure read: never mutates the
+  // document, never writes diagnostics into store state, and therefore
+  // never alters the semantic hash. Diagnostics stay in memo state only;
+  // only counts flow to node chrome while messages render in the inspector.
   const flowDiagnostics = React.useMemo<FlowDiagnostic[]>(() => {
     if (!storeDocument || storeDocument.metadata.id !== flowId) return [];
-    return [
-      ...validateFlowStructure(storeDocument),
-      ...validateFlowUnknownNodeTypes(storeDocument, builtinRegistry),
-      ...validateFlowEdgePorts(storeDocument, builtinRegistry),
-      ...validateFlowRequiredProperties(storeDocument, builtinRegistry),
-      ...validateFlowPropertyTypes(storeDocument, builtinRegistry),
-      // FS-0080: capability stage. Unavailable nodes stay in the document
-      // and surface here instead of disappearing from canvas/inspector.
-      ...validateFlowCapabilities(storeDocument, builtinRegistry, capabilityProfile),
-    ];
+    return validateFlowForEditor(storeDocument, builtinRegistry, capabilityProfile);
   }, [storeDocument, flowId, capabilityProfile]);
 
   // FS-0068: collapse diagnostics to per-node error/warning counts for the
@@ -375,6 +355,19 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       return false;
     });
   }, [flowDiagnostics, selectedNodeIds, storeDocument]);
+
+  // Defect R4: document-level diagnostics carry neither nodeId nor edgeId
+  // scope (cycle, no source, no sink) and are therefore invisible to the
+  // node-only presentation above. They are surfaced separately in the
+  // inspector instead of being silently discarded; canvas chrome counts
+  // stay node-scoped per UI_PERFORMANCE_SPEC.
+  const documentDiagnostics = React.useMemo<FlowDiagnostic[]>(
+    () =>
+      flowDiagnostics.filter(
+        (diagnostic) => !diagnostic.nodeId && !diagnostic.edgeId,
+      ),
+    [flowDiagnostics],
+  );
 
   // FS-0046: compare current editor canonical snapshots against the last
   // server draft documents, each domain independently and never by object
@@ -836,11 +829,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               </div>
             )
           }
-          inspector={<NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} diagnostics={inspectorDiagnostics} />}
+          inspector={<NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} diagnostics={inspectorDiagnostics} documentDiagnostics={documentDiagnostics} />}
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, inspectorDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
