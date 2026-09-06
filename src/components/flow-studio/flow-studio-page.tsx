@@ -18,7 +18,8 @@ import { NodeInspector } from './inspector/node-inspector';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection } from './canvas/flow-canvas';
 import { toReactFlow } from './canvas/to-react-flow';
-import { buildFlowDirtyBaseline, computeFlowDirtyState } from '@/lib/flows/model/flow-dirty-state';
+import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
+import { useFlowAutosave, type FlowAutosaveSaved } from './hooks/use-flow-autosave';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
 interface FlowSummary {
@@ -94,7 +95,8 @@ function buildDocument(flow: FlowSummary, draft: FlowDraftPayload | null): FlowD
     };
   }
   // No draft exists: construct an empty v1alpha1 document in client state
-  // only. Nothing is persisted until the later autosave ticket.
+  // only. It is persisted by the autosave hook below once it observes the
+  // missing server baseline.
   return {
     apiVersion: FLOW_DOCUMENT_VERSION,
     metadata,
@@ -161,24 +163,52 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // server-side only. Computed from committed store state only, so
   // high-frequency drag pointer events never recompute snapshots (drag
   // commits land once per drag stop via FS-0042). The FS-0047 autosave
-  // hook consumes this; the data attributes below expose it for
-  // instrumentation without changing save-state display (FS-0048 owns
-  // that mapping).
-  const draftBaseline = React.useMemo(() => {
+  // hook below consumes the effective baseline; the data attributes on the
+  // shell container expose dirty/autosave state for instrumentation without
+  // changing save-state display (FS-0048 owns that mapping).
+  const queryBaseline = React.useMemo(() => {
     const draft = draftQuery.data ?? null;
     if (!draft) return null;
     return buildFlowDirtyBaseline(draft.semanticDocument, draft.layoutDocument);
   }, [draftQuery.data]);
+  // FS-0047: baseline of the most recently autosaved document. Advanced
+  // from the PUT response without reloading the document or refetching the
+  // draft; reset whenever a different flow is opened.
+  const [savedBaseline, setSavedBaseline] = React.useState<FlowDirtyBaseline | null>(null);
+  React.useEffect(() => {
+    setSavedBaseline(null);
+  }, [flowId]);
+  const baseline = savedBaseline ?? queryBaseline;
   const dirtyState = React.useMemo(() => {
-    if (!storeDocument || !draftBaseline) {
+    if (!storeDocument || !baseline) {
       return { semanticDirty: false, layoutDirty: false };
     }
     return computeFlowDirtyState(
       storeDocument.spec,
       storeDocument.layout,
-      draftBaseline,
+      baseline,
     );
-  }, [storeDocument, draftBaseline]);
+  }, [storeDocument, baseline]);
+
+  const handleAutosaved = React.useCallback((saved: FlowAutosaveSaved) => {
+    setSavedBaseline(buildFlowDirtyBaseline(saved.spec, saved.layout));
+  }, []);
+
+  // FS-0047: debounced draft autosave. Fires only for committed store
+  // changes while dirty, PUTs {spec,layout} to the Manager draft API (never
+  // eKuiper), and clears dirty state via handleAutosaved on success. Header
+  // save-state display is intentionally untouched here (FS-0048).
+  const autosave = useFlowAutosave({
+    flowId,
+    spec: storeDocument?.spec ?? null,
+    layout: storeDocument?.layout ?? null,
+    baseline,
+    disabled:
+      !draftQuery.isSuccess ||
+      !storeDocument ||
+      storeDocument.metadata.id !== flowId,
+    onSaved: handleAutosaved,
+  });
 
   // Commit one layout-only move per drag stop. High-frequency drag updates
   // stay inside FlowCanvas view state; no draft PUT happens here (FS-0047).
@@ -279,6 +309,8 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         className="h-[calc(100vh-10rem)] min-h-[480px]"
         data-semantic-dirty={dirtyState.semanticDirty ? 'true' : 'false'}
         data-layout-dirty={dirtyState.layoutDirty ? 'true' : 'false'}
+        data-autosave-status={autosave.status}
+        data-autosave-error={autosave.error ?? ''}
       >
         <FlowStudioShell
           header={
@@ -310,7 +342,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasView, dirtyState, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange]);
+  }, [flowQuery, draftQuery, canvasView, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
