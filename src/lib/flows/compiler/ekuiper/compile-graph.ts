@@ -114,20 +114,21 @@ import type { EkuiperGraphNode } from './graph-types';
  *     (graph source-node keys for inline sources, which is what this
  *     compiler emits), and more than one non-lookup input to a join is
  *     rejected (`"does not allow multiple stream inputs"`).
- * - Connector values (FS-0078): the same official graph_rule doc shows
- *   an MQTT source as `{type: "source", nodeType: "mqtt",
- *   props: {datasource: "<topic>"}}` (source props share stream-definition
- *   properties, so the Flow `topic` compiles to `datasource`, exactly like
- *   the memory source) and an MQTT sink as `{type: "sink",
- *   nodeType: "mqtt", props: {server: "<broker>", topic: "<topic>"}}`.
- *   The v1 MQTT definitions expose only the confirmed non-secret fields
- *   `topic` (required) and `connectionSelector` (optional shared-connection
- *   reference, confirmed by `MqttSink.mqtt`/`MqttSourceConfig` in
- *   `src/lib/ekuiper/types.ts` and `KNOWN_FIELDS.mqtt` in
- *   `src/lib/ekuiper/rule-designer.ts`); there is no v1 `server` field,
- *   so the compiler never fabricates one and passes `connectionSelector`
- *   through verbatim when present. No plaintext credential is ever read
- *   or emitted.
+ * - Connector values (FS-0078, corrected by FS-0142): live-engine
+ *   verification against eKuiper 2.4.1 showed `connectionSelector` is not
+ *   honoured for graph rules (`connectionSelector` alone is rejected
+ *   `422 missing server property`; `server` alone on a source dials the
+ *   default confKey silently). MQTT sources therefore emit
+ *   `{datasource: "<topic>", confKey: "<key>"}` taken from the node
+ *   `topic`/`confKey` config, and MQTT sinks emit
+ *   `{topic: "<topic>", server: "<broker>"}` taken from the node
+ *   `topic`/`server` config. `connectionSelector` is never emitted on
+ *   either and `server` is never emitted on sources. The v1
+ *   `connectionSelector` config value is accepted as a legacy fallback
+ *   for both (emitted under the corrected prop name) so existing flows
+ *   keep compiling; new `confKey`/`server` values take precedence. A missing broker
+ *   reference is a structured diagnostic, never a fabricated default or
+ *   silent omission. No plaintext credential is ever read or emitted.
  * - Sink values (FS-0078): sink `nodeType` mirrors the sink connector
  *   name (same graph_rule-doc rule as memory/mqtt). The REST sink maps the
  *   confirmed `RestSink`/`KNOWN_FIELDS.rest` subset (`url` required plus
@@ -278,36 +279,78 @@ function readMqttTopic(
 }
 
 /**
- * Read the optional v1 MQTT `connectionSelector` shared-connection
- * reference.
+ * Read the MQTT source `confKey` broker reference (FS-0142).
  *
- * The value is passed through verbatim when it is a non-empty string and
- * omitted otherwise; an absent reference yields no `server` fabrication
- * (the v1 definition exposes no `server` field) and no secret is ever
- * read. A present-but-malformed value is a missing-binding diagnostic so
- * the flow fails before deployment instead of deploying against an
- * unintended broker.
+ * Live-engine verification against eKuiper 2.4.1 showed that
+ * `connectionSelector` is not honoured for graph rules (`HTTP 422
+ * missing server property` alone; silent default-broker dial when only
+ * `server` is set on a source), while `confKey` naming a source confKey
+ * holding the broker works end to end. The value is taken from the node
+ * `confKey` config, falling back to the v1 `connectionSelector` value so
+ * existing flows and the FS-0141 harness (which predate the `confKey`
+ * field) still compile to a validating artifact; a richer sourcing UI
+ * lands in a later ticket. A missing or malformed reference is a missing
+ * required property, never a fabricated default or a silent omission.
+ * `connectionSelector` is never emitted and `server` is never read here.
  */
-function readConnectionSelector(
+function readMqttConfKey(
   config: Record<string, unknown>,
   nodeId: string,
-): { connectionSelector?: string } | { diagnostic: FlowDiagnostic } {
-  const selector: unknown = config.connectionSelector;
-  if (selector === undefined || selector === null || selector === '') {
-    return {};
+): { confKey: string } | { diagnostic: FlowDiagnostic } {
+  const confKey: unknown = config.confKey;
+  if (typeof confKey === 'string' && confKey.length > 0) {
+    return { confKey };
   }
-  if (typeof selector === 'string' && selector.length > 0) {
-    return { connectionSelector: selector };
+  const legacy: unknown = config.connectionSelector;
+  if (typeof legacy === 'string' && legacy.length > 0) {
+    return { confKey: legacy };
   }
   return {
     diagnostic: {
       code: FLOW_REQUIRED_PROPERTY_MISSING,
       severity: 'error',
       message:
-        `MQTT node "${nodeId}" has an invalid "connectionSelector" property: ` +
-        `expected the ID of an existing shared eKuiper MQTT connection.`,
+        `MQTT source node "${nodeId}" requires a non-empty "confKey" property ` +
+        `naming the eKuiper MQTT source configuration holding the broker.`,
       nodeId,
-      propertyPath: 'connectionSelector',
+      propertyPath: 'confKey',
+    },
+  };
+}
+
+/**
+ * Read the MQTT sink `server` broker address (FS-0142).
+ *
+ * Live-engine verification against eKuiper 2.4.1 showed that the sink
+ * connects with `server`, while `connectionSelector` is not honoured
+ * for graph rules. The value is taken from the node `server` config,
+ * falling back to the v1 `connectionSelector` value so existing flows
+ * and the FS-0141 harness (which predate the `server` field) still
+ * compile to a validating artifact. A missing or malformed value is a
+ * missing required property, never a fabricated default or a silent
+ * omission. `connectionSelector` is never emitted here.
+ */
+function readMqttServer(
+  config: Record<string, unknown>,
+  nodeId: string,
+): { server: string } | { diagnostic: FlowDiagnostic } {
+  const server: unknown = config.server;
+  if (typeof server === 'string' && server.length > 0) {
+    return { server };
+  }
+  const legacy: unknown = config.connectionSelector;
+  if (typeof legacy === 'string' && legacy.length > 0) {
+    return { server: legacy };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message:
+        `MQTT sink node "${nodeId}" requires a non-empty "server" property ` +
+        `with the MQTT broker address.`,
+      nodeId,
+      propertyPath: 'server',
     },
   };
 }
@@ -319,9 +362,9 @@ function toMqttSourceNode(
   if ('diagnostic' in topic) {
     return topic;
   }
-  const binding = readConnectionSelector(irNode.config, irNode.id);
-  if ('diagnostic' in binding) {
-    return binding;
+  const broker = readMqttConfKey(irNode.config, irNode.id);
+  if ('diagnostic' in broker) {
+    return broker;
   }
   return {
     node: {
@@ -329,9 +372,7 @@ function toMqttSourceNode(
       nodeType: MQTT_OPERATION,
       props: {
         datasource: topic.topic,
-        ...(binding.connectionSelector !== undefined
-          ? { connectionSelector: binding.connectionSelector }
-          : {}),
+        confKey: broker.confKey,
       },
     },
   };
@@ -344,9 +385,9 @@ function toMqttSinkNode(
   if ('diagnostic' in topic) {
     return topic;
   }
-  const binding = readConnectionSelector(irNode.config, irNode.id);
-  if ('diagnostic' in binding) {
-    return binding;
+  const broker = readMqttServer(irNode.config, irNode.id);
+  if ('diagnostic' in broker) {
+    return broker;
   }
   return {
     node: {
@@ -354,9 +395,7 @@ function toMqttSinkNode(
       nodeType: MQTT_OPERATION,
       props: {
         topic: topic.topic,
-        ...(binding.connectionSelector !== undefined
-          ? { connectionSelector: binding.connectionSelector }
-          : {}),
+        server: broker.server,
       },
     },
   };
