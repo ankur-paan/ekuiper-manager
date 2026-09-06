@@ -7,6 +7,7 @@ import {
   requireUser,
 } from '@/lib/api';
 import { getFlow, updateFlowMetadata } from '@/lib/flows/persistence/flow-repository';
+import { recordAuditSafely } from '@/lib/audit';
 import { getNode } from '@/lib/nodes';
 
 export const dynamic = 'force-dynamic';
@@ -43,7 +44,7 @@ export async function PATCH(
 ) {
   try {
     assertSameOrigin(request);
-    await requireUser(request);
+    const actor = await requireUser(request);
     const { id } = await params;
     const body = await readJsonObject(request);
 
@@ -92,6 +93,22 @@ export async function PATCH(
     if (!flow) {
       throw new ApiError(404, 'Flow not found', 'FLOW_NOT_FOUND');
     }
+    // FS-0030: audit metadata updates with the flow id and safe metadata
+    // only (updated field names, not values). Never store raw config/draft
+    // JSON or secrets in audit metadata.
+    const updatedFields = [
+      ...(hasName ? ['name'] : []),
+      ...(hasDescription ? ['description'] : []),
+      ...(hasTargetNodeId ? ['targetNodeId'] : []),
+    ];
+    recordAuditSafely({
+      actorId: actor.id,
+      action: 'flow.update',
+      resourceType: 'flow',
+      resourceId: flow.id,
+      success: true,
+      metadata: { updatedFields },
+    });
     return NextResponse.json({ flow });
   } catch (error) {
     return apiErrorResponse(error);

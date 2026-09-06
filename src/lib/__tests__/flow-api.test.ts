@@ -160,11 +160,12 @@ describe('POST /api/flows', () => {
     expect(response.status).toBe(201);
     const payload = await response.json();
     expect(payload.flow).toMatchObject({ id: 'flow-1', name: 'Trimmed' });
-    expect(mockedQuery).toHaveBeenCalledTimes(1);
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
     const [text, values] = mockedQuery.mock.calls[0];
     expect(text).toContain('INSERT INTO flows');
     expect(text).not.toContain('flow_drafts');
     expect(values?.slice(1)).toEqual(['Trimmed', 'Line A', null, 'user-1']);
+    expect(mockedQuery.mock.calls[1][0]).toContain('INSERT INTO audit_events');
   });
 
   it('validates a registered target node before creating', async () => {
@@ -177,11 +178,12 @@ describe('POST /api/flows', () => {
     const response = await POST(postRequest({ name: 'With target', targetNodeId: 'node-1' }));
 
     expect(response.status).toBe(201);
-    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    expect(mockedQuery).toHaveBeenCalledTimes(3);
     expect(mockedQuery.mock.calls[0][0]).toContain('FROM managed_nodes');
     expect(mockedQuery.mock.calls[0][1]).toEqual(['node-1']);
     const [, insertValues] = mockedQuery.mock.calls[1];
     expect(insertValues?.slice(1)).toEqual(['With target', null, 'node-1', 'user-1']);
+    expect(mockedQuery.mock.calls[2][0]).toContain('INSERT INTO audit_events');
   });
 
   it('returns 404 for an unknown target node without creating', async () => {
@@ -213,9 +215,10 @@ describe('POST /api/flows', () => {
     const response = await POST(postRequest({ name: 'Flow', targetNodeId: '   ' }));
 
     expect(response.status).toBe(201);
-    expect(mockedQuery).toHaveBeenCalledTimes(1);
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
     const [text] = mockedQuery.mock.calls[0];
     expect(text).toContain('INSERT INTO flows');
+    expect(mockedQuery.mock.calls[1][0]).toContain('INSERT INTO audit_events');
   });
 });
 
@@ -319,10 +322,11 @@ describe('PATCH /api/flows/:id', () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.flow).toMatchObject({ id: 'flow-1', name: 'Renamed' });
-    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    expect(mockedQuery).toHaveBeenCalledTimes(3);
     const updateCall = mockedQuery.mock.calls[1];
     expect(updateCall[0]).toContain('UPDATE flows SET');
     expect(updateCall[0]).toContain('updated_at = now()');
+    expect(mockedQuery.mock.calls[2][0]).toContain('INSERT INTO audit_events');
     for (const call of mockedQuery.mock.calls) {
       expect(String(call[0])).not.toContain('flow_drafts');
     }
@@ -342,10 +346,11 @@ describe('PATCH /api/flows/:id', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockedQuery).toHaveBeenCalledTimes(3);
+    expect(mockedQuery).toHaveBeenCalledTimes(4);
     expect(mockedQuery.mock.calls[1][0]).toContain('FROM managed_nodes');
     expect(mockedQuery.mock.calls[1][1]).toEqual(['node-1']);
     expect(mockedQuery.mock.calls[2][0]).toContain('UPDATE flows SET');
+    expect(mockedQuery.mock.calls[3][0]).toContain('INSERT INTO audit_events');
   });
 
   it('returns 404 for a missing flow without updating', async () => {
@@ -460,10 +465,11 @@ describe('PATCH /api/flows/:id', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    expect(mockedQuery).toHaveBeenCalledTimes(3);
     for (const call of mockedQuery.mock.calls) {
       expect(String(call[0])).not.toContain('managed_nodes');
     }
     expect(mockedQuery.mock.calls[1][0]).toContain('UPDATE flows SET');
+    expect(mockedQuery.mock.calls[2][0]).toContain('INSERT INTO audit_events');
   });
 });

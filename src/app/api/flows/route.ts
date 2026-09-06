@@ -7,6 +7,7 @@ import {
   requireUser,
 } from '@/lib/api';
 import { createFlow, listFlows } from '@/lib/flows/persistence/flow-repository';
+import { recordAuditSafely } from '@/lib/audit';
 import { getNode } from '@/lib/nodes';
 
 export const dynamic = 'force-dynamic';
@@ -62,6 +63,16 @@ export async function POST(request: NextRequest) {
       description: body.description ?? undefined,
       targetNodeId: targetNodeId ?? undefined,
       createdBy: actor.id,
+    });
+    // FS-0030: audit flow creation with the flow id and safe metadata only.
+    // Never store raw config/draft JSON or secrets in audit metadata.
+    recordAuditSafely({
+      actorId: actor.id,
+      action: 'flow.create',
+      resourceType: 'flow',
+      resourceId: flow.id,
+      success: true,
+      metadata: { name: flow.name },
     });
     return NextResponse.json({ flow }, { status: 201 });
   } catch (error) {
