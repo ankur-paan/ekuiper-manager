@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,24 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type { FlowOptionItem, FlowPropertyDefinition } from "@/lib/flows/registry/node-definition";
 import { mergeFlowPropertyOptions } from "@/lib/flows/registry/node-definition";
+import type { ExpressionEditorProps } from "./expression-editor";
+
+/**
+ * FS-0128: expression editing is lazy. The Monaco-backed editor lives in
+ * `./expression-editor` and is split into its own client chunk so flows
+ * without expression fields never load or instantiate Monaco.
+ */
+const ExpressionEditor = dynamic<ExpressionEditorProps>(
+  () => import("./expression-editor").then((mod) => mod.ExpressionEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="text-xs text-muted-foreground">
+        Loading expression editor…
+      </p>
+    ),
+  },
+);
 
 export interface PropertyFieldProps {
   definition: FlowPropertyDefinition;
@@ -26,7 +45,10 @@ export interface PropertyFieldProps {
 /**
  * FS-0061: generic property control renderer.
  * FS-0062: adds json (plain textarea with local parse error) and
- * expression (plain textarea, opaque text; Monaco comes later) controls.
+ * expression (plain textarea, opaque text) controls.
+ * FS-0128: expression rendering is delegated to the lazily-loaded
+ * `./expression-editor` (Monaco on focus, textarea fallback); no custom
+ * expression parser/autocomplete here.
  *
  * Renders string/number/boolean/select/json/expression controls from a
  * FlowPropertyDefinition. Other definition types (secret-ref or future
@@ -548,22 +570,23 @@ function ExpressionField({
   fieldId: string;
   descriptionId: string | undefined;
 }) {
-  // FS-0062: expression is opaque text; no parsing or Monaco here.
-  // Preserve explicit values; only null/undefined render as empty text.
+  // FS-0062: expression is opaque text; no parsing here.
+  // FS-0128: Monaco is lazy (./expression-editor): initial render is a
+  // textarea fallback and the enhanced editor mounts only on focus, so
+  // non-expression flows never instantiate Monaco. The string value
+  // round-trips unchanged through either mode.
   // FS-0146: honour placeholder as a display-only hint.
   const text = typeof value === "string" ? value : value === undefined || value === null ? "" : String(value);
   const placeholder =
     typeof definition.typeOptions?.placeholder === "string" ? definition.typeOptions.placeholder : undefined;
   return (
-    <Textarea
-      id={fieldId}
-      aria-describedby={descriptionId}
+    <ExpressionEditor
       value={text}
-      rows={3}
-      spellCheck={false}
       placeholder={placeholder}
-      onChange={(event) => {
-        onChange(event.target.value);
+      fieldId={fieldId}
+      descriptionId={descriptionId}
+      onChange={(next) => {
+        onChange(next);
       }}
     />
   );
