@@ -38,6 +38,8 @@ import {
   tableSourceDefinition,
 } from '../../registry/builtins/stream-source';
 import { NodeRegistry } from '../../registry/node-registry';
+import type { FlowNodeDefinition } from '../../registry/node-definition';
+import type { TargetCapabilityProfile } from '../../capabilities/types';
 import { validateRuleOptionsShape } from '../../validation/document-shape';
 import { createRuntimeId } from '../runtime-id';
 import {
@@ -45,6 +47,11 @@ import {
   type CompileFlowResult,
 } from '../types';
 import type { EkuiperGraphNode } from './graph-types';
+import {
+  compileExtensionNode,
+  hasExtensionRuntimeMapping,
+  resolveExtensionIrMetadata,
+} from './compile-extension-node';
 
 /**
  * Minimal eKuiper graph-rule compiler (FS-0074, extended by
@@ -576,8 +583,24 @@ function toLogSinkNode(irNode: FlowIrNode): { node: EkuiperGraphNode } {
 }
 
 /**
+ * Optional inputs for {@link compileFlowToEkuiperGraph} (FS-0117).
+ *
+ * - `registry`: combined Flow node registry (built-ins plus validated
+ *   extension definitions, e.g. from `createFlowRegistry`). When omitted
+ *   the compiler uses its built-in overlay exactly as before.
+ * - `capabilities`: normalized target capability profile used to gate
+ *   extension nodes carrying a capability requirement. When omitted the
+ *   requirement is treated as satisfied so pre-FS-0117 callers keep
+ *   compiling unchanged.
+ */
+export interface CompileFlowToEkuiperGraphOptions {
+  registry?: NodeRegistry;
+  capabilities?: TargetCapabilityProfile;
+}
+
+/**
  * Compiler-local registry overlay (FS-0075, extended by FS-0076/FS-0077/
- * FS-0078 and FS-0143 and FS-0153).
+ * FS-0078 and FS-0143 and FS-0153 and FS-0117).
  *
  * `filter`/`pick`/`func`/`window`/`aggregate`/`group-by`/`switch`/`sort`/
  * `join`/`stream-source`/`table-source` definitions intentionally carry no
@@ -603,10 +626,19 @@ function toLogSinkNode(irNode: FlowIrNode): { node: EkuiperGraphNode } {
  * name (`rest`, `log`). Every mapped type has a `to*Node` mapper below;
  * anything else still fails IR building with a structured diagnostic
  * instead of being silently dropped or guessed.
+ *
+ * (FS-0117: definitions carrying a declarative `runtimeMapping` but no
+ * `runtimeKind`/`operation` — i.e. validated extension nodes — are
+ * bridged with IR identity derived from the mapping (`kind`/`nodeType`
+ * via `resolveExtensionIrMetadata`) so the shared IR builder accepts
+ * them; their graph nodes are produced by the generic
+ * `compileExtensionNode` mapping, never by the built-in mappers below.
+ * An optional base registry (built-ins plus extensions) may be supplied;
+ * when omitted the built-in registry is used exactly as before.)
  */
-function createCompilerRegistry(): NodeRegistry {
+function createCompilerRegistry(base?: NodeRegistry): NodeRegistry {
   const registry = new NodeRegistry();
-  for (const definition of createBuiltinNodeRegistry().list()) {
+  for (const definition of (base ?? createBuiltinNodeRegistry()).list()) {
     if (
       definition.type === filterDefinition.type &&
       definition.version === filterDefinition.version
@@ -742,6 +774,17 @@ function createCompilerRegistry(): NodeRegistry {
         runtimeKind: 'sink',
         operation: LOG_OPERATION,
       });
+    } else if (hasExtensionRuntimeMapping(definition)) {
+      const extensionIr = resolveExtensionIrMetadata(definition);
+      if (extensionIr !== undefined) {
+        registry.register({
+          ...definition,
+          runtimeKind: extensionIr.kind,
+          operation: extensionIr.operation,
+        });
+      } else {
+        registry.register(definition);
+      }
     } else {
       registry.register(definition);
     }
@@ -1842,9 +1885,15 @@ function readFlowRuleOptions(
  * Every user-correctable failure is returned as a structured diagnostic
  * (never a thrown string); only an empty Flow metadata ID or a missing
  * runtime ID after validation throws, as internal invariant violations.
+ *
+ * (FS-0117: when `options.registry` carries definitions with a
+ * declarative `runtimeMapping`, those nodes compile through the generic
+ * extension mapping — allowlisted config keys only, capability-gated by
+ * `options.capabilities` — instead of the built-in mappers.)
  */
 export function compileFlowToEkuiperGraph(
   document: FlowDocument,
+  options: CompileFlowToEkuiperGraphOptions = {},
 ): CompileFlowResult {
   const semanticHash = hashFlowSemantic(document.spec);
   const ruleId = toSafeRuleId(document.metadata.id);
@@ -1862,7 +1911,16 @@ export function compileFlowToEkuiperGraph(
     };
   }
 
-  const irResult = buildFlowIr(document, createCompilerRegistry());
+  const effectiveRegistry = createCompilerRegistry(options.registry);
+  const definitionByFlowNodeId = new Map<string, FlowNodeDefinition>();
+  for (const flowNode of document.spec.nodes) {
+    const definition = effectiveRegistry.get(flowNode.type, flowNode.typeVersion);
+    if (definition !== undefined) {
+      definitionByFlowNodeId.set(flowNode.id, definition);
+    }
+  }
+
+  const irResult = buildFlowIr(document, effectiveRegistry);
   if (!irResult.ok) {
     return { ok: false, artifact: undefined, diagnostics: irResult.diagnostics };
   }
@@ -1916,7 +1974,13 @@ export function compileFlowToEkuiperGraph(
 
   const graphNodes: Record<string, EkuiperGraphNode> = {};
   for (const irNode of irNodes) {
-    const mapped = toEkuiperNode(irNode);
+    const definition = definitionByFlowNodeId.get(irNode.id);
+    const mapped =
+      definition !== undefined && hasExtensionRuntimeMapping(definition)
+        ? compileExtensionNode(irNode, definition, {
+            capabilities: options.capabilities,
+          })
+        : toEkuiperNode(irNode);
     if ('diagnostic' in mapped) {
       return { ok: false, artifact: undefined, diagnostics: [mapped.diagnostic] };
     }
