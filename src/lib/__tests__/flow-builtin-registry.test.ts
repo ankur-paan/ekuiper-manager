@@ -33,7 +33,7 @@ function assertValidCompilerMapping(definition: FlowNodeDefinition | undefined):
 }
 
 describe('createBuiltinNodeRegistry', () => {
-  it('lists the memory, MQTT, REST, log, filter, pick, func, window, aggregate, group-by, switch, and sort definitions', () => {
+  it('lists the memory, MQTT, REST, log, filter, pick, func, window, aggregate, group-by, switch, sort, stream-source, and table-source definitions', () => {
     const registry = createBuiltinNodeRegistry();
 
     expect(registry.has('memory-source', 1)).toBe(true);
@@ -50,6 +50,8 @@ describe('createBuiltinNodeRegistry', () => {
     expect(registry.has('group-by', 1)).toBe(true);
     expect(registry.has('switch', 1)).toBe(true);
     expect(registry.has('sort', 1)).toBe(true);
+    expect(registry.has('stream-source', 1)).toBe(true);
+    expect(registry.has('table-source', 1)).toBe(true);
     expect(registry.list().map((item) => `${item.type}@${item.version}`).sort()).toEqual([
       'aggregate@1',
       'filter@1',
@@ -64,7 +66,9 @@ describe('createBuiltinNodeRegistry', () => {
       'pick@1',
       'rest-sink@1',
       'sort@1',
+      'stream-source@1',
       'switch@1',
+      'table-source@1',
       'window@1',
     ]);
   });
@@ -890,6 +894,143 @@ describe('createBuiltinNodeRegistry', () => {
     expect(first.get('sort', 1)).toEqual(second.get('sort', 1));
   });
 
+  it('registers stream and table reference sources with stream/table output kinds', () => {
+    const registry = createBuiltinNodeRegistry();
+    const streamSource = registry.get('stream-source', 1);
+    const tableSource = registry.get('table-source', 1);
+
+    expect(streamSource?.displayName).toBe('Stream Source');
+    expect(streamSource?.category).toBe('source');
+    expect(streamSource?.inputs).toEqual([]);
+    expect(streamSource?.outputs).toEqual([{ id: 'out', label: 'Stream', kind: 'stream' }]);
+
+    expect(tableSource?.displayName).toBe('Table Source');
+    expect(tableSource?.category).toBe('source');
+    expect(tableSource?.inputs).toEqual([]);
+    expect(tableSource?.outputs).toEqual([{ id: 'out', label: 'Table', kind: 'table' }]);
+  });
+
+  it('references existing streams/tables via dynamic option providers plus an explicit connector', () => {
+    const registry = createBuiltinNodeRegistry();
+    const streamSource = registry.get('stream-source', 1);
+    const tableSource = registry.get('table-source', 1);
+
+    const stream = streamSource?.properties.find((property) => property.key === 'stream');
+    expect(stream?.required).toBe(true);
+    expect(stream?.type).toBe('select');
+    expect(stream?.optionsProvider).toBe('streams');
+
+    const table = tableSource?.properties.find((property) => property.key === 'table');
+    expect(table?.required).toBe(true);
+    expect(table?.type).toBe('select');
+    expect(table?.optionsProvider).toBe('tables');
+
+    for (const definition of [streamSource, tableSource]) {
+      const connector = definition?.properties.find(
+        (property) => property.key === 'connector',
+      );
+      expect(connector?.required).toBe(true);
+      expect(connector?.type).toBe('string');
+
+      expect(definition?.subtitleKey).toBe(
+        definition?.type === 'stream-source' ? 'stream' : 'table',
+      );
+      assertValidCompilerMapping(definition);
+    }
+  });
+
+  it('validates the required stream/table reference settings via the generic property validator', () => {
+    const registry = createBuiltinNodeRegistry();
+
+    const missingStream = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-stream-source-1',
+          type: 'stream-source',
+          typeVersion: 1,
+          name: 'Stream Source',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingStreamDiagnostics = validateFlowRequiredProperties(
+      missingStream,
+      registry,
+    ).filter((item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING');
+    expect(missingStreamDiagnostics.map((item) => item.propertyPath).sort()).toEqual([
+      'config.connector',
+      'config.stream',
+    ]);
+    for (const diagnostic of missingStreamDiagnostics) {
+      expect(diagnostic.nodeId).toBe('node-stream-source-1');
+    }
+
+    const presentStream = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-stream-source-1',
+          type: 'stream-source',
+          typeVersion: 1,
+          name: 'Stream Source',
+          config: { stream: 'demoStream', connector: 'mqtt' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(presentStream, registry)).toEqual([]);
+
+    const missingTable = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-table-source-1',
+          type: 'table-source',
+          typeVersion: 1,
+          name: 'Table Source',
+          config: {},
+        }),
+      ],
+      edges: [],
+    });
+
+    const missingTableDiagnostics = validateFlowRequiredProperties(
+      missingTable,
+      registry,
+    ).filter((item) => item.code === 'FLOW_REQUIRED_PROPERTY_MISSING');
+    expect(missingTableDiagnostics.map((item) => item.propertyPath).sort()).toEqual([
+      'config.connector',
+      'config.table',
+    ]);
+    for (const diagnostic of missingTableDiagnostics) {
+      expect(diagnostic.nodeId).toBe('node-table-source-1');
+    }
+
+    const presentTable = createMinimalFlowDocument({
+      nodes: [
+        createFlowNode({
+          id: 'node-table-source-1',
+          type: 'table-source',
+          typeVersion: 1,
+          name: 'Table Source',
+          config: { table: 'demoTable', connector: 'redis' },
+        }),
+      ],
+      edges: [],
+    });
+
+    expect(validateFlowRequiredProperties(presentTable, registry)).toEqual([]);
+  });
+
+  it('registers the stream and table reference definitions deterministically', () => {
+    const first = createBuiltinNodeRegistry();
+    const second = createBuiltinNodeRegistry();
+
+    expect(first.get('stream-source', 1)).toEqual(second.get('stream-source', 1));
+    expect(first.get('table-source', 1)).toEqual(second.get('table-source', 1));
+  });
+
   it('declares only valid compiler mapping shapes when present', () => {
     const registry = createBuiltinNodeRegistry();
     for (const definition of registry.list()) {
@@ -902,14 +1043,14 @@ describe('createBuiltinNodeRegistry', () => {
     const second = createBuiltinNodeRegistry();
 
     expect(first).not.toBe(second);
-    expect(first.list()).toHaveLength(15);
-    expect(second.list()).toHaveLength(15);
+    expect(first.list()).toHaveLength(17);
+    expect(second.list()).toHaveLength(17);
 
     first.register(buildDefinition({ type: 'test-custom', version: 1 }));
 
     expect(first.has('test-custom', 1)).toBe(true);
-    expect(first.list()).toHaveLength(16);
-    expect(second.list()).toHaveLength(15);
+    expect(first.list()).toHaveLength(18);
+    expect(second.list()).toHaveLength(17);
     expect(second.has('test-custom', 1)).toBe(false);
     expect(second.get('test-custom', 1)).toBeUndefined();
   });

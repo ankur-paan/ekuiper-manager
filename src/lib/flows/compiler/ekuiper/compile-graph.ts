@@ -33,6 +33,10 @@ import {
   switchDefinition,
 } from '../../registry/builtins/routing';
 import { joinDefinition } from '../../registry/builtins/join';
+import {
+  streamSourceDefinition,
+  tableSourceDefinition,
+} from '../../registry/builtins/stream-source';
 import { NodeRegistry } from '../../registry/node-registry';
 import { validateRuleOptionsShape } from '../../validation/document-shape';
 import { createRuntimeId } from '../runtime-id';
@@ -46,8 +50,9 @@ import type { EkuiperGraphNode } from './graph-types';
  * Minimal eKuiper graph-rule compiler (FS-0074, extended by
  * FS-0075/FS-0076/FS-0077/FS-0078).
  *
- * Scope: compiles a validated Flow DAG into one eKuiper graph rule
- * definition. Supported nodes: one or more memory/mqtt sources, the
+  * Scope: compiles a validated Flow DAG into one eKuiper graph rule
+  * definition. Supported nodes: one or more memory/mqtt/stream-reference/
+  * table-reference sources, the
  * filter/pick/function/window/aggfunc/groupby/orderby/switch/join operators, and
  * one or more memory/mqtt/rest/log sinks. Linear operators carry exactly one input and
  * one output, except the window operator which admits converging fan-in
@@ -141,11 +146,25 @@ import type { EkuiperGraphNode } from './graph-types';
  *   `insecureSkipVerify`) stay out of scope. The log sink maps the
  *   confirmed `LogSink`/`KNOWN_FIELDS.log` contract (no required keys) to
  *   empty `props`.
- * - Script values (FS-0143): the `func` Flow type maps to the eKuiper
- *   graph `function` operator as `{type: "operator",
- *   nodeType: "function", props: {expr: "<expression>"}}`, copying the
- *   Flow `expression` config verbatim into `expr` (stored as opaque text;
- *   no code is ever executed in Manager).
+  * - Script values (FS-0143): the `func` Flow type maps to the eKuiper
+  *   graph `function` operator as `{type: "operator",
+  *   nodeType: "function", props: {expr: "<expression>"}}`, copying the
+  *   Flow `expression` config verbatim into `expr` (stored as opaque text;
+  *   no code is ever executed in Manager).
+  * - Reference values (FS-0153): the `stream-source`/`table-source` Flow
+  *   types map to the eKuiper graph named stream/table source form from
+  *   the official graph_rule doc ("Source Node": a source node "can be a
+  *   stream or table", `sourceType` is `stream` or `table`, `sourceName`
+  *   names the stream/table, and "the nodeType is the same as the type of
+  *   the stream/table") as `{type: "source", nodeType: "<connector>",
+  *   props: {sourceType: "stream"|"table", sourceName: "<name>"}}`,
+  *   copying the Flow `stream`/`table` name and `connector` configs
+  *   verbatim into `sourceName` and `nodeType`. The audited `RuleGraph`
+  *   schema (`public/ekuiper-openapi.json`, eKuiper 2.4.1) carries node
+  *   `props` free-form, so this shape satisfies the audited envelope. A
+  *   missing name or connector is a structured diagnostic, never a
+  *   fabricated default or a silent omission. No plaintext credential is
+  *   ever read or emitted.
  *
  * Determinism: same Flow document always yields the same artifact
  * (deterministic runtime IDs, sorted IR input, canonical semantic hash,
@@ -174,6 +193,8 @@ const GROUPBY_OPERATION = 'groupby';
 const SWITCH_OPERATION = 'switch';
 const SORT_OPERATION = 'orderby';
 const JOIN_OPERATION = 'join';
+const STREAM_REF_OPERATION = 'stream';
+const TABLE_REF_OPERATION = 'table';
 
 const SOURCE_KIND_PREFIX = 'source';
 const SINK_KIND_PREFIX = 'sink';
@@ -556,12 +577,13 @@ function toLogSinkNode(irNode: FlowIrNode): { node: EkuiperGraphNode } {
 
 /**
  * Compiler-local registry overlay (FS-0075, extended by FS-0076/FS-0077/
- * FS-0078 and FS-0143).
+ * FS-0078 and FS-0143 and FS-0153).
  *
  * `filter`/`pick`/`func`/`window`/`aggregate`/`group-by`/`switch`/`sort`/
- * `join` definitions intentionally carry no `runtimeKind` / `operation`
- * metadata (transforms.ts, script.ts, window.ts, aggregate.ts, routing.ts,
- * and join.ts defer that mapping to "a later compiler ticket"), so the
+ * `join`/`stream-source`/`table-source` definitions intentionally carry no
+ * `runtimeKind` / `operation` metadata (transforms.ts, script.ts,
+ * window.ts, aggregate.ts, routing.ts, join.ts, and stream-source.ts defer
+ * that mapping to "a later compiler ticket"), so the
  * shared `createBuiltinNodeRegistry()` cannot build IR for them yet. The
  * same holds for the FS-0078 connectors: mqtt.ts and sinks.ts
  * intentionally omit `runtimeKind`/`operation` until this compiler ticket.
@@ -572,7 +594,11 @@ function toLogSinkNode(irNode: FlowIrNode): { node: EkuiperGraphNode } {
  * `aggfunc` for the `aggregate` Flow type, `groupby` for the `group-by`
  * Flow type, `switch` for the `switch` Flow type, `orderby` for the `sort`
  * Flow type, `join` for the `join` Flow type), each MQTT definition with
- * its kind (`source`/`sink`) plus the `mqtt` connector name, and each
+ * its kind (`source`/`sink`) plus the `mqtt` connector name, each
+ * stream/table reference definition with `runtimeKind: 'source'` plus its
+ * IR discriminator (`stream` for the `stream-source` Flow type, `table`
+ * for the `table-source` Flow type; the eKuiper graph `nodeType` itself
+ * comes from node config, never from this discriminator), and each
  * REST/log sink definition with `runtimeKind: 'sink'` plus its connector
  * name (`rest`, `log`). Every mapped type has a `to*Node` mapper below;
  * anything else still fails IR building with a structured diagnostic
@@ -661,6 +687,24 @@ function createCompilerRegistry(): NodeRegistry {
         ...definition,
         runtimeKind: 'operator',
         operation: JOIN_OPERATION,
+      });
+    } else if (
+      definition.type === streamSourceDefinition.type &&
+      definition.version === streamSourceDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'source',
+        operation: STREAM_REF_OPERATION,
+      });
+    } else if (
+      definition.type === tableSourceDefinition.type &&
+      definition.version === tableSourceDefinition.version
+    ) {
+      registry.register({
+        ...definition,
+        runtimeKind: 'source',
+        operation: TABLE_REF_OPERATION,
       });
     } else if (
       definition.type === mqttSourceDefinition.type &&
@@ -1223,6 +1267,72 @@ function toJoinNode(
 }
 
 /**
+ * Read one required non-empty string property from a stream/table
+ * reference IR node config.
+ *
+ * The value is copied verbatim into the eKuiper graph source node; it is
+ * never parsed here. A missing or empty value is a missing required
+ * property, never a fabricated default or a silent omission.
+ */
+function readStreamRefString(
+  config: Record<string, unknown>,
+  nodeId: string,
+  property: 'stream' | 'table' | 'connector',
+): { value: string } | { diagnostic: FlowDiagnostic } {
+  const value: unknown = config[property];
+  if (typeof value === 'string' && value.length > 0) {
+    return { value };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message: `Stream reference node "${nodeId}" requires a non-empty "${property}" property.`,
+      nodeId,
+      propertyPath: property,
+    },
+  };
+}
+
+/**
+ * Map one stream/table reference IR node to its eKuiper graph source node.
+ *
+ * Official eKuiper graph_rule doc ("Source Node", same version family as
+ * the audited OpenAPI): a source node "can be a stream or table", the
+ * `sourceType` prop is `stream` or `table`, `sourceName` names the
+ * stream/table, and "the nodeType is the same as the type of the
+ * stream/table". The referenced name (`stream`/`table` config) therefore
+ * compiles verbatim to `sourceName`, the `connector` config (the
+ * stream/table's source connector TYPE) compiles verbatim to `nodeType`,
+ * and `sourceType` is pinned per Flow type. Neither value is ever
+ * fabricated: a missing name or connector is a missing required property.
+ */
+function toStreamRefNode(
+  irNode: FlowIrNode,
+  sourceType: 'stream' | 'table',
+): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
+  const nameKey = sourceType === 'stream' ? 'stream' : 'table';
+  const name = readStreamRefString(irNode.config, irNode.id, nameKey);
+  if ('diagnostic' in name) {
+    return name;
+  }
+  const connector = readStreamRefString(irNode.config, irNode.id, 'connector');
+  if ('diagnostic' in connector) {
+    return connector;
+  }
+  return {
+    node: {
+      type: 'source',
+      nodeType: connector.value,
+      props: {
+        sourceType,
+        sourceName: name.value,
+      },
+    },
+  };
+}
+
+/**
  * Map one IR node to its eKuiper graph node. Any kind/operation pair
  * without an exact mapping yields a structured diagnostic; nodes are
  * never silently dropped.
@@ -1235,6 +1345,12 @@ function toEkuiperNode(
   }
   if (irNode.kind === 'source' && irNode.operation === MQTT_OPERATION) {
     return toMqttSourceNode(irNode);
+  }
+  if (irNode.kind === 'source' && irNode.operation === STREAM_REF_OPERATION) {
+    return toStreamRefNode(irNode, 'stream');
+  }
+  if (irNode.kind === 'source' && irNode.operation === TABLE_REF_OPERATION) {
+    return toStreamRefNode(irNode, 'table');
   }
   if (irNode.kind === 'sink' && irNode.operation === MEMORY_OPERATION) {
     return toMemorySinkNode(irNode);
@@ -1718,7 +1834,8 @@ function readFlowRuleOptions(
 
 /**
  * Compile a semantic Flow document into an eKuiper graph-rule deployment
- * artifact. Supported shape: one or more memory/mqtt sources feeding a DAG of
+ * artifact. Supported shape: one or more memory/mqtt/stream-reference/
+ * table-reference sources feeding a DAG of
  * memory/mqtt/filter/pick/function/window/aggfunc/groupby/orderby/switch/join nodes
  * into one or more memory/mqtt/rest/log sinks, validated by `validateDagShape`.
  *
