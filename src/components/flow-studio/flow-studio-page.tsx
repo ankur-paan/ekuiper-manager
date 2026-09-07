@@ -18,6 +18,7 @@ import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader, type FlowDeploymentStatus, type FlowStudioSaveStatus } from './shell/flow-studio-header';
 import { FlowDeployDialog } from './deploy/deploy-dialog';
 import { NodeInspector } from './inspector/node-inspector';
+import { NodeFocusDialog } from './inspector/node-focus-dialog';
 import { FlowSettingsPanel } from './inspector/flow-settings-panel';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
@@ -717,6 +718,14 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
   React.useEffect(() => {
     setPaletteOpen(false);
   }, [flowId]);
+  // FS-0129: focus-mode node id opened by double-clicking an existing
+  // canvas node. Null means closed; opening or closing never mutates the
+  // document. Reset per flow so a stale dialog never edits a different
+  // flow.
+  const [focusNodeId, setFocusNodeId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setFocusNodeId(null);
+  }, [flowId]);
   const baseline = savedBaseline ?? queryBaseline;
   const dirtyState = React.useMemo(() => {
     if (!storeDocument || !baseline) {
@@ -1085,6 +1094,58 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
     [addNode, quickPicker],
   );
 
+  // FS-0129: open focus mode by double-clicking an existing canvas node.
+  // FlowCanvas intentionally filters node double-clicks out of
+  // onEmptyDoubleClick (FS-0070), and this ticket may only touch
+  // flow-studio-page.tsx, so the parent column observes the bubbled
+  // dblclick and resolves the XYFlow node id from the DOM. The id is
+  // validated against committed store state before opening; unknown ids
+  // are ignored without mutation. Closing creates no extra save: config
+  // edits are already committed to the store (autosaved by FS-0047).
+  const handleCanvasColumnDoubleClick = React.useCallback(
+    (event: React.MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const nodeElement = target.closest('.react-flow__node');
+      if (!(nodeElement instanceof HTMLElement)) return;
+      const id = nodeElement.getAttribute('data-id');
+      if (!id) return;
+      const current = useFlowEditorStore.getState().document;
+      if (!current || !current.spec.nodes.some((node) => node.id === id)) {
+        return;
+      }
+      setFocusNodeId(id);
+    },
+    [],
+  );
+
+  const handleFocusClose = React.useCallback(() => {
+    setFocusNodeId(null);
+  }, []);
+
+  // FS-0129: same node-scoped diagnostics for the focus-mode dialog,
+  // filtered by the focused node id (not the side-inspector selection) so
+  // both surfaces report identical validation for the same node. Pure
+  // read of the same editor pipeline; never mutates the document.
+  const focusDiagnostics = React.useMemo<FlowDiagnostic[]>(() => {
+    if (!focusNodeId || !storeDocument) return [];
+    const edgesById = new Map(
+      storeDocument.spec.edges.map((edge) => [edge.id, edge]),
+    );
+    return flowDiagnostics.filter((diagnostic) => {
+      if (diagnostic.nodeId === focusNodeId) return true;
+      if (!diagnostic.nodeId && diagnostic.edgeId) {
+        const edge = edgesById.get(diagnostic.edgeId);
+        return (
+          edge !== undefined &&
+          (edge.sourceNodeId === focusNodeId ||
+            edge.targetNodeId === focusNodeId)
+        );
+      }
+      return false;
+    });
+  }, [flowDiagnostics, focusNodeId, storeDocument]);
+
   // FS-0127: command palette callbacks. Every command delegates to an
   // action that already exists: the quick picker (same registry catalog,
   // no duplicate source), the Deploy dialog opener, the existing
@@ -1307,7 +1368,11 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
           palette={<NodePalette definitions={paletteDefinitions} capabilities={capabilityProfile} />}
           canvas={
             canvasViewWithValidation ? (
-              <div className="flex h-full min-h-0 flex-col" data-testid="flow-studio-canvas-column">
+              <div
+                className="flex h-full min-h-0 flex-col"
+                data-testid="flow-studio-canvas-column"
+                onDoubleClick={handleCanvasColumnDoubleClick}
+              >
                 <div className="relative min-h-0 flex-1">
                   <FlowCanvas
                     edges={canvasViewWithValidation.edges}
@@ -1420,7 +1485,7 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
         />
       </div>
     );
-  }, [isLocalFixture, initialDocument, flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, handlePaletteOpen, storeDocument]);
+  }, [isLocalFixture, initialDocument, flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, handlePaletteOpen, handleCanvasColumnDoubleClick, storeDocument]);
 
   // FS-0127: command availability mirrors the underlying actions. Deploy
   // follows the same `deployReady` gate as the header button; node and
@@ -1431,6 +1496,16 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>
       {body}
+      {/* FS-0129: focus-mode dialog. The canvas stays mounted behind the
+          portal overlay; closing flips local state only and creates no
+          extra save beyond config changes already committed to the store. */}
+      <NodeFocusDialog
+        open={focusNodeId !== null}
+        nodeId={focusNodeId}
+        diagnostics={focusDiagnostics}
+        documentDiagnostics={documentDiagnostics}
+        onClose={handleFocusClose}
+      />
       <FlowCommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
