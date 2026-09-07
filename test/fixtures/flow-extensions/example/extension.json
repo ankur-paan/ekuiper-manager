@@ -1,0 +1,8 @@
+{
+  "apiVersion": "flow.extensions.ekuiper-manager.io/v1alpha1",
+  "id": "com.example.telemetry",
+  "name": "Example Telemetry",
+  "version": "1.0.0",
+  "manager": ">=2.0.0",
+  "nodes": ["nodes/example.json"]
+}

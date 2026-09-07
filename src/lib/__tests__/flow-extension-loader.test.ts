@@ -1,6 +1,7 @@
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { compileExtensionNode } from '@/lib/flows/compiler/ekuiper/compile-extension-node';
 import {
   FLOW_EXTENSION_LOAD_INVALID_JSON,
   FLOW_EXTENSION_LOAD_IO_ERROR,
@@ -16,28 +17,28 @@ import { FLOW_EXTENSION_INVALID_MANIFEST } from '@/lib/flows/extensions/validate
 
 const MANIFEST_FILE = 'extension.json';
 
-function buildManifest(nodes: string[] = ['nodes/example-source.json']) {
-  return {
-    apiVersion: 'flow.extensions.ekuiper-manager.io/v1alpha1',
-    id: 'com.example.telemetry',
-    name: 'Example Telemetry',
-    version: '1.0.0',
-    manager: '>=2.0.0',
-    nodes,
-  };
-}
+/**
+ * Checked-in declarative example extension (FS-0118).
+ *
+ * Single minimal package used by the loader tests instead of inline JSON.
+ * The descriptor demonstrates ports, one property, and the declarative
+ * eKuiper runtime mapping (whose `kind`/`nodeType` is also the capability
+ * requirement checked by the compiler). No executable files live here.
+ */
+const FLOW_EXTENSION_EXAMPLE_FIXTURE_DIR = path.resolve(
+  process.cwd(),
+  'test',
+  'fixtures',
+  'flow-extensions',
+  'example',
+);
+const FLOW_EXTENSION_EXAMPLE_DESCRIPTOR_REL = 'nodes/example.json';
 
-function buildDescriptor() {
-  return {
-    type: 'example-source',
-    version: 1,
-    displayName: 'Example Source',
-    description: 'Declarative test source.',
-    category: 'source',
-    inputs: [],
-    outputs: [{ id: 'out', kind: 'stream' }],
-    properties: [{ key: 'topic', label: 'Topic', type: 'string' }],
-  };
+async function readExampleFixture(relativePath: string): Promise<string> {
+  return readFile(
+    path.join(FLOW_EXTENSION_EXAMPLE_FIXTURE_DIR, relativePath),
+    'utf8',
+  );
 }
 
 async function writeExtension(
@@ -60,9 +61,16 @@ async function writeValidExtension(
   rootDir: string,
   extensionName = 'com.example.telemetry',
 ): Promise<void> {
-  await writeExtension(rootDir, extensionName, JSON.stringify(buildManifest()), {
-    'nodes/example-source.json': JSON.stringify(buildDescriptor()),
-  });
+  await writeExtension(
+    rootDir,
+    extensionName,
+    await readExampleFixture(MANIFEST_FILE),
+    {
+      [FLOW_EXTENSION_EXAMPLE_DESCRIPTOR_REL]: await readExampleFixture(
+        FLOW_EXTENSION_EXAMPLE_DESCRIPTOR_REL,
+      ),
+    },
+  );
 }
 
 describe('flow local extension loader', () => {
@@ -77,8 +85,76 @@ describe('flow local extension loader', () => {
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual([]);
     expect(result.extensionPackage?.manifest.id).toBe('com.example.telemetry');
+    expect(result.extensionPackage?.manifest.nodes).toEqual([
+      FLOW_EXTENSION_EXAMPLE_DESCRIPTOR_REL,
+    ]);
     expect(result.extensionPackage?.nodes).toHaveLength(1);
-    expect(result.extensionPackage?.nodes[0]?.type).toBe('example-source');
+    const descriptor = result.extensionPackage?.nodes[0];
+    expect(descriptor?.type).toBe('example-source');
+    // Fixture demonstrates ports, one property, and the declarative mapping.
+    expect(descriptor?.outputs).toEqual([{ id: 'out', kind: 'stream' }]);
+    expect(descriptor?.properties).toEqual([
+      { key: 'topic', label: 'Topic', type: 'string' },
+    ]);
+    expect(descriptor?.runtimeMapping).toEqual({
+      kind: 'source',
+      nodeType: 'examplesrc',
+      properties: { topic: 'datasource' },
+    });
+  });
+
+  it('compiles the fixture descriptor through the declarative mapping', async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), 'flow-ext-'));
+    await writeValidExtension(rootDir);
+
+    const loaded = await loadLocalExtension('com.example.telemetry', {
+      rootDir,
+    });
+    expect(loaded.ok).toBe(true);
+    const definition = loaded.extensionPackage?.nodes[0];
+    expect(definition).toBeDefined();
+    if (definition === undefined) return;
+
+    const outcome = compileExtensionNode(
+      {
+        id: 'node-fixture-1',
+        kind: 'source',
+        operation: 'examplesrc',
+        config: { topic: 'devices/in', note: 'ignored-unknown' },
+      },
+      definition,
+    );
+
+    expect('node' in outcome).toBe(true);
+    if (!('node' in outcome)) return;
+    expect(outcome.node).toEqual({
+      type: 'source',
+      nodeType: 'examplesrc',
+      props: { datasource: 'devices/in' },
+    });
+  });
+
+  it('ships no executable file alongside the declarative fixture', async () => {
+    const entries: string[] = [];
+    async function collect(dir: string, base: string): Promise<void> {
+      const names = await readdir(dir);
+      for (const name of [...names].sort()) {
+        const absolute = path.join(dir, name);
+        const relative = base === '' ? name : `${base}/${name}`;
+        const entryStat = await stat(absolute);
+        if (entryStat.isDirectory()) {
+          await collect(absolute, relative);
+        } else {
+          entries.push(relative);
+        }
+      }
+    }
+    await collect(FLOW_EXTENSION_EXAMPLE_FIXTURE_DIR, '');
+
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.toLowerCase().endsWith('.json')).toBe(true);
+    }
   });
 
   it('rejects outside-root names before any filesystem access', async () => {
@@ -145,12 +221,18 @@ describe('flow local extension loader', () => {
 
   it('rejects oversized manifest files above the documented cap', async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), 'flow-ext-'));
+    const manifest = JSON.parse(await readExampleFixture(MANIFEST_FILE)) as Record<
+      string,
+      unknown
+    >;
     const oversized = {
-      ...buildManifest(),
+      ...manifest,
       padding: 'x'.repeat(FLOW_LOCAL_EXTENSION_MAX_MANIFEST_BYTES + 1024),
     };
     await writeExtension(rootDir, 'too-big', JSON.stringify(oversized), {
-      'nodes/example-source.json': JSON.stringify(buildDescriptor()),
+      [FLOW_EXTENSION_EXAMPLE_DESCRIPTOR_REL]: await readExampleFixture(
+        FLOW_EXTENSION_EXAMPLE_DESCRIPTOR_REL,
+      ),
     });
 
     const result = await loadLocalExtension('too-big', { rootDir });
