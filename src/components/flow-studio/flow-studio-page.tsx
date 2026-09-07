@@ -261,10 +261,19 @@ function resolveFlowSaveDisplay(status: FlowAutosaveStatus): {
   }
 }
 
-export function FlowStudioPage({ flowId }: { flowId: string }) {
+/**
+ * FS-0122: optional local fixture document for the development-only
+ * performance route (`/flows/perf`). When provided, the page renders this
+ * document directly without loading any flow/draft from the server and
+ * without autosaving: no flow, draft, deployment, or runtime requests fire
+ * and no draft PUT is ever issued. Edits stay in browser memory only.
+ */
+export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; initialDocument?: FlowDocument }) {
+  const isLocalFixture = initialDocument !== undefined;
   const flowQuery = useQuery({
     queryKey: ['flow', flowId],
     queryFn: () => fetchFlow(flowId),
+    enabled: !isLocalFixture,
     staleTime: 5 * 1000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -272,7 +281,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const draftQuery = useQuery({
     queryKey: ['flow-draft', flowId],
     queryFn: () => fetchDraft(flowId),
-    enabled: flowQuery.isSuccess,
+    enabled: !isLocalFixture && flowQuery.isSuccess,
     staleTime: 5 * 1000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -310,7 +319,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const deploymentQuery = useQuery({
     queryKey: ['flow-deployment', flowId],
     queryFn: () => fetchDeployment(flowId),
-    enabled: flowQuery.isSuccess,
+    enabled: !isLocalFixture && flowQuery.isSuccess,
     staleTime: 10 * 1000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -338,7 +347,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const runtimeQuery = useQuery({
     queryKey: ['flow-runtime', flowId],
     queryFn: () => fetchFlowRuntime(flowId),
-    enabled: flowQuery.isSuccess && hasSuccessfulDeployment,
+    enabled: !isLocalFixture && flowQuery.isSuccess && hasSuccessfulDeployment,
     staleTime: 4 * 1000,
     refetchInterval: 5 * 1000,
     refetchIntervalInBackground: false,
@@ -366,9 +375,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const setSelection = useFlowEditorStore((state) => state.setSelection);
 
   const document = React.useMemo<FlowDocument | null>(() => {
+    // FS-0122: local fixture mode bypasses server loading entirely.
+    if (isLocalFixture) return initialDocument ?? null;
     if (!flowQuery.isSuccess || !draftQuery.isSuccess) return null;
     return buildDocument(flowQuery.data, draftQuery.data ?? null);
-  }, [flowQuery.isSuccess, flowQuery.data, draftQuery.isSuccess, draftQuery.data]);
+  }, [isLocalFixture, initialDocument, flowQuery.isSuccess, flowQuery.data, draftQuery.isSuccess, draftQuery.data]);
 
   const documentKey = React.useMemo<string | null>(() => {
     if (!document) return null;
@@ -610,10 +621,13 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // shell container expose dirty/autosave state for instrumentation without
   // changing save-state display (FS-0048 owns that mapping).
   const queryBaseline = React.useMemo(() => {
+    // FS-0122: no server baseline exists for a local fixture; the autosave
+    // hook below is disabled in fixture mode, so this stays null.
+    if (isLocalFixture) return null;
     const draft = draftQuery.data ?? null;
     if (!draft) return null;
     return buildFlowDirtyBaseline(draft.semanticDocument, draft.layoutDocument);
-  }, [draftQuery.data]);
+  }, [isLocalFixture, draftQuery.data]);
   // FS-0047: baseline of the most recently autosaved document. Advanced
   // from the PUT response without reloading the document or refetching the
   // draft; reset whenever a different flow is opened.
@@ -673,17 +687,20 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // R3: predicate for the next draft PUT. Prefer the chained hashes from the
   // last successful autosave; otherwise use the loaded draft hashes so a
   // stale tab cannot silently replace newer edits (409 surfaces instead).
+  // FS-0122: always null for a local fixture (no draft PUT ever fires).
   const baselineHashes = React.useMemo(() => {
+    if (isLocalFixture) return null;
     if (savedHashes) return savedHashes;
     const draft = draftQuery.data ?? null;
     if (!draft) return null;
     return { semanticHash: draft.semanticHash, layoutHash: draft.layoutHash };
-  }, [savedHashes, draftQuery.data]);
+  }, [isLocalFixture, savedHashes, draftQuery.data]);
 
   // FS-0047: debounced draft autosave. Fires only for committed store
   // changes while dirty, PUTs {spec,layout} to the Manager draft API (never
   // eKuiper), and clears dirty state via handleAutosaved on success. The
   // autosave status is mapped to header display below (FS-0048).
+  // FS-0122: always disabled for a local fixture (no draft PUT ever fires).
   const autosave = useFlowAutosave({
     flowId,
     spec: storeDocument?.spec ?? null,
@@ -691,6 +708,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     baseline,
     baselineHashes,
     disabled:
+      isLocalFixture ||
       !draftQuery.isSuccess ||
       !storeDocument ||
       storeDocument.metadata.id !== flowId,
@@ -1052,7 +1070,9 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   }, []);
 
   const body = React.useMemo(() => {
-    if (flowQuery.isPending) {
+    // FS-0122: fixture mode skips server loading states (those queries are
+    // disabled above) and renders the local fixture document instead.
+    if (!isLocalFixture && flowQuery.isPending) {
       return (
         <Card>
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
@@ -1061,7 +1081,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         </Card>
       );
     }
-    if (flowQuery.isError) {
+    if (!isLocalFixture && flowQuery.isError) {
       const status = flowQuery.error instanceof FlowPageError ? flowQuery.error.status : undefined;
       if (status === 404) {
         return (
@@ -1092,7 +1112,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         </div>
       );
     }
-    if (draftQuery.isPending) {
+    if (!isLocalFixture && draftQuery.isPending) {
       return (
         <Card>
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
@@ -1101,7 +1121,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         </Card>
       );
     }
-    if (draftQuery.isError) {
+    if (!isLocalFixture && draftQuery.isError) {
       return (
         <div className="space-y-4">
           <div
@@ -1117,7 +1137,21 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       );
     }
 
-    const flow = flowQuery.data;
+    // FS-0122: fixture mode has no server flow record; the header and
+    // deploy dialog fall back to the fixture document name with no target.
+    // Deploy stays disabled in fixture mode (no saved draft exists).
+    const flow = isLocalFixture
+      ? { name: initialDocument?.metadata.name ?? 'Performance fixture', targetNodeId: null as string | null }
+      : (flowQuery.data ?? undefined);
+    if (!flow) {
+      return (
+        <Card>
+          <CardContent className="py-16 text-center text-sm text-muted-foreground">
+            Loading flow…
+          </CardContent>
+        </Card>
+      );
+    }
     // FS-0048: header save-state display is derived solely from the autosave
     // hook status so semantic edits and layout-only moves share the same
     // Saved / Saving… / Unsaved changes / Save failed states. A failed save
@@ -1260,7 +1294,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, storeDocument]);
+  }, [isLocalFixture, initialDocument, flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, storeDocument]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
