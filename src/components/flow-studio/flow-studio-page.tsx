@@ -37,6 +37,7 @@ import { validateFlowForEditor } from '@/lib/flows/validation/editor-validation'
 import { isDefinitionSupportedByCapabilities } from '@/lib/flows/validation/capability-validation';
 import type { FlowDiagnostic } from '@/lib/flows/model/diagnostic';
 import { useFlowAutosave, type FlowAutosaveSaved, type FlowAutosaveStatus } from './hooks/use-flow-autosave';
+import { useFlowRuntimeMetrics } from './hooks/use-flow-runtime-metrics';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
 interface FlowSummary {
@@ -296,6 +297,15 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     refetchOnWindowFocus: false,
     retry: false,
   });
+  // FS-0105: 1Hz per-node metrics poll into the separate runtime store.
+  // Enabled only while the runtime reports running (with a successful
+  // deployment), so stopped/never-deployed flows fire no metrics requests.
+  // Snapshots land in the runtime store only; the Flow document/editor state
+  // (and therefore semantic/layout hashes) is never touched here. React
+  // Query teardown on unmount stops polling.
+  const metricsPollEnabled =
+    hasSuccessfulDeployment && runtimeQuery.data?.actualState === 'running';
+  useFlowRuntimeMetrics(flowId, { enabled: metricsPollEnabled });
   const queryClient = useQueryClient();
 
   const loadDocument = useFlowEditorStore((state) => state.loadDocument);

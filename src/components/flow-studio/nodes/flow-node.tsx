@@ -9,6 +9,7 @@ import {
 } from "@xyflow/react";
 import { Check } from "lucide-react";
 
+import { useShallow } from "zustand/shallow";
 import { cn } from "@/lib/utils";
 import {
   isFlowNodeAccentToken,
@@ -19,6 +20,12 @@ import {
   type FlowNodeIconToken,
   type FlowPortDefinition,
 } from "@/lib/flows/registry/node-definition";
+import type { FlowNodeRuntimeMetrics } from "@/lib/flows/runtime/metrics-types";
+import {
+  selectFlowNodeMetrics,
+  useFlowRuntimeStore,
+} from "@/stores/flow-runtime-store";
+import { useFlowEditorStore } from "@/stores/flow-editor-store";
 
 /**
  * Subset of FlowNodeDefinition metadata the canvas chrome may render.
@@ -133,7 +140,64 @@ export function resolveFlowNodeIconMark(icon: unknown): string | undefined {
   return token.slice(0, 1).toUpperCase();
 }
 
+function formatMetricNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/**
+ * FS-0105: tiny bounded one-line summary of a node's current runtime
+ * metrics. Returns undefined when nothing was reported (absent means
+ * unknown, never fabricated). Counters render when present; dropped/error
+ * counts only when nonzero; source-reported rates and latency render when
+ * present. Never touches the Flow document.
+ */
+function formatFlowNodeMetricSummary(
+  metrics: FlowNodeRuntimeMetrics | undefined,
+): string | undefined {
+  if (!metrics) return undefined;
+  const parts: string[] = [];
+  if (metrics.inputTotal !== undefined) {
+    parts.push(`in ${formatMetricNumber(metrics.inputTotal)}`);
+  }
+  if (metrics.outputTotal !== undefined) {
+    parts.push(`out ${formatMetricNumber(metrics.outputTotal)}`);
+  }
+  if (metrics.droppedTotal !== undefined && metrics.droppedTotal > 0) {
+    parts.push(`drop ${formatMetricNumber(metrics.droppedTotal)}`);
+  }
+  if (metrics.errorTotal !== undefined && metrics.errorTotal > 0) {
+    parts.push(`err ${formatMetricNumber(metrics.errorTotal)}`);
+  }
+  if (metrics.inputRatePerSec !== undefined) {
+    parts.push(`${formatMetricNumber(metrics.inputRatePerSec)}/s in`);
+  }
+  if (metrics.outputRatePerSec !== undefined) {
+    parts.push(`${formatMetricNumber(metrics.outputRatePerSec)}/s out`);
+  }
+  if (metrics.latencyMsAvg !== undefined) {
+    parts.push(`~${formatMetricNumber(metrics.latencyMsAvg)}ms`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 export function FlowNode({ data, selected }: FlowNodeProps) {
+  // FS-0105: fine-grained runtime subscription. The node reads only its own
+  // metrics entry (keyed by the editor document id + its own node id) with a
+  // shallow comparison, so a metrics update for an unrelated node with
+  // unchanged values for this node does not rerender this component. The
+  // full snapshot is never passed through canvas node props.
+  const runtimeFlowId = useFlowEditorStore(
+    (state) => state.document?.metadata.id,
+  );
+  const nodeIdForMetrics = typeof data.id === "string" ? data.id : "";
+  const nodeMetrics = useFlowRuntimeStore(
+    useShallow((state) =>
+      runtimeFlowId !== undefined && nodeIdForMetrics !== ""
+        ? selectFlowNodeMetrics(state, runtimeFlowId, nodeIdForMetrics)
+        : undefined,
+    ),
+  );
+  const metricSummary = formatFlowNodeMetricSummary(nodeMetrics);
   const unsupported = data.unsupported === true;
   const category = data.definition?.category ?? data.category;
   const inputs = resolvePorts(data.inputs, data.definition?.inputs);
@@ -276,6 +340,16 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
           title={subtitle}
         >
           {subtitle}
+        </div>
+      ) : null}
+
+      {metricSummary !== undefined ? (
+        <div
+          className="truncate px-3 pb-1 text-[10px] tabular-nums text-muted-foreground"
+          data-testid="flow-node-metrics"
+          title={metricSummary}
+        >
+          {metricSummary}
         </div>
       ) : null}
 
