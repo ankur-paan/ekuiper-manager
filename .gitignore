@@ -70,3 +70,5 @@ build_log.txt
 build_output.txt
 body.json
 response.txt
+!docs/FLOW_STUDIO_UI_COMPONENT_TESTING_DECISION.md
+!docs/FLOW_STUDIO_AUTO_LAYOUT_DECISION.md
