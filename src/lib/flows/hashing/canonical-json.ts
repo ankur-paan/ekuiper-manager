@@ -25,38 +25,33 @@ function serializeValue(value: unknown, stack: object[]): string {
     return 'null';
   }
 
-  switch (typeof value) {
-    case 'string': {
-      return JSON.stringify(value) as string;
-    }
-    case 'number': {
-      const serialized = JSON.stringify(value);
-      if (typeof serialized !== 'string') {
-        throw new Error(
-          `canonicalJson: unsupported number value (${String(value)})`,
-        );
-      }
-      return serialized;
-    }
-    case 'boolean': {
-      return value ? 'true' : 'false';
-    }
-    case 'undefined':
-    case 'function':
-    case 'symbol':
-    case 'bigint': {
+  // NOTE (FS-0157): this intentionally uses an if/else chain instead of
+  // `switch (typeof value)` with `case 'object': break`. That construct was
+  // miscompiled by the production minifier (SWC): `case 'object': { break; }`
+  // caused everything after the switch (array/object canonicalization) to be
+  // dropped from the bundle, so `canonicalJson` returned `undefined` for any
+  // object in production while working in dev. Do not reintroduce a
+  // switch-break-to-continue pattern here.
+  const valueType = typeof value;
+  if (valueType === 'string') {
+    return JSON.stringify(value) as string;
+  }
+  if (valueType === 'number') {
+    const serialized = JSON.stringify(value);
+    if (typeof serialized !== 'string') {
       throw new Error(
-        `canonicalJson: unsupported value of type ${typeof value}`,
+        `canonicalJson: unsupported number value (${String(value)})`,
       );
     }
-    case 'object': {
-      break;
-    }
-    default: {
-      throw new Error(
-        `canonicalJson: unsupported value of type ${typeof value}`,
-      );
-    }
+    return serialized;
+  }
+  if (valueType === 'boolean') {
+    return (value as boolean) ? 'true' : 'false';
+  }
+  if (valueType !== 'object') {
+    throw new Error(
+      `canonicalJson: unsupported value of type ${valueType}`,
+    );
   }
 
   const input = value as object;

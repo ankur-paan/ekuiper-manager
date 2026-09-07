@@ -63,4 +63,39 @@ describe('canonicalJson', () => {
     expect(() => canonicalJson(new Date())).toThrow(/unsupported/);
     expect(() => canonicalJson(new Map())).toThrow(/unsupported/);
   });
+
+  it('FS-0157: serializes draft-route-shaped objects to a non-empty string (production minifier regression)', () => {
+    // Exact failing PUT /api/flows/:id/draft body shape from FS-0157: the
+    // production bundle dropped all object handling in serializeValue, so
+    // canonicalJson returned undefined for any object (dev worked). Jest
+    // cannot execute the production bundle, so this pins the source-level
+    // contract the bundle must preserve: objects return a defined,
+    // non-empty canonical string, never undefined.
+    const nodeId = '11111111-1111-4111-8111-111111111111';
+    const spec = {
+      nodes: [
+        {
+          id: nodeId,
+          type: 'memory-source',
+          typeVersion: 1,
+          name: 'Memory Source',
+          config: {},
+        },
+      ],
+      edges: [],
+    };
+    const layout = { nodes: { [nodeId]: { x: 100, y: 99 } } };
+    const specJson = canonicalJson(spec);
+    const layoutJson = canonicalJson(layout);
+    expect(typeof specJson).toBe('string');
+    expect(typeof layoutJson).toBe('string');
+    expect(specJson.length).toBeGreaterThan(0);
+    expect(layoutJson.length).toBeGreaterThan(0);
+    expect(specJson).toBe(
+      '{"edges":[],"nodes":[{"config":{},"id":"11111111-1111-4111-8111-111111111111","name":"Memory Source","type":"memory-source","typeVersion":1}]}',
+    );
+    expect(layoutJson).toBe(
+      '{"nodes":{"11111111-1111-4111-8111-111111111111":{"x":100,"y":99}}}',
+    );
+  });
 });
