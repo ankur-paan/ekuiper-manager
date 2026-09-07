@@ -1220,7 +1220,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
                     />
                   </div>
                 ) : null}
-                <FlowBottomPanel flowId={flowId} clientDiagnostics={flowDiagnostics} />
+                <FlowBottomPanel flowId={flowId} clientDiagnostics={flowDiagnostics} ruleTestSupported={capabilityProfile.ruleTest === true} />
               </div>
             ) : (
               <div className="flex h-full items-center justify-center p-6">

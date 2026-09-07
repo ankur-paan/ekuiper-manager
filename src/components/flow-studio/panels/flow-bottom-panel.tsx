@@ -8,12 +8,19 @@ import { cn } from "@/lib/utils";
 import type { FlowDiagnostic } from "@/lib/flows/model/diagnostic";
 import { DefinitionPanel } from "./definition-panel";
 import { ValidationPanel } from "./validation-panel";
+import { TestPanel } from "./test-panel";
 
-export type FlowBottomPanelTab = "validation" | "definition";
+export type FlowBottomPanelTab = "validation" | "definition" | "test";
 
 export interface FlowBottomPanelProps {
   flowId: string;
   clientDiagnostics: FlowDiagnostic[];
+  /**
+   * FS-0109: capability gate for the Test Output tab, sourced from the
+   * normalized target profile (`TargetCapabilityProfile.ruleTest`).
+   * Defaults to false (conservative: unproven means unsupported).
+   */
+  ruleTestSupported?: boolean;
   className?: string;
 }
 
@@ -25,6 +32,7 @@ export interface FlowBottomPanelProps {
 export function FlowBottomPanel({
   flowId,
   clientDiagnostics,
+  ruleTestSupported = false,
   className,
 }: FlowBottomPanelProps) {
   const [open, setOpen] = React.useState(true);
@@ -76,7 +84,8 @@ export function FlowBottomPanel({
       <Tabs
         value={tab}
         onValueChange={(next) => {
-          if (next === "validation" || next === "definition") setTab(next);
+          if (next === "validation" || next === "definition" || next === "test")
+            setTab(next);
         }}
         className="flex min-h-0 flex-1 flex-col"
       >
@@ -88,6 +97,9 @@ export function FlowBottomPanel({
             </TabsTrigger>
             <TabsTrigger value="definition" data-testid="flow-bottom-panel-tab-definition">
               Definition
+            </TabsTrigger>
+            <TabsTrigger value="test" data-testid="flow-bottom-panel-tab-test">
+              Test Output
             </TabsTrigger>
           </TabsList>
           <div className="flex-1" />
@@ -117,6 +129,13 @@ export function FlowBottomPanel({
             data-testid="flow-bottom-panel-content-definition"
           >
             <DefinitionPanel flowId={flowId} />
+          </TabsContent>
+          <TabsContent
+            value="test"
+            className="h-full min-h-0 overflow-y-auto data-[state=inactive]:hidden"
+            data-testid="flow-bottom-panel-content-test"
+          >
+            <TestPanel flowId={flowId} ruleTestSupported={ruleTestSupported} />
           </TabsContent>
         </div>
       </Tabs>
