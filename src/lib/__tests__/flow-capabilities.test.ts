@@ -35,6 +35,9 @@ describe('flow target capabilities', () => {
     expect(profile.sinks).toEqual(
       expect.arrayContaining(['memory', 'mqtt', 'rest', 'log']),
     );
+    // FS-0106: rule-test transport cannot be safely supported yet.
+    expect(profile.ruleTest).toBe(false);
+    expect(profile.ruleTestSse).toBe(false);
   });
 
   it('accepts newer versions while staying deterministic', () => {
@@ -52,6 +55,9 @@ describe('flow target capabilities', () => {
     expect(first.sources).toEqual([...first.sources].sort());
     expect(first.operators).toEqual([...first.operators].sort());
     expect(first.sinks).toEqual([...first.sinks].sort());
+    // FS-0106: rule-test stays disabled even on newer versions.
+    expect(first.ruleTest).toBe(false);
+    expect(first.ruleTestSse).toBe(false);
   });
 
   it('does not enable capabilities for unknown versions', () => {
@@ -68,6 +74,9 @@ describe('flow target capabilities', () => {
       expect(profile.sources).toEqual([]);
       expect(profile.operators).toEqual([]);
       expect(profile.sinks).toEqual([]);
+      // FS-0106: rule-test false when transport cannot be safely supported.
+      expect(profile.ruleTest).toBe(false);
+      expect(profile.ruleTestSse).toBe(false);
     }
   });
 
@@ -81,6 +90,9 @@ describe('flow target capabilities', () => {
     expect(profile.sources).toEqual([]);
     expect(profile.operators).toEqual([]);
     expect(profile.sinks).toEqual([]);
+    // FS-0106: rule-test false below the audited baseline.
+    expect(profile.ruleTest).toBe(false);
+    expect(profile.ruleTestSse).toBe(false);
   });
 
   it('narrows the baseline when metadata cannot prove support', () => {
@@ -95,5 +107,8 @@ describe('flow target capabilities', () => {
     expect(profile.sources).toEqual(['memory']);
     expect(profile.sinks).toEqual(['memory']);
     expect(profile.operators).toEqual([...BASELINE_CAPABILITY_OPERATORS]);
+    // FS-0106: metadata narrowing never enables rule-test.
+    expect(profile.ruleTest).toBe(false);
+    expect(profile.ruleTestSse).toBe(false);
   });
 });

@@ -62,6 +62,16 @@ export const BASELINE_CAPABILITY_SINKS = Object.freeze([
  * - `sources`/`operators`/`sinks`: eKuiper `nodeType` identifiers the
  *   target is known to support. Sorted ascending for determinism.
  *   Empty means "no proven support" (conservative), never "everything".
+ * - `ruleTest`/`ruleTestSse`: whether Flow Studio may use the eKuiper
+ *   rule-test trial-run transport on this target (FS-0106). Optional so
+ *   pre-FS-0106 profile literals still type-check; absent means
+ *   "unproven", never "supported". The audited eKuiper 2.4.1 contract
+ *   (`POST /ruletest`, `POST /ruletest/{name}/start`,
+ *   `DELETE /ruletest/{name}` plus `GET /test/{id}` SSE on a separate
+ *   per-test port, see `docs/FLOW_STUDIO_RULE_TEST_NOTES.md`) cannot be
+ *   reached safely under the current registered-node policy, so the
+ *   resolver reports both as `false` on every profile until a later
+ *   ticket proves a safe SSE relay and graph-rule test envelope.
  */
 export interface TargetCapabilityProfile {
   ekuiperVersion: string | null;
@@ -70,4 +80,6 @@ export interface TargetCapabilityProfile {
   sources: readonly string[];
   operators: readonly string[];
   sinks: readonly string[];
+  ruleTest?: boolean;
+  ruleTestSse?: boolean;
 }

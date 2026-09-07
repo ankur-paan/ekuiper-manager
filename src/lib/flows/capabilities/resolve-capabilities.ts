@@ -86,6 +86,8 @@ function unavailable(version: string | null, reachable: boolean): TargetCapabili
     sources: [],
     operators: [],
     sinks: [],
+    ruleTest: false,
+    ruleTestSse: false,
   };
 }
 
@@ -125,5 +127,12 @@ export function resolveTargetCapabilities(
       input.operatorNames,
     ),
     sinks: narrowByMetadata([...BASELINE_CAPABILITY_SINKS], input.sinkNames),
+    // FS-0106: rule-test transport verified but not safely reachable under
+    // the current registered-node policy (separate per-test SSE port, no
+    // audited graph-rule test envelope). Conservative: always false until a
+    // later ticket proves a safe relay. See
+    // docs/FLOW_STUDIO_RULE_TEST_NOTES.md. No allowlist weakening here.
+    ruleTest: false,
+    ruleTestSse: false,
   };
 }
