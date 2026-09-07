@@ -26,6 +26,21 @@ This is a release-candidate foundation, not a stable release yet. Owner recovery
 eKuiper-aware readiness/capability gating, separate-port SSE/WebSocket transport, migration upgrade/rollback
 tests, and broader workflow/security E2E coverage remain explicit release blockers below.
 
+### Flow Studio beta documentation checkpoint — FS-0136
+
+Flow Studio has reached beta documentation completeness: the visual editor, seventeen version-1
+built-in node definitions, draft/revision/deployment persistence, staged validation with official
+eKuiper validation gating every deploy, bounded 1 Hz runtime snapshots, declarative local-directory
+extensions, and performance fixtures with smoke budgets are implemented and described in
+`docs/FLOW_STUDIO.md` (with supporting detail in `docs/FLOW_STUDIO_ARCHITECTURE.md`,
+`docs/FLOW_EXTENSIONS.md`, `docs/FLOW_STUDIO_PERFORMANCE.md`, and
+`docs/FLOW_STUDIO_RULE_TEST_NOTES.md`). No existing checkboxes above are changed by this ticket.
+
+Explicit remaining items after FS-0136: full regression suite green on a clean host (FS-0137),
+beta acceptance report with tested eKuiper build, browsers, smoke results, and rollback notes
+(FS-0138), and the still-blocked rule-test trial-run transport (safe SSE relay plus audited
+graph-rule test envelope).
+
 ## 1. Product goal
 
 Turn eKuiper Manager from an experimental playground into a self-hosted stack that a person can install, operate, upgrade, back up, and recover on their own system.

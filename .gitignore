@@ -23,6 +23,7 @@ docs/*
 !docs/RULE_DESIGNER.md
 !docs/FLOW_STUDIO_ARCHITECTURE.md
 !docs/FLOW_STUDIO_RULE_TEST_NOTES.md
+!docs/FLOW_STUDIO.md
 
 # Testing
 coverage/
