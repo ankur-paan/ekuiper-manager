@@ -48,16 +48,6 @@ export type FlowSemanticChange =
   | { kind: 'edge-added'; edgeId: string }
   | { kind: 'edge-removed'; edgeId: string };
 
-function compareStrings(a: string, b: string): number {
-  if (a < b) {
-    return -1;
-  }
-  if (a > b) {
-    return 1;
-  }
-  return 0;
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {
     return false;
