@@ -1,5 +1,5 @@
 /**
- * Public-safe declarative Flow node definition subset (FS-0119).
+ * Public-safe declarative Flow node definition subset (FS-0119, FS-0120).
  *
  * This module is the canonical source for the data shapes an extension
  * author needs to write a declarative node descriptor (identity, display
@@ -9,9 +9,16 @@
  * `FlowNodeDefinition` contract and no divergent duplicate.
  *
  * Types and data constants only: no validation, no compiler, no editor
- * implementation, no React, no filesystem access, no network access. The
- * internal-only app fields (`runtimeKind`/`operation`) live on the app's
- * extended `FlowNodeDefinition` and are intentionally absent here.
+ * implementation, no React, no filesystem access, no network access, and no
+ * validation CLI. A `validate` command for extension packages is a future
+ * roadmap idea only (see `packages/flow-sdk/README.md` and
+ * `docs/FLOW_EXTENSIONS.md`); it is not implemented and must not be treated
+ * as available. The internal-only app fields (`runtimeKind`/`operation`)
+ * live on the app's extended `FlowNodeDefinition` and are intentionally
+ * absent here.
+ *
+ * Author guide: `docs/FLOW_EXTENSIONS.md`. Package overview:
+ * `packages/flow-sdk/README.md`.
  *
  * This package is not published (FS-0119); it is consumed via npm
  * workspaces by the Manager app in this repository.
