@@ -2424,6 +2424,277 @@ describe('flow eKuiper compiler (function operator)', () => {
   });
 });
 
+describe('flow eKuiper compiler (stream and table reference sources)', () => {
+  const STREAM_FLOW_ID = 'node-stream-source-1';
+  const TABLE_FLOW_ID = 'node-table-source-1';
+  const STREAM_NAME = 'demoStream';
+  const TABLE_NAME = 'demoTable';
+  const STREAM_CONNECTOR = 'mqtt';
+  const TABLE_CONNECTOR = 'redis';
+
+  function buildRefFlow(
+    type: 'stream-source' | 'table-source',
+    sourceId: string,
+    config: Record<string, unknown>,
+  ): FlowDocument {
+    return {
+      apiVersion: FLOW_DOCUMENT_VERSION,
+      metadata: { id: 'flow-ref-demo', name: 'Ref Demo' },
+      spec: {
+        nodes: [
+          {
+            id: sourceId,
+            type,
+            typeVersion: 1,
+            name: 'Reference Source',
+            config,
+          },
+          {
+            id: SINK_FLOW_ID,
+            type: 'memory-sink',
+            typeVersion: 1,
+            name: 'Sink',
+            config: { topic: SINK_TOPIC },
+          },
+        ],
+        edges: [
+          {
+            id: 'edge-1',
+            sourceNodeId: sourceId,
+            sourcePortId: 'out',
+            targetNodeId: SINK_FLOW_ID,
+            targetPortId: 'in',
+          },
+        ],
+      },
+      layout: {
+        nodes: {
+          [sourceId]: { x: 0, y: 0 },
+          [SINK_FLOW_ID]: { x: 320, y: 0 },
+        },
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
+    };
+  }
+
+  it('produces the exact expected nodeType/props for a stream reference source', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildRefFlow('stream-source', STREAM_FLOW_ID, {
+        stream: STREAM_NAME,
+        connector: STREAM_CONNECTOR,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', STREAM_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: STREAM_CONNECTOR,
+            props: { sourceType: 'stream', sourceName: STREAM_NAME },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [STREAM_FLOW_ID]: sourceRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('produces the exact expected nodeType/props for a table reference source', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildRefFlow('table-source', TABLE_FLOW_ID, {
+        table: TABLE_NAME,
+        connector: TABLE_CONNECTOR,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const sourceRuntimeId = createRuntimeId('source', TABLE_FLOW_ID);
+    const sinkRuntimeId = createRuntimeId('sink', SINK_FLOW_ID);
+
+    expect(result.artifact.ruleDefinition).toEqual({
+      graph: {
+        nodes: {
+          [sourceRuntimeId]: {
+            type: 'source',
+            nodeType: TABLE_CONNECTOR,
+            props: { sourceType: 'table', sourceName: TABLE_NAME },
+          },
+          [sinkRuntimeId]: {
+            type: 'sink',
+            nodeType: 'memory',
+            props: { topic: SINK_TOPIC },
+          },
+        },
+        topo: {
+          sources: [sourceRuntimeId],
+          edges: {
+            [sourceRuntimeId]: [sinkRuntimeId],
+          },
+        },
+      },
+    });
+    expect(result.artifact.runtimeNodeMap).toEqual({
+      [TABLE_FLOW_ID]: sourceRuntimeId,
+      [SINK_FLOW_ID]: sinkRuntimeId,
+    });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('derives the graph nodeType from the connector config rather than the flow type', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildRefFlow('stream-source', STREAM_FLOW_ID, {
+        stream: STREAM_NAME,
+        connector: 'memory',
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sourceRuntimeId = createRuntimeId('source', STREAM_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { nodeType: string }>;
+    };
+
+    expect(graph.nodes[sourceRuntimeId]?.nodeType).toBe('memory');
+  });
+
+  it('yields byte-equivalent canonical JSON on recompilation', () => {
+    const first = compileFlowToEkuiperGraph(
+      buildRefFlow('stream-source', STREAM_FLOW_ID, {
+        stream: STREAM_NAME,
+        connector: STREAM_CONNECTOR,
+      }),
+    );
+    const second = compileFlowToEkuiperGraph(
+      buildRefFlow('stream-source', STREAM_FLOW_ID, {
+        stream: STREAM_NAME,
+        connector: STREAM_CONNECTOR,
+      }),
+    );
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+
+    expect(canonicalJson(first.artifact)).toBe(canonicalJson(second.artifact));
+  });
+
+  it('produces graphs that satisfy the audited eKuiper envelope', () => {
+    const streamResult = compileFlowToEkuiperGraph(
+      buildRefFlow('stream-source', STREAM_FLOW_ID, {
+        stream: STREAM_NAME,
+        connector: STREAM_CONNECTOR,
+      }),
+    );
+    const tableResult = compileFlowToEkuiperGraph(
+      buildRefFlow('table-source', TABLE_FLOW_ID, {
+        table: TABLE_NAME,
+        connector: TABLE_CONNECTOR,
+      }),
+    );
+
+    expect(streamResult.ok).toBe(true);
+    expect(tableResult.ok).toBe(true);
+    if (!streamResult.ok || !tableResult.ok) return;
+
+    expect(
+      isEkuiperGraphRule(streamResult.artifact.ruleDefinition.graph),
+    ).toBe(true);
+    expect(
+      isEkuiperGraphRule(tableResult.artifact.ruleDefinition.graph),
+    ).toBe(true);
+  });
+
+  it('fails with a structured diagnostic when the stream name is missing', () => {
+    const document = buildRefFlow('stream-source', STREAM_FLOW_ID, {
+      connector: STREAM_CONNECTOR,
+    });
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(STREAM_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('stream');
+  });
+
+  it('fails with a structured diagnostic when the table name is missing', () => {
+    const document = buildRefFlow('table-source', TABLE_FLOW_ID, {
+      connector: TABLE_CONNECTOR,
+    });
+    const result = compileFlowToEkuiperGraph(document);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(TABLE_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('table');
+  });
+
+  it('fails with a structured diagnostic when the connector is missing', () => {
+    const streamDocument = buildRefFlow('stream-source', STREAM_FLOW_ID, {
+      stream: STREAM_NAME,
+    });
+    const streamResult = compileFlowToEkuiperGraph(streamDocument);
+
+    expect(streamResult.ok).toBe(false);
+    if (streamResult.ok) return;
+    expect(streamResult.artifact).toBeUndefined();
+    expect(streamResult.diagnostics).toHaveLength(1);
+    expect(streamResult.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(streamResult.diagnostics[0]?.nodeId).toBe(STREAM_FLOW_ID);
+    expect(streamResult.diagnostics[0]?.propertyPath).toBe('connector');
+
+    const tableDocument = buildRefFlow('table-source', TABLE_FLOW_ID, {
+      table: TABLE_NAME,
+    });
+    const tableResult = compileFlowToEkuiperGraph(tableDocument);
+
+    expect(tableResult.ok).toBe(false);
+    if (tableResult.ok) return;
+    expect(tableResult.artifact).toBeUndefined();
+    expect(tableResult.diagnostics).toHaveLength(1);
+    expect(tableResult.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(tableResult.diagnostics[0]?.nodeId).toBe(TABLE_FLOW_ID);
+    expect(tableResult.diagnostics[0]?.propertyPath).toBe('connector');
+  });
+});
+
 describe('toSafeRuleId', () => {
   it('keeps an already-safe flow id unchanged', () => {
     expect(toSafeRuleId('flow-memory-demo')).toBe('flow-memory-demo');

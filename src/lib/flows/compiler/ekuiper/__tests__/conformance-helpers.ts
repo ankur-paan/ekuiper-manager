@@ -25,6 +25,19 @@ const MQTT_TOPIC_IN = 'devices/conformance-mqtt-in';
 const MQTT_TOPIC_OUT = 'devices/conformance-mqtt-out';
 const MQTT_CONNECTION = 'conn-shared-1';
 const REST_URL = 'https://example.test/events';
+/**
+ * Named stream/table referenced by the FS-0153 reference-source fixtures.
+ *
+ * Unlike every other fixture (which carries its inline definition), a
+ * stream/table reference resolves `sourceName` against streams and tables
+ * already configured on the engine, so a live run requires a
+ * memory-backed stream and table under exactly these names. The suite
+ * skips without an engine; against a configured engine missing these
+ * resources the two reference cases fail by name, which is the intended
+ * signal rather than a silent pass.
+ */
+const REF_STREAM_NAME = 'conformance-stream';
+const REF_TABLE_NAME = 'conformance-table';
 
 function baseLayout(ids: string[]): FlowDocument['layout'] {
   const nodes: Record<string, { x: number; y: number }> = {};
@@ -335,10 +348,12 @@ export function buildRuleOptionsConformanceDocument(): FlowDocument {
 }
 /**
  * One minimal valid flow per built-in node type currently in the
- * registry (15 types): sources/sinks pair with a memory counterpart and
+ * registry (17 types): sources/sinks pair with a memory counterpart and
  * each operator sits alone between a memory source and a memory sink,
- * except switch (two branch sinks) and join (two sources converge through
- * one shared window into the single join input).
+ * except switch (two branch sinks), join (two sources converge through
+ * one shared window into the single join input), and the stream/table
+ * reference sources (which name an existing engine stream/table and sink
+ * to memory).
  */
 export function listConformanceCases(): ConformanceCase[] {
   return [
@@ -349,6 +364,34 @@ export function listConformanceCases(): ConformanceCase[] {
     {
       nodeType: 'memory-sink',
       buildDocument: () => linearFlow('flow-conformance-memory-sink', undefined),
+    },
+    {
+      nodeType: 'stream-source',
+      buildDocument: () => {
+        const document = linearFlow('flow-conformance-stream-source', undefined);
+        document.spec.nodes[0] = {
+          id: SOURCE_ID,
+          type: 'stream-source',
+          typeVersion: 1,
+          name: 'Conformance Stream Source',
+          config: { stream: REF_STREAM_NAME, connector: 'memory' },
+        };
+        return document;
+      },
+    },
+    {
+      nodeType: 'table-source',
+      buildDocument: () => {
+        const document = linearFlow('flow-conformance-table-source', undefined);
+        document.spec.nodes[0] = {
+          id: SOURCE_ID,
+          type: 'table-source',
+          typeVersion: 1,
+          name: 'Conformance Table Source',
+          config: { table: REF_TABLE_NAME, connector: 'memory' },
+        };
+        return document;
+      },
     },
     {
       nodeType: 'mqtt-source',
