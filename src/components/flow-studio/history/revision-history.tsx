@@ -146,6 +146,18 @@ async function restoreRevisionSnapshot(
   if (!response.ok) throw new Error(readErrorMessage(payload, response.status));
 }
 
+async function deployRevisionSnapshot(
+  flowId: string,
+  revisionNumber: number,
+): Promise<void> {
+  const response = await fetch(
+    `/api/flows/${encodeURIComponent(flowId)}/revisions/${encodeURIComponent(String(revisionNumber))}/deploy`,
+    { method: 'POST' },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(readErrorMessage(payload, response.status));
+}
+
 export interface RevisionHistoryProps {
   flowId: string;
   /** Current editor draft spec; enables the "Current draft" compare target. */
@@ -180,6 +192,12 @@ export function RevisionHistory({
   const [restorePendingNumber, setRestorePendingNumber] = React.useState<number | null>(null);
   const [restoreError, setRestoreError] = React.useState<string | null>(null);
   const [restoredNumber, setRestoredNumber] = React.useState<number | null>(null);
+  // FS-0098: redeploy-a-revision state. Deploy compiles/deploys the selected
+  // revision snapshot without mutating the current draft, so a success never
+  // reloads the page (unlike restore). Labels stay distinct from Restore.
+  const [deployPendingNumber, setDeployPendingNumber] = React.useState<number | null>(null);
+  const [deployError, setDeployError] = React.useState<string | null>(null);
+  const [deployedNumber, setDeployedNumber] = React.useState<number | null>(null);
   const queryClient = useQueryClient();
 
   React.useEffect(() => {
@@ -196,6 +214,9 @@ export function RevisionHistory({
     setRestorePendingNumber(null);
     setRestoreError(null);
     setRestoredNumber(null);
+    setDeployPendingNumber(null);
+    setDeployError(null);
+    setDeployedNumber(null);
     void fetchRevisionList(flowId)
       .then((rows) => {
         if (cancelled) return;
@@ -327,6 +348,25 @@ export function RevisionHistory({
     setRestoreError(null);
   }, []);
 
+  const handleDeployRevision = React.useCallback(
+    async (revisionNumber: number) => {
+      setDeployPendingNumber(revisionNumber);
+      setDeployError(null);
+      setDeployedNumber(null);
+      try {
+        await deployRevisionSnapshot(flowId, revisionNumber);
+        setDeployedNumber(revisionNumber);
+      } catch (error: unknown) {
+        setDeployError(
+          error instanceof Error ? error.message : 'Failed to deploy revision',
+        );
+      } finally {
+        setDeployPendingNumber(null);
+      }
+    },
+    [flowId],
+  );
+
   const handleRetry = React.useCallback(() => {
     setListLoading(true);
     setListError(null);
@@ -424,7 +464,7 @@ export function RevisionHistory({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    disabled={restorePendingNumber !== null}
+                    disabled={restorePendingNumber !== null || deployPendingNumber !== null}
                     onClick={() => {
                       setRestoreError(null);
                       setRestoredNumber(null);
@@ -435,6 +475,20 @@ export function RevisionHistory({
                     className="h-6 shrink-0 px-1.5 text-[11px]"
                   >
                     Restore
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={restorePendingNumber !== null || deployPendingNumber !== null}
+                    onClick={() => void handleDeployRevision(entry.revisionNumber)}
+                    aria-label={`Deploy this revision ${entry.revisionNumber} without changing the current draft`}
+                    data-testid={`revision-deploy-${entry.revisionNumber}`}
+                    className="h-6 shrink-0 px-1.5 text-[11px]"
+                  >
+                    {deployPendingNumber === entry.revisionNumber
+                      ? 'Deploying…'
+                      : 'Deploy this revision'}
                   </Button>
                 </div>
                 {confirming ? (
@@ -485,6 +539,17 @@ export function RevisionHistory({
             ? `Restore failed: ${restoreError}`
             : restoredNumber !== null
               ? `Revision ${restoredNumber} restored into the current draft. Reloading…`
+              : null}
+        </div>
+        <div
+          aria-live="polite"
+          data-testid="revision-deploy-status"
+          className="text-xs text-muted-foreground"
+        >
+          {deployError
+            ? `Deploy failed: ${deployError}`
+            : deployedNumber !== null
+              ? `Revision ${deployedNumber} deployed. The current draft is unchanged.`
               : null}
         </div>
         <div className="flex flex-col gap-2">
