@@ -1,8 +1,11 @@
 import { NextRequest } from 'next/server';
 import { GET as listRevisionsRoute } from '@/app/api/flows/[id]/revisions/route';
 import { GET as getRevisionRoute } from '@/app/api/flows/[id]/revisions/[number]/route';
+import { POST as restoreRevisionRoute } from '@/app/api/flows/[id]/revisions/[number]/restore/route';
+import { recordAuditSafely } from '@/lib/audit';
 import { getAuthenticatedUser } from '@/lib/auth/session';
 import { getFlow } from '@/lib/flows/persistence/flow-repository';
+import { upsertFlowDraft } from '@/lib/flows/persistence/flow-draft-repository';
 import {
   getRevision,
   listRevisions,
@@ -11,14 +14,20 @@ import {
 import type { FlowLayout, FlowSpec } from '@/lib/flows/model/flow-document';
 
 jest.mock('@/lib/auth/session', () => ({ getAuthenticatedUser: jest.fn() }));
+jest.mock('@/lib/audit', () => ({ recordAuditSafely: jest.fn() }));
 jest.mock('@/lib/flows/persistence/flow-repository', () => ({ getFlow: jest.fn() }));
+jest.mock('@/lib/flows/persistence/flow-draft-repository', () => ({
+  upsertFlowDraft: jest.fn(),
+}));
 jest.mock('@/lib/flows/persistence/flow-revision-repository', () => ({
   getRevision: jest.fn(),
   listRevisions: jest.fn(),
 }));
 
 const mockedGetUser = jest.mocked(getAuthenticatedUser);
+const mockedAudit = jest.mocked(recordAuditSafely);
 const mockedGetFlow = jest.mocked(getFlow);
+const mockedUpsertDraft = jest.mocked(upsertFlowDraft);
 const mockedListRevisions = jest.mocked(listRevisions);
 const mockedGetRevision = jest.mocked(getRevision);
 
@@ -115,7 +124,9 @@ function detailParams(id = 'flow-1', number = '2') {
 
 beforeEach(() => {
   mockedGetUser.mockReset();
+  mockedAudit.mockReset();
   mockedGetFlow.mockReset();
+  mockedUpsertDraft.mockReset();
   mockedListRevisions.mockReset();
   mockedGetRevision.mockReset();
 });
@@ -282,5 +293,153 @@ describe('GET /api/flows/:id/revisions/:number', () => {
     // credential fields or secret values.
     expect(payload.revision).not.toHaveProperty('authorization');
     expect(JSON.stringify(payload)).not.toContain('authorization');
+  });
+});
+
+describe('POST /api/flows/:id/revisions/:number/restore', () => {
+  function restoreRequest(id = 'flow-1', revisionNumber = '2', origin = 'http://localhost') {
+    return new NextRequest(
+      `http://localhost/api/flows/${id}/revisions/${revisionNumber}/restore`,
+      { method: 'POST', headers: { origin } },
+    );
+  }
+
+  function restoreParams(id = 'flow-1', number = '2') {
+    return { params: Promise.resolve({ id, number }) };
+  }
+
+  it('rejects cross-origin requests before authentication', async () => {
+    const response = await restoreRevisionRoute(
+      restoreRequest('flow-1', '2', 'https://evil.test'),
+      restoreParams(),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'ORIGIN_REJECTED', message: 'Request origin is not allowed' },
+    });
+    expect(mockedGetUser).not.toHaveBeenCalled();
+    expect(mockedGetRevision).not.toHaveBeenCalled();
+    expect(mockedUpsertDraft).not.toHaveBeenCalled();
+    expect(mockedAudit).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 for unauthenticated requests without querying', async () => {
+    mockedGetUser.mockResolvedValueOnce(null);
+
+    const response = await restoreRevisionRoute(restoreRequest(), restoreParams());
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'AUTH_REQUIRED', message: 'Sign in required' },
+    });
+    expect(mockedGetFlow).not.toHaveBeenCalled();
+    expect(mockedGetRevision).not.toHaveBeenCalled();
+    expect(mockedUpsertDraft).not.toHaveBeenCalled();
+    expect(mockedAudit).not.toHaveBeenCalled();
+  });
+
+  it.each([['0'], ['-1'], ['1.5'], ['abc'], [''], ['01']])(
+    'rejects invalid revision number %p with 400',
+    async (number) => {
+      mockedGetUser.mockResolvedValueOnce(actor);
+
+      const response = await restoreRevisionRoute(
+        restoreRequest('flow-1', number),
+        restoreParams('flow-1', number),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: 'INVALID_REVISION_NUMBER',
+          message: 'Revision number must be a positive integer',
+        },
+      });
+      expect(mockedGetFlow).not.toHaveBeenCalled();
+      expect(mockedGetRevision).not.toHaveBeenCalled();
+      expect(mockedUpsertDraft).not.toHaveBeenCalled();
+      expect(mockedAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns 404 for a missing flow', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedGetFlow.mockResolvedValueOnce(null);
+
+    const response = await restoreRevisionRoute(restoreRequest(), restoreParams());
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'FLOW_NOT_FOUND', message: 'Flow not found' },
+    });
+    expect(mockedGetRevision).not.toHaveBeenCalled();
+    expect(mockedUpsertDraft).not.toHaveBeenCalled();
+    expect(mockedAudit).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for a missing revision', async () => {
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedGetFlow.mockResolvedValueOnce(flowRecord);
+    mockedGetRevision.mockResolvedValueOnce(null);
+
+    const response = await restoreRevisionRoute(
+      restoreRequest('flow-1', '9'),
+      restoreParams('flow-1', '9'),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'FLOW_REVISION_NOT_FOUND', message: 'Flow revision not found' },
+    });
+    expect(mockedGetRevision).toHaveBeenCalledWith('flow-1', 9);
+    expect(mockedUpsertDraft).not.toHaveBeenCalled();
+    expect(mockedAudit).not.toHaveBeenCalled();
+  });
+
+  it('copies the revision snapshot into the current draft without deploying', async () => {
+    const revision = buildRevisionRecord(2);
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedGetFlow.mockResolvedValueOnce(flowRecord);
+    mockedGetRevision.mockResolvedValueOnce(revision);
+    mockedUpsertDraft.mockResolvedValueOnce({
+      flowId: 'flow-1',
+      semanticDocument: revision.semanticDocument,
+      layoutDocument: revision.layoutDocument,
+      semanticHash: 'restored-semantic-hash',
+      layoutHash: 'restored-layout-hash',
+      updatedBy: 'user-1',
+      updatedAt: new Date('2026-01-04T00:00:00.000Z'),
+    });
+
+    const response = await restoreRevisionRoute(restoreRequest(), restoreParams());
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    // After restore the current draft equals the revision snapshot.
+    expect(payload.draft.semanticDocument).toEqual(revision.semanticDocument);
+    expect(payload.draft.layoutDocument).toEqual(revision.layoutDocument);
+    expect(payload.restoredRevisionNumber).toBe(2);
+    // Restore rewrites the draft through the repository (which recomputes
+    // hashes server-side); it never touches deployments or runtime.
+    expect(mockedUpsertDraft).toHaveBeenCalledWith({
+      flowId: 'flow-1',
+      semanticDocument: revision.semanticDocument,
+      layoutDocument: revision.layoutDocument,
+      updatedBy: 'user-1',
+    });
+    // Audit carries identifiers only: no draft/revision documents.
+    expect(mockedAudit).toHaveBeenCalledTimes(1);
+    const auditEvent = mockedAudit.mock.calls[0][0];
+    expect(auditEvent).toMatchObject({
+      actorId: 'user-1',
+      action: 'flow.revision.restore',
+      resourceType: 'flow',
+      resourceId: 'flow-1',
+      success: true,
+      metadata: { revisionNumber: 2 },
+    });
+    expect(JSON.stringify(auditEvent)).not.toContain('semanticDocument');
+    expect(JSON.stringify(auditEvent)).not.toContain('layoutDocument');
   });
 });
