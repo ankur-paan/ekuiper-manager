@@ -22,6 +22,7 @@ import { FlowSettingsPanel } from './inspector/flow-settings-panel';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
 import { FlowBottomPanel } from './panels/flow-bottom-panel';
+import { RuntimePanel, fetchFlowRuntime, resolveRuntimeLabel } from './panels/runtime-panel';
 import { QuickNodePicker } from './palette/quick-node-picker';
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
 import { toFlowCanvasPresentation, toReactFlow } from './canvas/to-react-flow';
@@ -273,6 +274,24 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     queryFn: () => fetchDeployment(flowId),
     enabled: flowQuery.isSuccess,
     staleTime: 10 * 1000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  // FS-0100: latest live runtime desired/actual status. Polls the read-only
+  // runtime endpoint on a 5s status interval (not 1s metrics) and only while
+  // the flow has a successful deployment; with no deployment the query stays
+  // disabled so no request fires. React Query teardown on unmount stops
+  // polling, and failures only surface in runtime UI — draft/editor state is
+  // never touched here.
+  const hasSuccessfulDeployment =
+    deploymentQuery.isSuccess && deploymentQuery.data.deployment !== null;
+  const runtimeQuery = useQuery({
+    queryKey: ['flow-runtime', flowId],
+    queryFn: () => fetchFlowRuntime(flowId),
+    enabled: flowQuery.isSuccess && hasSuccessfulDeployment,
+    staleTime: 4 * 1000,
+    refetchInterval: 5 * 1000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     retry: false,
   });
@@ -623,9 +642,12 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // the result visible) plus a toast; the editor draft stays untouched.
   // FS-0090: invalidate the deployment summary so the header label
   // reflects the new successful deployment without polling.
+  // FS-0100: also refresh deployment + runtime reads so status polling
+  // starts (or re-reads) after a deploy.
   const handleDeployed = React.useCallback(() => {
     toast.success('Flow deployed');
     void queryClient.invalidateQueries({ queryKey: ['flow-deployment', flowId] });
+    void queryClient.invalidateQueries({ queryKey: ['flow-runtime', flowId] });
   }, [flowId, queryClient]);
 
   // Commit one layout-only move per drag stop. High-frequency drag updates
@@ -964,6 +986,19 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     // stays visible as "Save failed" and is never shown as Saved.
     const saveDisplay = resolveFlowSaveDisplay(autosave.status);
 
+    // FS-0100: runtime header/panel display. Distinct from the Saved /
+    // Deployed draft labels above: it describes live eKuiper state read
+    // from the runtime endpoint. Only shown once a successful deployment
+    // exists and a runtime read has resolved; runtime failures never touch
+    // draft or editor state (read-only query above). No Start/Stop actions.
+    const runtimeSnapshot = runtimeQuery.data ?? null;
+    const runtimeLabel = hasSuccessfulDeployment
+      ? resolveRuntimeLabel(runtimeSnapshot)
+      : undefined;
+    const runtimeState = hasSuccessfulDeployment
+      ? (runtimeSnapshot?.actualState ?? 'unknown')
+      : undefined;
+
     return (
       <div
         className="h-[calc(100vh-10rem)] min-h-[480px]"
@@ -983,6 +1018,8 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
               onDeploy={handleDeployOpen}
               deploymentLabel={deploymentDisplay.label}
               deploymentStatus={deploymentDisplay.status}
+              runtimeLabel={runtimeLabel}
+              runtimeState={runtimeState}
             />
           }
           palette={<NodePalette definitions={paletteDefinitions} capabilities={capabilityProfile} />}
@@ -1024,7 +1061,15 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
             // FS-0152: flow-level rule options live above the node
             // inspector in the same column: they are flow settings, not
             // node state, and never enter node chrome or canvas data.
+            // FS-0100: node-neutral runtime panel renders at the top of the
+            // same column so it is visible regardless of node selection.
             <div className="flex flex-col">
+              <RuntimePanel
+                runtime={runtimeSnapshot}
+                hasDeployment={hasSuccessfulDeployment}
+                isLoading={runtimeQuery.isPending}
+                isError={runtimeQuery.isError}
+              />
               <FlowSettingsPanel />
               <NodeInspector selectedNodeId={selectedNodeIds[0] ?? null} diagnostics={inspectorDiagnostics} documentDiagnostics={documentDiagnostics} />
             </div>
@@ -1044,7 +1089,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, handleDeployOpen, handleDeployClose, handleDeployed]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>

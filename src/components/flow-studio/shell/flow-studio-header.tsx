@@ -7,6 +7,8 @@ export type FlowStudioSaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
 
 export type FlowDeploymentStatus = 'deployed' | 'undeployed' | 'never-deployed';
 
+export type FlowRuntimeHeaderState = 'running' | 'stopped' | 'error' | 'unknown';
+
 export interface FlowStudioHeaderProps {
   flowName: string;
   saveState: string;
@@ -16,6 +18,8 @@ export interface FlowStudioHeaderProps {
   onDeploy?: () => void;
   deploymentLabel?: string;
   deploymentStatus?: FlowDeploymentStatus;
+  runtimeLabel?: string;
+  runtimeState?: FlowRuntimeHeaderState;
   className?: string;
 }
 
@@ -28,6 +32,8 @@ export function FlowStudioHeader({
   onDeploy,
   deploymentLabel,
   deploymentStatus,
+  runtimeLabel,
+  runtimeState,
   className,
 }: FlowStudioHeaderProps) {
   return (
@@ -53,7 +59,7 @@ export function FlowStudioHeader({
         >
           {saveState}
         </p>
-        {deploymentLabel ? (
+          {deploymentLabel ? (
           <p
             aria-live="polite"
             data-testid="flow-deployment-status"
@@ -67,6 +73,23 @@ export function FlowStudioHeader({
             )}
           >
             {deploymentLabel}
+          </p>
+        ) : null}
+        {runtimeLabel ? (
+          <p
+            aria-live="polite"
+            data-testid="flow-runtime-status"
+            data-runtime-state={runtimeState}
+            title={runtimeLabel}
+            className={cn(
+              'truncate text-xs',
+              runtimeState === 'running' && 'font-medium text-green-700',
+              runtimeState === 'error' && 'font-medium text-destructive',
+              runtimeState === 'stopped' && 'font-medium text-amber-700',
+              runtimeState === 'unknown' && 'text-muted-foreground',
+            )}
+          >
+            {runtimeLabel}
           </p>
         ) : null}
       </div>
