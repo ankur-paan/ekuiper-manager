@@ -24,6 +24,7 @@ docs/*
 !docs/FLOW_STUDIO_ARCHITECTURE.md
 !docs/FLOW_STUDIO_RULE_TEST_NOTES.md
 !docs/FLOW_STUDIO.md
+!docs/FLOW_STUDIO_BETA_ACCEPTANCE.md
 
 # Testing
 coverage/
