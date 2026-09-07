@@ -31,6 +31,7 @@ import { generateFlowNodeId } from '@/lib/flows/model/create-flow-node';
 import { createFlowEdgeForConnection, generateFlowEdgeId } from '@/lib/flows/model/create-flow-edge';
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
+import { validateExtensionNodeDescriptor } from '@/lib/flows/extensions/validate-extension';
 import { resolveTargetCapabilities } from '@/lib/flows/capabilities/resolve-capabilities';
 import { canConnect } from '@/lib/flows/validation/port-compatibility';
 import { validateFlowForEditor } from '@/lib/flows/validation/editor-validation';
@@ -135,6 +136,41 @@ async function fetchDeployment(flowId: string): Promise<FlowDeploymentPayload> {
   });
   if (!response.ok) throw new FlowPageError(response.status, await readErrorMessage(response));
   return (await response.json()) as FlowDeploymentPayload;
+}
+
+/**
+ * One server-supplied extension summary (FS-0115).
+ *
+ * Carries only safe editor data: extension identity plus node definition
+ * data. The server never sends manifest descriptor paths or server
+ * filesystem paths, so there is nothing path-like to consume here.
+ * Descriptors stay `unknown` until the combined-registry memo below
+ * validates each one with the same FS-0112 contract the server uses.
+ */
+interface FlowExtensionSummary {
+  id: string;
+  name: string;
+  version: string;
+  nodes: unknown[];
+}
+
+function isFlowExtensionSummary(value: unknown): value is FlowExtensionSummary {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record['id'] === 'string' &&
+    typeof record['name'] === 'string' &&
+    typeof record['version'] === 'string' &&
+    Array.isArray(record['nodes'])
+  );
+}
+
+async function fetchFlowExtensions(): Promise<FlowExtensionSummary[]> {
+  const response = await fetch('/api/flow-extensions', { cache: 'no-store' });
+  if (!response.ok) throw new FlowPageError(response.status, await readErrorMessage(response));
+  const payload = (await response.json()) as { extensions?: unknown };
+  if (!Array.isArray(payload.extensions)) return [];
+  return payload.extensions.filter(isFlowExtensionSummary);
 }
 
 function buildDocument(flow: FlowSummary, draft: FlowDraftPayload | null): FlowDocument {
@@ -279,6 +315,18 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     refetchOnWindowFocus: false,
     retry: false,
   });
+  // FS-0115: server-supplied declarative extension descriptors for the
+  // combined registry below. Read-only GET with a long stale time and no
+  // polling; a lookup failure leaves the query in error and the editor
+  // falls back to built-ins only, so Flow Studio never crashes on an
+  // unavailable or invalid extension payload.
+  const extensionsQuery = useQuery({
+    queryKey: ['flow-extensions'],
+    queryFn: fetchFlowExtensions,
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
   // FS-0100: latest live runtime desired/actual status. Polls the read-only
   // runtime endpoint on a 5s status interval (not 1s metrics) and only while
   // the flow has a successful deployment; with no deployment the query stays
@@ -338,6 +386,71 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const canvasSource =
     storeDocument && storeDocument.metadata.id === flowId ? storeDocument : document;
 
+  // FS-0115: combined built-in + extension registry. Extension descriptors
+  // arrive from GET /api/flow-extensions and are re-validated here with the
+  // same FS-0112 contract before merging, keeping NodeRegistry the canonical
+  // interface. An invalid extension (failed descriptor validation or a
+  // type+version collision with a built-in or another extension) is omitted
+  // with a safe diagnostic instead of crashing Flow Studio; while loading
+  // or on fetch failure the shared built-in registry above is used as-is.
+  const combinedExtensionState = React.useMemo(() => {
+    const summaries = extensionsQuery.data;
+    if (!summaries || summaries.length === 0) {
+      return { registry: builtinRegistry, diagnostics: [] as FlowDiagnostic[] };
+    }
+    const registry = createBuiltinNodeRegistry();
+    const diagnostics: FlowDiagnostic[] = [];
+    for (const summary of summaries) {
+      let invalid = false;
+      const valid: FlowNodeDefinition[] = [];
+      for (const descriptor of summary.nodes) {
+        const issues = validateExtensionNodeDescriptor(descriptor);
+        if (issues.length > 0) {
+          diagnostics.push(...issues);
+          invalid = true;
+          continue;
+        }
+        valid.push(descriptor as FlowNodeDefinition);
+      }
+      if (invalid) continue;
+      const seen = new Set<string>();
+      let collides = false;
+      for (const definition of valid) {
+        const key = `${definition.type}@${definition.version}`;
+        if (seen.has(key) || registry.has(definition.type, definition.version)) {
+          diagnostics.push({
+            code: 'FLOW_EXTENSION_NODE_COLLISION',
+            severity: 'error',
+            message:
+              `Extension "${summary.id}" node type="${definition.type}" version=${definition.version} ` +
+              `collides with an existing definition and was omitted.`,
+            propertyPath: summary.id,
+          });
+          collides = true;
+          break;
+        }
+        seen.add(key);
+      }
+      if (collides) continue;
+      for (const definition of valid) {
+        registry.register(definition);
+      }
+    }
+    return { registry, diagnostics };
+  }, [extensionsQuery.data]);
+  const flowRegistry = combinedExtensionState.registry;
+
+  // FS-0115: omitted invalid extensions stay visible as a safe devtools
+  // diagnostic only; the editor keeps running on the combined registry.
+  React.useEffect(() => {
+    if (combinedExtensionState.diagnostics.length > 0) {
+      console.warn(
+        '[flow-extensions] omitted invalid extension definitions',
+        combinedExtensionState.diagnostics,
+      );
+    }
+  }, [combinedExtensionState]);
+
   // R1: resolve the exact (type, typeVersion) definition at the page/view
   // boundary and attach only presentation fields (category, display name,
   // input/output ports) to canvas node data. The adapter stays pure; this
@@ -347,18 +460,19 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     () =>
       canvasSource
         ? toReactFlow(canvasSource, (type, version) => {
-            const definition = builtinRegistry.get(type, version);
+            const definition = flowRegistry.get(type, version);
             if (!definition) return undefined;
             return toFlowCanvasPresentation(definition);
           })
         : null,
-    [canvasSource],
+    [canvasSource, flowRegistry],
   );
 
-  // FS-0063: palette is driven by the built-in registry, not a hard-coded
-  // catalog. list() is already deterministically ordered; grouping and
-  // display order are owned by NodePalette.
-  const paletteDefinitions = React.useMemo(() => builtinRegistry.list(), []);
+  // FS-0063/FS-0115: palette is driven by the combined built-in +
+  // extension registry, not a hard-coded catalog. list() is already
+  // deterministically ordered; grouping and display order are owned by
+  // NodePalette, so an extension node appears without palette source edits.
+  const paletteDefinitions = React.useMemo(() => flowRegistry.list(), [flowRegistry]);
 
   // FS-0080: normalized target capability profile for palette gating and
   // capability validation. Temporary audited 2.4.1 reachable baseline until
@@ -380,8 +494,8 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // only counts flow to node chrome while messages render in the inspector.
   const flowDiagnostics = React.useMemo<FlowDiagnostic[]>(() => {
     if (!storeDocument || storeDocument.metadata.id !== flowId) return [];
-    return validateFlowForEditor(storeDocument, builtinRegistry, capabilityProfile);
-  }, [storeDocument, flowId, capabilityProfile]);
+    return validateFlowForEditor(storeDocument, flowRegistry, capabilityProfile);
+  }, [storeDocument, flowId, flowRegistry, capabilityProfile]);
 
   // FS-0068: collapse diagnostics to per-node error/warning counts for the
   // canvas. Diagnostics carrying nodeId count directly; edge-only
@@ -717,7 +831,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // unavailable nodes already in the document remain untouched.
   const handlePaletteDrop = React.useCallback(
     (drop: FlowPaletteDrop) => {
-      const definition = builtinRegistry.get(drop.type, drop.version);
+      const definition = flowRegistry.get(drop.type, drop.version);
       if (!definition) return;
       if (!isDefinitionSupportedByCapabilities(definition, capabilityProfile).supported) {
         return;
@@ -728,7 +842,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         position: { x: drop.position.x, y: drop.position.y },
       });
     },
-    [addNode, capabilityProfile],
+    [addNode, capabilityProfile, flowRegistry],
   );
 
   // FS-0067: preflight validation shared by connect creation and the
@@ -763,11 +877,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         (entry) => entry.id === targetNodeId,
       );
       if (!sourceNode || !targetNode) return false;
-      const sourceDefinition = builtinRegistry.get(
+      const sourceDefinition = flowRegistry.get(
         sourceNode.type,
         sourceNode.typeVersion,
       );
-      const targetDefinition = builtinRegistry.get(
+      const targetDefinition = flowRegistry.get(
         targetNode.type,
         targetNode.typeVersion,
       );
@@ -781,7 +895,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       if (!sourcePort || !targetPort) return false;
       return canConnect(sourcePort.kind, targetPort.kind);
     },
-    [flowId],
+    [flowId, flowRegistry],
   );
 
   // FS-0067: create one semantic FlowEdge from an XYFlow connect event after
@@ -828,11 +942,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         toast.error('Cannot connect: node not found.');
         return;
       }
-      const sourceDefinition = builtinRegistry.get(
+      const sourceDefinition = flowRegistry.get(
         sourceNode.type,
         sourceNode.typeVersion,
       );
-      const targetDefinition = builtinRegistry.get(
+      const targetDefinition = flowRegistry.get(
         targetNode.type,
         targetNode.typeVersion,
       );
@@ -866,7 +980,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         }),
       );
     },
-    [addEdge, flowId],
+    [addEdge, flowId, flowRegistry],
   );
 
   // FS-0070: open the searchable compact picker at/near the cursor when
