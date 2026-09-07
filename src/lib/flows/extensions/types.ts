@@ -1,4 +1,13 @@
-import type { FlowNodeDefinition } from '../registry/node-definition';
+import type {
+  FlowEkuiperRuntimeMapping,
+  FlowNodeDefinition,
+} from '../registry/node-definition';
+export type { FlowEkuiperRuntimeMapping } from '../registry/node-definition';
+export {
+  FLOW_EKUIPER_RUNTIME_MAPPING_KEYS,
+  FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+  validateFlowEkuiperRuntimeMapping,
+} from '../registry/node-definition';
 
 /**
  * Internal v1alpha1 declarative extension manifest target (FS-0111).
@@ -43,15 +52,25 @@ export interface FlowExtensionManifest {
 }
 
 /**
- * Declarative node descriptor for an extension node (FS-0111).
+ * Declarative node descriptor for an extension node (FS-0111, FS-0116).
  *
  * Reuses the internal `FlowNodeDefinition` contract directly so built-in
  * and extension nodes share one type system. Extension descriptors use the
  * same Node Definition-compatible fields (identity, display metadata,
  * category, ports, properties, docs/icon metadata); no duplicate
  * incompatible type system is introduced.
+ *
+ * FS-0116: descriptors may carry an optional declarative eKuiper runtime
+ * mapping (`FlowEkuiperRuntimeMapping`, re-exported above as
+ * `FlowExtensionRuntimeMapping`): `kind`/`nodeType` plus a direct
+ * allowlisted `configKey -> propsKey` property map. Plain JSON data only;
+ * never a function, expression, or template. `secret-ref` properties must
+ * not be mapped until the secret-binding design allows it.
  */
 export type FlowExtensionNodeDescriptor = FlowNodeDefinition;
+
+/** Extension-facing alias for the declarative eKuiper mapping (FS-0116). */
+export type FlowExtensionRuntimeMapping = FlowEkuiperRuntimeMapping;
 
 /**
  * Reference to one node descriptor file listed in a manifest.

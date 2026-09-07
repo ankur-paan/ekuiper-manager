@@ -14,6 +14,11 @@ import type {
   FlowExtensionNodeDescriptor,
   FlowExtensionPackage,
 } from '@/lib/flows/extensions/types';
+import {
+  FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+  validateFlowEkuiperRuntimeMapping,
+} from '@/lib/flows/registry/node-definition';
+import type { FlowPropertyDefinition } from '@/lib/flows/registry/node-definition';
 
 function buildManifest(
   overrides: Partial<FlowExtensionManifest> = {},
@@ -188,5 +193,119 @@ describe('flow extension validation', () => {
         buildManifest({ version: 'not-semver-at-all', manager: 'any' }),
       ),
     ).toEqual([]);
+  });
+});
+
+describe('flow extension runtime mapping contract (FS-0116)', () => {
+  const declared: FlowPropertyDefinition[] = [
+    { key: 'topic', label: 'Topic', type: 'string' },
+    { key: 'apiKey', label: 'API key', type: 'secret-ref' },
+  ];
+
+  function buildMapping(overrides: Record<string, unknown> = {}) {
+    return {
+      kind: 'source',
+      nodeType: 'mqtt',
+      properties: { topic: 'datasource' },
+      ...overrides,
+    };
+  }
+
+  it('accepts a direct allowlisted mapping for source/operator/sink kinds', () => {
+    expect(
+      validateFlowEkuiperRuntimeMapping(buildMapping(), declared),
+    ).toEqual([]);
+    expect(
+      validateFlowEkuiperRuntimeMapping(
+        { kind: 'operator', nodeType: 'filter', properties: { topic: 'expr' } },
+        declared,
+      ),
+    ).toEqual([]);
+    expect(
+      validateFlowEkuiperRuntimeMapping(
+        { kind: 'sink', nodeType: 'memory', properties: {} },
+        declared,
+      ),
+    ).toEqual([]);
+  });
+
+  it('rejects function values without executing them', () => {
+    const spy = jest.fn();
+    const diagnostics = validateFlowEkuiperRuntimeMapping(
+      buildMapping({ properties: { topic: spy } }),
+      declared,
+    );
+
+    expect(codes(diagnostics)).toContain(
+      FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED,
+    );
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown top-level mapping keys', () => {
+    const diagnostics = validateFlowEkuiperRuntimeMapping(
+      buildMapping({ template: '{{topic}}', eval: 'topic' }),
+      declared,
+    );
+
+    expect(codes(diagnostics)).toContain(
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+    );
+    expect(
+      diagnostics.some(
+        (diagnostic) =>
+          diagnostic.propertyPath === 'template' ||
+          diagnostic.propertyPath === 'eval',
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects mappings referencing undeclared config keys', () => {
+    const diagnostics = validateFlowEkuiperRuntimeMapping(
+      buildMapping({ properties: { unknownKey: 'datasource' } }),
+      declared,
+    );
+
+    expect(codes(diagnostics)).toContain(
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+    );
+  });
+
+  it('does not blindly include secret-ref properties in the mapping', () => {
+    const diagnostics = validateFlowEkuiperRuntimeMapping(
+      buildMapping({ properties: { apiKey: 'password' } }),
+      declared,
+    );
+
+    expect(codes(diagnostics)).toContain(
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+    );
+  });
+
+  it('rejects invalid kind, nodeType, and props-key shapes', () => {
+    expect(
+      codes(
+        validateFlowEkuiperRuntimeMapping(
+          buildMapping({ kind: 'function' }),
+          declared,
+        ),
+      ),
+    ).toContain(FLOW_EXTENSION_INVALID_RUNTIME_MAPPING);
+    expect(
+      codes(
+        validateFlowEkuiperRuntimeMapping(
+          buildMapping({ nodeType: '' }),
+          declared,
+        ),
+      ),
+    ).toContain(FLOW_EXTENSION_INVALID_RUNTIME_MAPPING);
+    expect(
+      codes(
+        validateFlowEkuiperRuntimeMapping(
+          buildMapping({ properties: { topic: '' } }),
+          declared,
+        ),
+      ),
+    ).toContain(FLOW_EXTENSION_INVALID_RUNTIME_MAPPING);
   });
 });

@@ -298,6 +298,284 @@ export function resolveFlowNodeSubtitle(
   return undefined;
 }
 
+/**
+ * Declarative eKuiper runtime mapping for one node definition (FS-0116).
+ *
+ * Audited contract source: `public/ekuiper-openapi.json` (eKuiper 2.4.1)
+ * schema `RuleGraph` requires every graph node entry to carry `type`
+ * (`source`/`operator`/`sink`), `nodeType`, and free-form `props`. This
+ * mapping supplies exactly that: `kind` becomes the graph `type`,
+ * `nodeType` becomes the graph `nodeType`, and `properties` allowlists
+ * which Flow config keys copy verbatim into `props` under a renamed key.
+ *
+ * Initial strategy is direct allowlisted `configKey -> propKey` mapping
+ * only: plain JSON strings, never expressions, templates, or code. The
+ * FS-0117 compiler copies listed config values verbatim and ignores
+ * unlisted config; nothing here is executed in Manager.
+ */
+export interface FlowEkuiperRuntimeMapping {
+  /** Graph node `type`: eKuiper source, operator, or sink. */
+  kind: FlowIrNodeKind;
+  /** Graph node `nodeType`, e.g. `mqtt`, `memory`, `filter`. */
+  nodeType: string;
+  /**
+   * Direct config-key -> props-key allowlist, e.g.
+   * `{ topic: "datasource" }` copies Flow `config.topic` verbatim into
+   * eKuiper `props.datasource`. Both sides are plain non-empty strings;
+   * never a function, expression, or template. May be empty for nodes
+   * with no mapped props (e.g. a log sink).
+   */
+  properties: Record<string, string>;
+}
+
+/**
+ * Top-level keys permitted on a {@link FlowEkuiperRuntimeMapping}.
+ * Anything else (e.g. `template`, `expression`, `code`, `eval`) is an
+ * unknown mapping key and fails validation.
+ */
+export const FLOW_EKUIPER_RUNTIME_MAPPING_KEYS = [
+  'kind',
+  'nodeType',
+  'properties',
+] as const;
+
+/** Diagnostic code for a structurally invalid runtime mapping. */
+export const FLOW_EXTENSION_INVALID_RUNTIME_MAPPING =
+  'FLOW_EXTENSION_INVALID_RUNTIME_MAPPING' as const;
+
+/**
+ * Diagnostic code reused for function-valued mapping content.
+ *
+ * Kept string-identical to the extension validator's
+ * `FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED` so mapping violations and
+ * manifest/descriptor violations share one code without importing the
+ * extension validator (which would create a registry <-> extensions
+ * import cycle).
+ */
+export const FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED =
+  'FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED' as const;
+
+/** eKuiper graph `type` values permitted in a mapping `kind`. */
+const FLOW_EKUIPER_RUNTIME_KINDS: readonly FlowIrNodeKind[] = [
+  'source',
+  'operator',
+  'sink',
+];
+
+/** Safe `nodeType`/props-key shape: leading letter, then alphanumerics/`_`/`-`/`.`. */
+const FLOW_EKUIPER_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]*$/;
+
+function isMappingRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function pushMappingDiagnostic(
+  diagnostics: FlowDiagnostic[],
+  code: string,
+  message: string,
+  propertyPath?: string,
+): void {
+  diagnostics.push({
+    code,
+    severity: 'error',
+    message,
+    ...(propertyPath === undefined ? {} : { propertyPath }),
+  });
+}
+
+/**
+ * Find the first function value nested in mapping data.
+ *
+ * Returns the dotted key path of the offending value, or undefined when
+ * no function value is present. Reported instead of ever being called:
+ * mappings are plain JSON data and must never carry functions/eval.
+ */
+function findMappingFunctionPath(
+  value: unknown,
+  path: string,
+): string | undefined {
+  if (typeof value === 'function') {
+    return path;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const found = findMappingFunctionPath(value[index], `${path}[${index}]`);
+      if (found !== undefined) {
+        return found;
+      }
+    }
+    return undefined;
+  }
+  if (isMappingRecord(value)) {
+    for (const key of Object.keys(value)) {
+      const found = findMappingFunctionPath(
+        value[key],
+        path.length === 0 ? key : `${path}.${key}`,
+      );
+      if (found !== undefined) {
+        return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Validate one declarative eKuiper runtime mapping (FS-0116).
+ *
+ * Rules:
+ * - must be a plain object with exactly the known keys (`kind`,
+ *   `nodeType`, `properties`); unknown keys fail;
+ * - `kind` must be `source`/`operator`/`sink`;
+ * - `nodeType` must be a safe non-empty name (never empty, never code);
+ * - `properties` must be a `configKey -> propKey` record of non-empty
+ *   safe strings; function values fail as executable content and are
+ *   never called;
+ * - when `declaredProperties` is provided, every mapped `configKey` must
+ *   name a declared property key, and `secret-ref` properties must not be
+ *   mapped (secret binding lands in a later design; blind inclusion
+ *   would leak secret references into compiled props).
+ *
+ * Returns structured `FlowDiagnostic[]` (empty means valid). Never throws
+ * for JSON-compatible input and never mutates its input.
+ */
+export function validateFlowEkuiperRuntimeMapping(
+  value: unknown,
+  declaredProperties?: readonly FlowPropertyDefinition[] | undefined,
+  prefix = '',
+): FlowDiagnostic[] {
+  const diagnostics: FlowDiagnostic[] = [];
+  const at = (path: string): string =>
+    prefix.length === 0 ? path : `${prefix}.${path}`;
+  if (!isMappingRecord(value)) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+      'Extension runtime mapping must be an object.',
+      prefix.length === 0 ? undefined : prefix,
+    );
+    return diagnostics;
+  }
+
+  for (const key of Object.keys(value)) {
+    if (
+      !(FLOW_EKUIPER_RUNTIME_MAPPING_KEYS as readonly string[]).includes(key)
+    ) {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        `Extension runtime mapping has an unknown key "${key}". ` +
+          `Allowed keys are ${FLOW_EKUIPER_RUNTIME_MAPPING_KEYS.join(', ')}.`,
+        at(key),
+      );
+    }
+  }
+
+  const functionPath = findMappingFunctionPath(
+    value,
+    prefix.length === 0 ? '' : prefix,
+  );
+  if (functionPath !== undefined && functionPath.length > 0) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED,
+      `Extension runtime mapping declares unsupported executable function at "${functionPath}". ` +
+        `Mappings are plain config-key -> props-key strings and are never executed.`,
+      functionPath,
+    );
+  }
+
+  const kind: unknown = value['kind'];
+  if (
+    typeof kind !== 'string' ||
+    !(FLOW_EKUIPER_RUNTIME_KINDS as readonly string[]).includes(kind)
+  ) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+      'Extension runtime mapping kind must be one of source, operator, sink.',
+      at('kind'),
+    );
+  }
+
+  const nodeType: unknown = value['nodeType'];
+  if (
+    typeof nodeType !== 'string' ||
+    nodeType.length === 0 ||
+    !FLOW_EKUIPER_NAME_PATTERN.test(nodeType)
+  ) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+      'Extension runtime mapping nodeType must be a non-empty safe name ' +
+        '(leading letter, then letters, digits, "_", "-", ".").',
+      at('nodeType'),
+    );
+  }
+
+  const properties: unknown = value['properties'];
+  if (!isMappingRecord(properties)) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+      'Extension runtime mapping properties must be an object mapping config keys to eKuiper props keys.',
+      at('properties'),
+    );
+    return diagnostics;
+  }
+
+  const declaredByKey =
+    declaredProperties === undefined
+      ? undefined
+      : new Map(declaredProperties.map((property) => [property.key, property]));
+  for (const configKey of Object.keys(properties)) {
+    const entryPath = at(`properties.${configKey}`);
+    const propKey: unknown = properties[configKey];
+    if (configKey.length === 0) {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        'Extension runtime mapping config key must be a non-empty string.',
+        entryPath,
+      );
+      continue;
+    }
+    if (
+      typeof propKey !== 'string' ||
+      propKey.length === 0 ||
+      !FLOW_EKUIPER_NAME_PATTERN.test(propKey)
+    ) {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        `Extension runtime mapping for config key "${configKey}" must name a non-empty safe eKuiper props key.`,
+        entryPath,
+      );
+      continue;
+    }
+    if (declaredByKey !== undefined && !declaredByKey.has(configKey)) {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        `Extension runtime mapping config key "${configKey}" does not match any declared node property.`,
+        entryPath,
+      );
+      continue;
+    }
+    const declared = declaredByKey?.get(configKey);
+    if (declared !== undefined && declared.type === 'secret-ref') {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        `Extension runtime mapping config key "${configKey}" is a secret-ref property and must not be mapped into eKuiper props until the secret-binding design allows it.`,
+        entryPath,
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
 export interface FlowNodeDefinition {
   type: string;
   version: number;
@@ -346,6 +624,18 @@ export interface FlowNodeDefinition {
    */
   runtimeKind?: FlowIrNodeKind;
   operation?: string;
+  /**
+   * Optional declarative eKuiper runtime mapping (FS-0116).
+   *
+   * Extension (and future built-in) nodes declare how they compile to an
+   * eKuiper graph node: `kind`/`nodeType` plus a direct allowlisted
+   * `configKey -> propsKey` property map. Plain JSON data only; never a
+   * function, expression, or template. Optional so built-ins without a
+   * migrated mapping keep compiling through their existing compiler
+   * path; the FS-0117 compiler uses this mapping only when present and
+   * validated.
+   */
+  runtimeMapping?: FlowEkuiperRuntimeMapping;
 }
 
 /**
