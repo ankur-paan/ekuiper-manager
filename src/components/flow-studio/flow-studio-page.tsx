@@ -25,6 +25,7 @@ import { FlowBottomPanel } from './panels/flow-bottom-panel';
 import { RevisionHistory } from './history/revision-history';
 import { RuntimePanel, fetchFlowRuntime, resolveRuntimeLabel } from './panels/runtime-panel';
 import { QuickNodePicker } from './palette/quick-node-picker';
+import { FlowCommandPalette } from './command/flow-command-palette';
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
 import { toFlowCanvasPresentation, toReactFlow } from './canvas/to-react-flow';
 import { generateFlowNodeId } from '@/lib/flows/model/create-flow-node';
@@ -259,6 +260,34 @@ function resolveFlowSaveDisplay(status: FlowAutosaveStatus): {
     default:
       return { text: 'Saved', status: 'saved' };
   }
+}
+
+/**
+ * FS-0127: activate an existing FlowBottomPanel tab from the command
+ * palette without touching FlowBottomPanel state ownership. The bottom
+ * panel owns its open/tab state; this helper only clicks the same tab
+ * trigger and expand buttons the user could click, so no action is
+ * invented and no duplicate panel implementation is introduced. No-ops
+ * when the panel is not mounted (palette commands stay disabled then).
+ */
+function activateFlowBottomPanelTab(tab: 'validation' | 'definition' | 'test'): void {
+  if (typeof document === 'undefined') return;
+  const expand = document.querySelector('[data-testid="flow-bottom-panel-expand"]');
+  if (expand instanceof HTMLElement) expand.click();
+  const trigger = document.querySelector(`[data-testid="flow-bottom-panel-tab-${tab}"]`);
+  if (trigger instanceof HTMLElement) trigger.click();
+}
+
+/**
+ * FS-0127: trigger the existing XYFlow canvas fit-view control from the
+ * command palette. The Controls `showFitView` button is already exposed in
+ * the canvas DOM (FS-0126); this helper only clicks it, so no new
+ * viewport behavior is invented. No-ops when the canvas is not mounted.
+ */
+function activateFlowCanvasFitView(): void {
+  if (typeof document === 'undefined') return;
+  const fitView = document.querySelector('.react-flow__controls-fitview');
+  if (fitView instanceof HTMLElement) fitView.click();
 }
 
 /**
@@ -681,6 +710,13 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
   React.useEffect(() => {
     setQuickPicker(null);
   }, [flowId]);
+  // FS-0127: command palette visibility. Reset per flow so a stale palette
+  // never issues a command against a different flow. Opening or closing
+  // never mutates the document.
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
+  React.useEffect(() => {
+    setPaletteOpen(false);
+  }, [flowId]);
   const baseline = savedBaseline ?? queryBaseline;
   const dirtyState = React.useMemo(() => {
     if (!storeDocument || !baseline) {
@@ -1049,6 +1085,47 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
     [addNode, quickPicker],
   );
 
+  // FS-0127: command palette callbacks. Every command delegates to an
+  // action that already exists: the quick picker (same registry catalog,
+  // no duplicate source), the Deploy dialog opener, the existing
+  // bottom-panel tabs/history toggle, and the existing canvas fit-view
+  // control. Callbacks never invent navigation or mutate the document
+  // directly; availability is decided at render time via the disabled
+  // flags passed to the palette.
+  const handlePaletteOpen = React.useCallback(() => {
+    setPaletteOpen(true);
+  }, []);
+
+  const handlePaletteAddNode = React.useCallback(() => {
+    if (typeof window !== 'undefined') {
+      setQuickPicker({
+        position: { x: 0, y: 0 },
+        screenPosition: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+      });
+    } else {
+      setQuickPicker({
+        position: { x: 0, y: 0 },
+        screenPosition: { x: 0, y: 0 },
+      });
+    }
+  }, []);
+
+  const handleCommandShowValidation = React.useCallback(() => {
+    activateFlowBottomPanelTab('validation');
+  }, []);
+
+  const handleCommandShowDefinition = React.useCallback(() => {
+    activateFlowBottomPanelTab('definition');
+  }, []);
+
+  const handleCommandShowTestOutput = React.useCallback(() => {
+    activateFlowBottomPanelTab('test');
+  }, []);
+
+  const handleCommandFitView = React.useCallback(() => {
+    activateFlowCanvasFitView();
+  }, []);
+
   // FS-0050: keyboard undo/redo and delete. Ctrl/Cmd+Z undoes,
   // Ctrl/Cmd+Shift+Z redoes, and Delete/Backspace removes the current
   // selection (nodes plus incident edges plus selected edges) as one
@@ -1075,6 +1152,25 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
         event.preventDefault();
         event.stopPropagation();
         useFlowEditorStore.getState().deleteSelected();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, []);
+
+  // FS-0127: Cmd/Ctrl+K toggles the command palette. Capture phase plus
+  // stopPropagation keeps the global UnifiedSearch palette (which also
+  // listens for Cmd+K) from opening underneath the Flow palette. Opening
+  // while typing in an input is intentional: it is a command shortcut,
+  // not a graph edit, so the FS-0050 editable-target guard does not apply.
+  React.useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        event.stopPropagation();
+        setPaletteOpen((open) => !open);
       }
     }
     window.addEventListener('keydown', onKeyDown, true);
@@ -1243,6 +1339,19 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
                     panel above the Validation/Definition tabs. No global
                     navigation change; opening never mutates the document. */}
                 <div className="flex shrink-0 items-center justify-end border-t bg-background px-3 py-1.5">
+                  {/* FS-0127: keyboard-discoverable entry point for the
+                      command palette (Cmd/Ctrl+K). Opens only; no document
+                      mutation. */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handlePaletteOpen}
+                    aria-haspopup="dialog"
+                    data-testid="flow-command-palette-open"
+                  >
+                    Commands
+                  </Button>
                   <Button
                     type="button"
                     variant="ghost"
@@ -1311,9 +1420,33 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
         />
       </div>
     );
-  }, [isLocalFixture, initialDocument, flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, storeDocument]);
+  }, [isLocalFixture, initialDocument, flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, handlePaletteOpen, storeDocument]);
+
+  // FS-0127: command availability mirrors the underlying actions. Deploy
+  // follows the same `deployReady` gate as the header button; node and
+  // panel commands require the loaded canvas view; fit view requires the
+  // mounted canvas controls.
+  const palettePanelsAvailable = canvasViewWithValidation !== null;
 
   return (
-    <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
+    <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>
+      {body}
+      <FlowCommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        canAddNode={paletteDefinitions.length > 0 && palettePanelsAvailable}
+        onAddNode={handlePaletteAddNode}
+        canDeploy={deployReady}
+        onDeploy={handleDeployOpen}
+        panelsAvailable={palettePanelsAvailable}
+        onShowValidation={handleCommandShowValidation}
+        onShowDefinition={handleCommandShowDefinition}
+        onShowTestOutput={handleCommandShowTestOutput}
+        historyOpen={historyOpen}
+        onToggleHistory={handleHistoryToggle}
+        canFitView={palettePanelsAvailable}
+        onFitView={handleCommandFitView}
+      />
+    </AppLayout>
   );
 }
