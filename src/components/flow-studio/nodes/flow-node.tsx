@@ -254,10 +254,8 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
     <div
       aria-selected={selected === true}
       className={cn(
-        "relative w-52 rounded-md border bg-card text-card-foreground shadow-sm",
-        selected
-          ? "border-2 border-primary ring-2 ring-primary ring-offset-2"
-          : "border-border",
+        "relative w-52 border shadow-sm flow-studio-node",
+        selected ? "border-2 flow-studio-node-selected" : undefined,
       )}
       data-accent={accentToken}
       data-selected={selected === true ? "true" : undefined}
@@ -267,7 +265,7 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
         <Handle
           key={`in-${port.id}`}
           aria-label={`Input ${port.label ?? port.id}`}
-          className="!h-2.5 !w-2.5 !border !border-primary !bg-background"
+          className="!border flow-studio-port !h-[var(--flow-port-size)] !w-[var(--flow-port-size)]"
           data-testid={`flow-node-input-${port.id}`}
           id={port.id}
           position={Position.Left}
@@ -280,7 +278,7 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
         <Handle
           key={`out-${port.id}`}
           aria-label={`Output ${port.label ?? port.id}`}
-          className="!h-2.5 !w-2.5 !border !border-primary !bg-background"
+          className="!border flow-studio-port !h-[var(--flow-port-size)] !w-[var(--flow-port-size)]"
           data-testid={`flow-node-output-${port.id}`}
           id={port.id}
           position={Position.Right}
@@ -290,11 +288,11 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
         />
       ))}
 
-      <div className="flex items-center gap-2 px-3 pt-2">
+      <div className="flex items-center gap-2 pt-2 flow-studio-node-body">
         {selected === true ? (
           <span
             aria-hidden="true"
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full flow-studio-selected-mark"
             data-testid="flow-node-selected-mark"
           >
             <Check className="h-3 w-3" strokeWidth={3} />
@@ -325,7 +323,7 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
         {hasValidationError ? (
           <span
             aria-label={`${validationErrorCount} validation error${validationErrorCount === 1 ? "" : "s"}`}
-            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border border-destructive bg-destructive px-1 text-[11px] font-bold leading-none text-destructive-foreground"
+            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border flow-studio-error-badge px-1 text-[11px] font-bold leading-none"
             data-testid="flow-node-validation-badge"
             data-validation="error"
             title={`${validationErrorCount} validation error${validationErrorCount === 1 ? "" : "s"}. See inspector for details.`}
@@ -335,7 +333,7 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
         ) : hasValidationWarning ? (
           <span
             aria-label={`${validationWarningCount} validation warning${validationWarningCount === 1 ? "" : "s"}`}
-            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border border-yellow-500 bg-yellow-400 px-1 text-[11px] font-bold leading-none text-yellow-950"
+            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border flow-studio-warning-badge px-1 text-[11px] font-bold leading-none"
             data-testid="flow-node-validation-badge"
             data-validation="warning"
             title={`${validationWarningCount} validation warning${validationWarningCount === 1 ? "" : "s"}. See inspector for details.`}
@@ -347,7 +345,7 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
 
       {showSubtitle === true ? (
         <div
-          className="truncate px-3 pb-1 text-xs text-muted-foreground"
+          className="truncate pb-1 text-xs text-muted-foreground flow-studio-node-body"
           data-testid="flow-node-subtitle"
           title={subtitle}
         >
@@ -357,7 +355,7 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
 
       {metricSummary !== undefined ? (
         <div
-          className="truncate px-3 pb-1 text-[10px] tabular-nums text-muted-foreground"
+          className="truncate pb-1 text-[10px] tabular-nums text-muted-foreground flow-studio-node-body"
           data-testid="flow-node-metrics"
           title={metricSummary}
         >
@@ -366,9 +364,9 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
       ) : null}
 
       {unsupported === true ? (
-        <div className="px-3 pb-2">
+        <div className="pb-2 flow-studio-node-body">
           <span
-            className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+            className="inline-flex items-center rounded border flow-studio-unsupported-badge px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
             data-testid="flow-node-unsupported"
             title="Unknown node type. The saved node is preserved."
           >
@@ -384,9 +382,9 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
       <div
         aria-hidden="true"
         className={cn(
-          "mx-3 mb-2 mt-1 h-0.5 rounded",
+          "mb-2 mt-1 h-0.5 rounded mx-[var(--flow-spacing)]",
           selected === true
-            ? "bg-primary"
+            ? "flow-studio-node-accent-selected"
             : FLOW_NODE_ACCENT_BAR_CLASS[accentToken],
         )}
       />
