@@ -47,7 +47,13 @@ import {
  *    same way;
  * 5. create one `pending` deployment attempt carrying ONLY the redacted
  *    compiled definition (the full payload exists transiently for the
- *    eKuiper requests below and is never persisted);
+ *    eKuiper requests below and is never persisted); FS-0093: the attempt
+ *    call also carries the current draft layout hash so the repository can
+ *    reuse-or-create the exact-current-draft revision (identical
+ *    semantic+layout latest revision is reused, otherwise one new revision)
+ *    and store its id on the deployment row in the same transaction; the
+ *    draft itself is never mutated and a later runtime failure keeps the
+ *    failed deployment while the revision remains as history;
  * 6. submit the compiled artifact to official eKuiper validation
  *    (`POST /rules/validate` on the registered node); a rejection marks
  *    the attempt failed and never mutates the runtime;
@@ -485,6 +491,12 @@ export async function deployFlow(
     redactedCompiledDefinition,
     runtimeNodeMap: artifact.runtimeNodeMap,
     ...(createdBy === undefined ? {} : { createdBy }),
+    // FS-0093: exact-current-draft revision link. The repository reuses the
+    // latest revision when its semantic+layout hashes match this draft and
+    // otherwise creates one revision for this deploy request. No draft
+    // mutation happens here; the documents are re-read server-side inside
+    // the attempt transaction.
+    layoutHash: draft.layoutHash,
   });
 
   const recordFailure = dependencies.recordFailure ?? markDeploymentFailed;
