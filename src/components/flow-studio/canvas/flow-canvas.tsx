@@ -3,6 +3,8 @@
 import * as React from "react";
 import {
   Background,
+  Controls,
+  MiniMap,
   ReactFlow,
   applyEdgeChanges,
   applyNodeChanges,
@@ -385,6 +387,16 @@ export function FlowCanvas({
   // `onlyRenderVisibleElements` (which adds per-frame visibility overhead
   // per XYFlow docs) improves these graph sizes. Do not introduce an
   // arbitrary node-count threshold without a measured browser improvement.
+  //
+  // FS-0126: bounded canvas chrome. Controls (zoom/fit) and a simple MiniMap
+  // were added after the same perf-fixture evidence showed no data-path
+  // bottleneck at 500 nodes. MiniMap uses default simple rect rendering
+  // (no nodeComponent, no metrics, no custom SVG filters), so per-node
+  // overhead stays minimal. No auto-hide/collapse threshold: per FS-0125
+  // there is no measured browser evidence that MiniMap harms 500-node
+  // usability, and the ticket forbids an arbitrary threshold without
+  // measurement. Revisit only with a measured interaction A/B on the
+  // development-only perf route (/flows/perf).
   return (
     <div
       aria-label="Flow canvas"
@@ -409,6 +421,17 @@ export function FlowCanvas({
         zoomOnDoubleClick={onEmptyDoubleClick ? false : undefined}
       >
         <Background />
+        <Controls
+          aria-label="Flow canvas controls"
+          showZoom
+          showFitView
+          showInteractive={false}
+        />
+        <MiniMap
+          ariaLabel="Flow overview minimap"
+          pannable
+          nodeBorderRadius={2}
+        />
       </ReactFlow>
     </div>
   );
