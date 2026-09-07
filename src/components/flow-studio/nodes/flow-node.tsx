@@ -180,7 +180,19 @@ function formatFlowNodeMetricSummary(
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-export function FlowNode({ data, selected }: FlowNodeProps) {
+/**
+ * FS-0124: memoized canvas node renderer.
+ *
+ * The function below stays a plain component so hooks and the fine-grained
+ * FS-0105 runtime subscription read naturally; the memo wrapper skips
+ * re-rendering when XYFlow parent props (`data`, `selected`) are
+ * referentially unchanged. This only pays off because the page memoizes the
+ * `toReactFlow` adapter on document slices and the canvas preserves
+ * node-object identity for untouched selection flags — otherwise every
+ * parent render would hand this component fresh props and memo would be
+ * dead weight. No behavior change: same props still render the same chrome.
+ */
+function FlowNodeView({ data, selected }: FlowNodeProps) {
   // FS-0105: fine-grained runtime subscription. The node reads only its own
   // metrics entry (keyed by the editor document id + its own node id) with a
   // shallow comparison, so a metrics update for an unrelated node with
@@ -381,3 +393,5 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
     </div>
   );
 }
+
+export const FlowNode = React.memo(FlowNodeView);

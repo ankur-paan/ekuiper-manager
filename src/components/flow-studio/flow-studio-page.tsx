@@ -467,6 +467,18 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
   // input/output ports) to canvas node data. The adapter stays pure; this
   // closure owns the only registry lookup. Unknown types resolve to
   // undefined so the adapter marks them unsupported without crashing.
+  // FS-0124: adapter recomputation depends only on the document slices
+  // the XYFlow view actually reads (spec nodes/edges + layout). The editor
+  // store preserves unchanged slice references across immutable updates
+  // (see flow-editor-store.ts), so unrelated state changes — selection,
+  // deployment/runtime polling, panel visibility, header queries — reuse
+  // the previous view instead of rebuilding every node/edge object for a
+  // large fixture. The adapter (to-react-flow.ts) reads spec.nodes,
+  // spec.edges and layout.nodes only, never metadata, so excluding
+  // metadata from the dependency list cannot serve stale canvas data.
+  const canvasSpecNodes = canvasSource?.spec.nodes;
+  const canvasSpecEdges = canvasSource?.spec.edges;
+  const canvasLayout = canvasSource?.layout;
   const canvasView = React.useMemo(
     () =>
       canvasSource
@@ -476,7 +488,9 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
             return toFlowCanvasPresentation(definition);
           })
         : null,
-    [canvasSource, flowRegistry],
+    // Narrow on purpose: whole-document identity changes on every store
+    // commit, while these slices change only when the canvas must change.
+    [canvasSpecNodes, canvasSpecEdges, canvasLayout, flowRegistry],
   );
 
   // FS-0063/FS-0115: palette is driven by the combined built-in +
@@ -1204,6 +1218,9 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
                     nodes={canvasViewWithValidation.nodes}
                     selectedNodeIds={selectedNodeIds}
                     selectedEdgeIds={selectedEdgeIds}
+                    // FS-0124: module-stable reference imported from the
+                    // canvas module — never inline a new object here, or
+                    // ReactFlow remounts every node per render.
                     nodeTypes={flowNodeTypes}
                     onNodeDragStop={handleCanvasNodeDragStop}
                     onSelectionChange={handleCanvasSelectionChange}

@@ -26,6 +26,14 @@ import { FlowNode } from "../nodes/flow-node";
 import { FLOW_CANVAS_NODE_TYPE } from "./to-react-flow";
 import { FLOW_PALETTE_DRAG_MIME } from "../palette/node-palette";
 
+/**
+ * FS-0124: module-stable node type map.
+ *
+ * Declared once at module scope so its reference never changes across
+ * renders. Callers must pass this same reference straight through (never an
+ * inline object literal) so ReactFlow does not re-register node types —
+ * and therefore does not remount every node — on each parent render.
+ */
 export const flowNodeTypes: NodeTypes = {
   [FLOW_CANVAS_NODE_TYPE]: FlowNode,
 };
@@ -330,13 +338,23 @@ export function FlowCanvas({
     [selectedEdgeIds],
   );
 
+  // FS-0124: identity-preserving selection overlay. The memoized node
+  // renderer (flow-node.tsx) skips nodes whose props are referentially
+  // unchanged, so nodes whose `selected` flag already matches keep their
+  // exact object identity here. A single selection change in a 500-node
+  // fixture therefore allocates new objects only for the toggled nodes
+  // instead of rebuilding all 500 on every click.
   const displayNodes = React.useMemo(
     () =>
       selectedNodeSet
-        ? viewNodes.map((viewNode) => ({
-            ...viewNode,
-            selected: selectedNodeSet.has(viewNode.id),
-          }))
+        ? viewNodes.map((viewNode) => {
+            const wantSelected = selectedNodeSet.has(viewNode.id);
+            if ((viewNode.selected ?? false) === wantSelected) return viewNode;
+            return {
+              ...viewNode,
+              selected: wantSelected,
+            };
+          })
         : viewNodes,
     [viewNodes, selectedNodeSet],
   );
@@ -344,10 +362,14 @@ export function FlowCanvas({
   const displayEdges = React.useMemo(
     () =>
       selectedEdgeSet
-        ? viewEdges.map((viewEdge) => ({
-            ...viewEdge,
-            selected: selectedEdgeSet.has(viewEdge.id),
-          }))
+        ? viewEdges.map((viewEdge) => {
+            const wantSelected = selectedEdgeSet.has(viewEdge.id);
+            if ((viewEdge.selected ?? false) === wantSelected) return viewEdge;
+            return {
+              ...viewEdge,
+              selected: wantSelected,
+            };
+          })
         : viewEdges,
     [viewEdges, selectedEdgeSet],
   );
