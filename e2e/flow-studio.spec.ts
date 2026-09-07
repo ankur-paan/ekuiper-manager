@@ -63,7 +63,10 @@ test('flow studio authoring journey round-trips through autosave', async ({ page
     await expect(page.getByTestId('node-palette')).toBeVisible();
     await expect(page.getByTestId('flow-studio-header')).toContainText(flowName);
 
-    const nodes = page.getByTestId('flow-node');
+    // Use the outer ReactFlow node element: the inner flow-node div sits inside
+    // ReactFlow's transformed container and Playwright can read its box as
+    // unstable after a drag, even though the node is visually settled.
+    const nodes = page.locator('.react-flow__node');
     const edges = page.locator('.react-flow__edge');
     // Scope to the property field's testid rather than the label text: the label
     // renders as 'Topic*' (required marker), so an exact label match finds nothing.
@@ -224,9 +227,18 @@ test('flow studio authoring journey round-trips through autosave', async ({ page
     expect(nodeBox.height).toBeGreaterThan(0);
     const startX = nodeBox.x + nodeBox.width / 2;
     const startY = nodeBox.y + nodeBox.height / 2;
+    // Drag AWAY from the sink node. A fixed positive offset can land the
+    // dragged node on top of the other one, after which it intercepts pointer
+    // events and the later sink click hits the wrong node.
+    const sinkBoxForDrag = await sinkNode.boundingBox();
+    expect(sinkBoxForDrag).not.toBeNull();
+    const sinkCx = sinkBoxForDrag!.x + sinkBoxForDrag!.width / 2;
+    const sinkCy = sinkBoxForDrag!.y + sinkBoxForDrag!.height / 2;
+    const dx = startX <= sinkCx ? -90 : 90;
+    const dy = startY <= sinkCy ? -70 : 70;
     await page.mouse.move(startX, startY, { steps: 5 });
     await page.mouse.down();
-    await page.mouse.move(startX + 140, startY + 90, { steps: 10 });
+    await page.mouse.move(startX + dx, startY + dy, { steps: 10 });
     await page.mouse.up();
     await expect(page.locator('[data-layout-dirty="true"]')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('[data-semantic-dirty="false"]')).toBeVisible({ timeout: 10_000 });
@@ -297,7 +309,10 @@ test('palette drop payload creates a node via real drop events', async ({ page }
     await expect(canvas).toBeVisible();
     await expect(page.getByTestId('node-palette-item-memory-source')).toBeVisible();
 
-    const nodes = page.getByTestId('flow-node');
+    // Use the outer ReactFlow node element: the inner flow-node div sits inside
+    // ReactFlow's transformed container and Playwright can read its box as
+    // unstable after a drag, even though the node is visually settled.
+    const nodes = page.locator('.react-flow__node');
     await expect(nodes).toHaveCount(0);
 
     const canvasBox = await canvas.boundingBox();
