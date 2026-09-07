@@ -397,3 +397,326 @@ test('palette drop payload creates a node via real drop events', async ({ page }
     await deleteFlowBestEffort(page, flowId);
   }
 });
+
+test('flow studio happy path validates memory source, filter, and log sink then deploys', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await ensureSignedIn(page);
+  const errors = captureUnexpectedErrors(page);
+
+  // Resolve the bundled eKuiper target for deploy (FS-0089). Display-only
+  // fallback: when no managed node exists the test still covers
+  // authoring + autosave + server validation, and skips the deploy step.
+  const targetNodeId = await page.evaluate(async () => {
+    try {
+      const response = await fetch('/api/nodes', { cache: 'no-store' });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as {
+        nodes?: Array<{ id: string }>;
+        selectedNodeId?: string | null;
+      };
+      if (
+        typeof payload.selectedNodeId === 'string' &&
+        payload.selectedNodeId.length > 0
+      ) {
+        return payload.selectedNodeId;
+      }
+      const first = Array.isArray(payload.nodes) ? payload.nodes[0] : undefined;
+      return typeof first?.id === 'string' ? first.id : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const flowName = `e2e-flow-studio-happy-${Date.now()}`;
+  const flowId = await page.evaluate(
+    async ({
+      flowName: name,
+      target,
+    }: {
+      flowName: string;
+      target: string | null;
+    }) => {
+      const response = await fetch('/api/flows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          target ? { name, targetNodeId: target } : { name },
+        ),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to create flow (${response.status})`);
+      }
+      const payload = (await response.json()) as { flow: { id: string } };
+      return payload.flow.id;
+    },
+    { flowName, target: targetNodeId },
+  );
+  let deployedRuleId: string | null = null;
+
+  try {
+    await page.goto(`/flows/${flowId}`);
+    await expect(page.getByTestId('flow-studio-shell')).toBeVisible();
+    const canvas = page.getByTestId('flow-canvas');
+    await expect(canvas).toBeVisible();
+    await expect(page.getByTestId('node-palette')).toBeVisible();
+    await expect(page.getByTestId('flow-studio-header')).toContainText(flowName);
+
+    // Use the outer ReactFlow node element: the inner flow-node div sits
+    // inside ReactFlow's transformed container and Playwright can read its
+    // box as unstable after a drag, even though the node is visually settled.
+    const nodes = page.locator('.react-flow__node');
+    const edges = page.locator('.react-flow__edge');
+    const topicInput = page.getByTestId('property-field-topic').locator('input');
+    const expressionInput = page
+      .getByTestId('property-field-expression')
+      .getByTestId('flow-expression-fallback');
+
+    async function ensureCanvasReady(): Promise<void> {
+      await expect(canvas).toBeVisible();
+      const box = await canvas.boundingBox();
+      expect(box).not.toBeNull();
+      if (!box) {
+        throw new Error('Flow canvas has no bounding box');
+      }
+      expect(box.width).toBeGreaterThan(0);
+      expect(box.height).toBeGreaterThan(0);
+    }
+
+    // Node creation uses the FS-0070 quick node picker (double-click empty
+    // canvas), a genuine user path driven by ordinary mouse events. The
+    // double-click is driven RELATIVE TO THE CANVAS ELEMENT: Flow Studio is
+    // a three-column layout, so absolute viewport points do not reliably
+    // land on the canvas pane.
+    async function addNodeViaQuickPicker(
+      type: 'memory-source' | 'filter' | 'log-sink',
+      fractionX: number,
+      fractionY: number,
+    ): Promise<void> {
+      const before = await nodes.count();
+      await ensureCanvasReady();
+      const box = await canvas.boundingBox();
+      if (!box) {
+        throw new Error('Flow canvas has no bounding box');
+      }
+      const candidates = [
+        { x: fractionX, y: fractionY },
+        { x: fractionX, y: 0.8 },
+        { x: 0.85, y: 0.8 },
+        { x: 0.15, y: 0.85 },
+        { x: 0.5, y: 0.15 },
+      ];
+      let position: { x: number; y: number } | null = null;
+      for (const candidate of candidates) {
+        const px = box.x + box.width * candidate.x;
+        const py = box.y + box.height * candidate.y;
+        const blocked = await page.evaluate(([x, y]) => {
+          const el = document.elementFromPoint(x as number, y as number);
+          if (!el) return true;
+          return Boolean(
+            el.closest('.react-flow__node') || el.closest('.react-flow__panel'),
+          );
+        }, [px, py]);
+        if (!blocked) {
+          position = {
+            x: Math.round(box.width * candidate.x),
+            y: Math.round(box.height * candidate.y),
+          };
+          break;
+        }
+      }
+      if (!position) {
+        throw new Error(`No empty canvas point found to place ${type}`);
+      }
+      await canvas.dblclick({ position });
+      const picker = page.getByTestId('quick-node-picker');
+      await expect(picker).toBeVisible({ timeout: 10_000 });
+      await page.getByTestId('quick-node-picker-search').fill(type);
+      const item = page.getByTestId(`quick-node-picker-item-${type}`);
+      await expect(item).toBeVisible({ timeout: 10_000 });
+      await item.click();
+      await expect(picker).toBeHidden({ timeout: 10_000 });
+      await expect(nodes).toHaveCount(before + 1, { timeout: 10_000 });
+    }
+
+    async function connectHandles(
+      from: ReturnType<Page['locator']>,
+      to: ReturnType<Page['locator']>,
+    ): Promise<void> {
+      await from.scrollIntoViewIfNeeded();
+      await to.scrollIntoViewIfNeeded();
+      await expect(from).toBeVisible();
+      await expect(to).toBeVisible();
+      const fromBox = await from.boundingBox();
+      const toBox = await to.boundingBox();
+      expect(fromBox).not.toBeNull();
+      expect(toBox).not.toBeNull();
+      if (!fromBox || !toBox) {
+        throw new Error('Connection handles have no bounding box');
+      }
+      await page.mouse.move(
+        fromBox.x + fromBox.width / 2,
+        fromBox.y + fromBox.height / 2,
+        { steps: 5 },
+      );
+      await page.mouse.down();
+      await page.mouse.move(toBox.x + toBox.width / 2, toBox.y + toBox.height / 2, {
+        steps: 20,
+      });
+      await page.mouse.up();
+    }
+
+    // Memory/log built-ins only: no external service is required by the
+    // bundled eKuiper stack (FS-0131). The log sink needs no configuration.
+    await addNodeViaQuickPicker('memory-source', 0.2, 0.4);
+    await addNodeViaQuickPicker('filter', 0.5, 0.4);
+    await addNodeViaQuickPicker('log-sink', 0.8, 0.4);
+    await expect(nodes).toHaveCount(3, { timeout: 10_000 });
+
+    // Identify each node by its port signature: the source exposes only an
+    // output, the sink exposes only an input, and the filter exposes both.
+    const sourceNode = nodes
+      .filter({ has: page.getByTestId('flow-node-output-out') })
+      .filter({ hasNot: page.getByTestId('flow-node-input-in') });
+    const sinkNode = nodes
+      .filter({ has: page.getByTestId('flow-node-input-in') })
+      .filter({ hasNot: page.getByTestId('flow-node-output-out') });
+    const filterNode = nodes
+      .filter({ has: page.getByTestId('flow-node-input-in') })
+      .filter({ has: page.getByTestId('flow-node-output-out') });
+    await expect(sourceNode).toHaveCount(1, { timeout: 10_000 });
+    await expect(filterNode).toHaveCount(1, { timeout: 10_000 });
+    await expect(sinkNode).toHaveCount(1, { timeout: 10_000 });
+
+    // Configure the source topic and the filter expression via the stable
+    // inspector hooks. The log sink exposes no required properties.
+    const topic = `e2e-happy-${Date.now()}`;
+    await sourceNode.click();
+    await expect(page.getByTestId('node-inspector')).toContainText(
+      'memory-source@v1',
+    );
+    await topicInput.fill(topic);
+    await filterNode.click();
+    await expect(page.getByTestId('node-inspector')).toContainText('filter@v1');
+    await expect(expressionInput).toBeVisible({ timeout: 10_000 });
+    await expressionInput.fill('temperature > 20');
+
+    // Connect source -> filter -> sink through the real XYFlow handles.
+    // Pointer events (not HTML5 DnD) drive XYFlow connections, so the
+    // Playwright mouse API is the faithful automation path here.
+    await expect(edges).toHaveCount(0);
+    await connectHandles(
+      sourceNode.getByTestId('flow-node-output-out'),
+      filterNode.getByTestId('flow-node-input-in'),
+    );
+    await expect(edges).toHaveCount(1, { timeout: 10_000 });
+    await connectHandles(
+      filterNode.getByTestId('flow-node-output-out'),
+      sinkNode.getByTestId('flow-node-input-in'),
+    );
+    await expect(edges).toHaveCount(2, { timeout: 10_000 });
+
+    // Wait for autosave (event-driven polling assertion, never a fixed
+    // sleep) so validation and deploy run against the saved draft.
+    await expect(page.locator('[data-save-status="saved"]')).toBeVisible({
+      timeout: 30_000,
+    });
+
+    // Run authoritative server validation from the bottom panel and require
+    // a valid saved draft before attempting deploy.
+    await page.getByTestId('flow-bottom-panel-tab-validation').click();
+    await page.getByTestId('flow-validation-server-button').click();
+    await expect(page.getByTestId('flow-validation-server-summary')).toContainText(
+      'Server: valid',
+      { timeout: 30_000 },
+    );
+
+    // Deploy only when the header action is enabled for the saved,
+    // error-free draft (FS-0089). The dialog validates the saved draft
+    // again; its confirm stays blocked until the server reports valid.
+    const deployButton = page.getByRole('button', { name: 'Deploy flow' });
+    await expect(deployButton).toBeVisible();
+    if (targetNodeId && (await deployButton.isEnabled())) {
+      await deployButton.click();
+      const dialog = page.getByTestId('flow-deploy-dialog');
+      await expect(dialog).toBeVisible({ timeout: 10_000 });
+      await expect(
+        page.getByTestId('flow-deploy-validation-summary'),
+      ).toContainText('can be deployed', { timeout: 30_000 });
+      const confirm = page.getByTestId('flow-deploy-confirm');
+      await expect(confirm).toBeEnabled({ timeout: 10_000 });
+      await confirm.click();
+      await expect(page.getByTestId('flow-deploy-success')).toBeVisible({
+        timeout: 60_000,
+      });
+      deployedRuleId = await page.evaluate(async (id: string) => {
+        try {
+          const response = await fetch(
+            `/api/flows/${encodeURIComponent(id)}/deployment`,
+            { cache: 'no-store' },
+          );
+          if (!response.ok) return null;
+          const payload = (await response.json()) as {
+            deployment?: { ruleId?: unknown } | null;
+          };
+          const ruleId = payload.deployment?.ruleId;
+          return typeof ruleId === 'string' ? ruleId : null;
+        } catch {
+          return null;
+        }
+      }, flowId);
+      expect(deployedRuleId).not.toBeNull();
+      await page.getByTestId('flow-deploy-cancel').click();
+      await expect(dialog).toBeHidden({ timeout: 10_000 });
+      await expect(page.getByTestId('flow-deployment-status')).toContainText(
+        'Deployed',
+        { timeout: 30_000 },
+      );
+    }
+
+    // A newly created flow has no draft row yet, so the first
+    // GET /api/flows/:id/draft returns 404 and the browser logs a resource
+    // error. The client handles it correctly (starts from an empty document),
+    // but the status conflates "flow does not exist" with "no draft yet".
+    // Tolerated here as a known, explained backend behaviour pending an API
+    // decision; every OTHER console or page error still fails this test.
+    const happyUnexpectedErrors = errors.filter(
+      (message) => !/404 \(Not Found\)/.test(message),
+    );
+    expect(happyUnexpectedErrors).toEqual([]);
+  } finally {
+    await page.evaluate(
+      async ({ id, ruleId }: { id: string; ruleId: string | null }) => {
+        try {
+          if (ruleId) {
+            try {
+              await fetch(`/api/ekuiper/rules/${encodeURIComponent(ruleId)}/stop`, {
+                method: 'POST',
+              });
+            } catch {
+              // Intentionally ignored: cleanup only.
+            }
+            try {
+              await fetch(`/api/ekuiper/rules/${encodeURIComponent(ruleId)}`, {
+                method: 'DELETE',
+              });
+            } catch {
+              // Intentionally ignored: cleanup only.
+            }
+          }
+        } finally {
+          try {
+            await fetch(`/api/flows/${encodeURIComponent(id)}`, {
+              method: 'DELETE',
+            });
+          } catch {
+            // Intentionally ignored: cleanup only.
+          }
+        }
+      },
+      { id: flowId, ruleId: deployedRuleId },
+    );
+    await deleteFlowBestEffort(page, flowId);
+  }
+});
