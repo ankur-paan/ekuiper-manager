@@ -86,6 +86,9 @@ function unavailable(version: string | null, reachable: boolean): TargetCapabili
     sources: [],
     operators: [],
     sinks: [],
+    // FS-0106: rule-test transport unproven for every profile (see below).
+    ruleTest: false,
+    ruleTestSse: false,
   };
 }
 
@@ -125,5 +128,17 @@ export function resolveTargetCapabilities(
       input.operatorNames,
     ),
     sinks: narrowByMetadata([...BASELINE_CAPABILITY_SINKS], input.sinkNames),
+    // FS-0106: rule-test stays disabled even on the audited baseline.
+    // eKuiper 2.4.1 serves trial results over SSE on a separate per-test
+    // port (`POST /ruletest` returns `{id, port}`; results stream from
+    // `GET /test/{id}` on that port, per `public/ekuiper-openapi.json`),
+    // while Manager only dials the registered node origin through
+    // `src/app/api/ekuiper/[[...path]]/route.ts` under SSRF controls
+    // (`src/lib/network.ts`). Reaching the SSE port would require either
+    // browser-supplied host/ports or a new SSE proxy, both out of scope
+    // here ("Do not implement SSE proxy yet"). See
+    // `docs/FLOW_STUDIO_RULE_TEST_NOTES.md`.
+    ruleTest: false,
+    ruleTestSse: false,
   };
 }

@@ -96,4 +96,40 @@ describe('flow target capabilities', () => {
     expect(profile.sinks).toEqual(['memory']);
     expect(profile.operators).toEqual([...BASELINE_CAPABILITY_OPERATORS]);
   });
+
+  it('reports rule-test capabilities as unsupported on the audited baseline (FS-0106)', () => {
+    const profile = resolveTargetCapabilities({
+      version: '2.4.1',
+      reachable: true,
+    });
+
+    expect(profile.graphRules).toBe(true);
+    expect(profile.ruleTest).toBe(false);
+    expect(profile.ruleTestSse).toBe(false);
+  });
+
+  it('reports rule-test capabilities as unsupported for every profile (FS-0106)', () => {
+    const inputs = [
+      {},
+      { version: null, reachable: true },
+      { version: '', reachable: true },
+      { version: 'not-a-version', reachable: true },
+      { version: '2.4.1', reachable: false },
+      { version: '2.4.1' },
+      { version: '2.3.0', reachable: true },
+      { version: '2.5.0', reachable: true },
+      {
+        version: '2.4.1',
+        reachable: true,
+        sourceNames: ['memory'],
+        sinkNames: ['memory'],
+      },
+    ];
+
+    for (const input of inputs) {
+      const profile = resolveTargetCapabilities(input);
+      expect(profile.ruleTest).toBe(false);
+      expect(profile.ruleTestSse).toBe(false);
+    }
+  });
 });

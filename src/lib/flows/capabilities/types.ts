@@ -62,6 +62,13 @@ export const BASELINE_CAPABILITY_SINKS = Object.freeze([
  * - `sources`/`operators`/`sinks`: eKuiper `nodeType` identifiers the
  *   target is known to support. Sorted ascending for determinism.
  *   Empty means "no proven support" (conservative), never "everything".
+ * - `ruleTest`/`ruleTestSse`: whether Flow Studio may run temporary
+ *   rule-test trials (and stream results over SSE) against this target.
+ *   Both resolve to `false` until a safe transport is proven (FS-0106:
+ *   eKuiper serves SSE on a separate per-test port that the current
+ *   registered-node proxy cannot reach without weakening SSRF controls).
+ *   Optional so profiles built before FS-0106 still type-check; absent
+ *   means "unproven", never "supported".
  */
 export interface TargetCapabilityProfile {
   ekuiperVersion: string | null;
@@ -70,4 +77,6 @@ export interface TargetCapabilityProfile {
   sources: readonly string[];
   operators: readonly string[];
   sinks: readonly string[];
+  ruleTest?: boolean;
+  ruleTestSse?: boolean;
 }
