@@ -377,6 +377,14 @@ export function FlowCanvas({
   displayNodesRef.current = displayNodes;
   displayEdgesRef.current = displayEdges;
 
+  // FS-0125: viewport culling deliberately stays disabled. A repeatable
+  // local benchmark of the 250/500/1000-node perf fixtures showed fixture
+  // generation + canvas adapter conversion averaging ~1-2 ms (see
+  // docs/FLOW_STUDIO_PERFORMANCE.md), so the data path is not the
+  // bottleneck, and no browser FPS A/B demonstrated that
+  // `onlyRenderVisibleElements` (which adds per-frame visibility overhead
+  // per XYFlow docs) improves these graph sizes. Do not introduce an
+  // arbitrary node-count threshold without a measured browser improvement.
   return (
     <div
       aria-label="Flow canvas"
@@ -388,6 +396,7 @@ export function FlowCanvas({
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
+        onlyRenderVisibleElements={false}
         onInit={handleInit}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
