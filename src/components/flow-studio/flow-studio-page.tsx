@@ -22,6 +22,7 @@ import { FlowSettingsPanel } from './inspector/flow-settings-panel';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
 import { FlowBottomPanel } from './panels/flow-bottom-panel';
+import { RevisionHistory } from './history/revision-history';
 import { RuntimePanel, fetchFlowRuntime, resolveRuntimeLabel } from './panels/runtime-panel';
 import { QuickNodePicker } from './palette/quick-node-picker';
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
@@ -512,6 +513,13 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     setDeployOpen(false);
   }, [flowId]);
 
+  // FS-0096: revision history panel visibility. Reset per flow so a
+  // stale panel never shows another flow's revisions. Opening the panel
+  // never mutates the document; it only reads revision snapshots.
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  React.useEffect(() => {
+    setHistoryOpen(false);
+  }, [flowId]);
   // FS-0070: quick node picker opened by double-clicking empty canvas.
   // Holds the clicked flow coordinate (node creation point) plus the
   // viewport client coordinate (picker placement). Null means closed;
@@ -636,6 +644,12 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
 
   const handleDeployClose = React.useCallback(() => {
     setDeployOpen(false);
+  }, []);
+
+  // FS-0096: toggle the revision history panel. Read-only: opening or
+  // closing never mutates the document or deployment state.
+  const handleHistoryToggle = React.useCallback(() => {
+    setHistoryOpen((open) => !open);
   }, []);
 
   // FS-0089: deploy success is surfaced by the dialog itself (which keeps
@@ -1049,6 +1063,39 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
                     />
                   ) : null}
                 </div>
+                {/* FS-0096: History access lives with the bottom dock: a slim
+                    toggle row that expands a read-only revision history/diff
+                    panel above the Validation/Definition tabs. No global
+                    navigation change; opening never mutates the document. */}
+                <div className="flex shrink-0 items-center justify-end border-t bg-background px-3 py-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleHistoryToggle}
+                    aria-expanded={historyOpen}
+                    aria-controls="flow-history-panel"
+                    data-testid="flow-history-toggle"
+                  >
+                    {historyOpen ? 'Hide history' : 'History'}
+                  </Button>
+                </div>
+                {historyOpen ? (
+                  <div
+                    id="flow-history-panel"
+                    className="max-h-80 shrink-0 overflow-y-auto border-t bg-background px-3 py-2.5"
+                    data-testid="flow-history-panel"
+                  >
+                    <RevisionHistory
+                      flowId={flowId}
+                      currentSpec={
+                        storeDocument && storeDocument.metadata.id === flowId
+                          ? storeDocument.spec
+                          : null
+                      }
+                    />
+                  </div>
+                ) : null}
                 <FlowBottomPanel flowId={flowId} clientDiagnostics={flowDiagnostics} />
               </div>
             ) : (
@@ -1089,7 +1136,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed]);
+  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, storeDocument]);
 
   return (
     <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
