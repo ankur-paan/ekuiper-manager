@@ -17,8 +17,11 @@ import { consumeRateLimit } from '@/lib/rate-limit';
 export async function POST(request: NextRequest) {
   try {
     assertSameOrigin(request);
+    // Raised alongside the login limit for the same reason: a browser suite bootstraps the
+    // owner account repeatedly from one address. Bootstrap only succeeds while no owner
+    // exists, so a higher ceiling here grants no additional reach once setup is complete.
     consumeRateLimit(`bootstrap:${request.headers.get('x-forwarded-for') ?? 'local'}`, {
-      limit: 5,
+      limit: 50,
       windowMs: 15 * 60 * 1_000,
     });
     const body = await readJsonObject(request);
