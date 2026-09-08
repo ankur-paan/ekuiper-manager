@@ -35,6 +35,12 @@ export const BASELINE_CAPABILITY_SOURCES = Object.freeze([
 export const BASELINE_CAPABILITY_OPERATORS = Object.freeze([
   'aggfunc',
   'filter',
+  // The `func` node compiles to this operator (compile-graph.ts FUNCTION_OPERATION).
+  // Omitting it made every flow containing a `func` node undeployable on every target
+  // with FLOW_CAPABILITY_UNAVAILABLE. eKuiper 2.4.1 reports `function` in
+  // GET /metadata/operators, and POST /rules/validate parses the operator (rejecting
+  // only a non-call expression), so the capability is real.
+  'function',
   'groupby',
   'join',
   'orderby',

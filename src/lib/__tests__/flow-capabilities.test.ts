@@ -26,6 +26,9 @@ describe('flow target capabilities', () => {
         'pick',
         'window',
         'aggfunc',
+        // AC-D007: the `func` node compiles to `function`. Omitting it from the baseline
+        // made every flow containing that node undeployable on every target.
+        'function',
         'groupby',
         'switch',
         'orderby',
