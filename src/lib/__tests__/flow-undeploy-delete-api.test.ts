@@ -31,6 +31,8 @@ const RULE_ID = 'flow-1';
 let flowFixture: FlowRow | null;
 let nodeFixture: Record<string, unknown> | null;
 let engineStatuses: number[];
+/** Optional per-call {status, body} overrides, for responses whose BODY carries the meaning. */
+let engineBodies: { status: number; body: string }[];
 const callOrder: string[] = [];
 
 function buildFlowRow(overrides?: Partial<FlowRow>): FlowRow {
@@ -64,9 +66,19 @@ function buildNodeRow() {
   };
 }
 
-function engineResponse(status: number): Response {
+function engineResponse(status: number, body?: string): Response {
+  if (body !== undefined) return new Response(body, { status });
   return new Response(status === 404 ? 'not found' : 'ok', { status });
 }
+
+/**
+ * What eKuiper 2.4.1 actually returns for a rule that is already gone. It is NOT a 404:
+ * live runs answer HTTP 400 with this body, which is why undeploy has to recognise it.
+ */
+const ENGINE_RULE_MISSING = {
+  status: 400,
+  body: '{"error":1000,"message":"Delete rule error: rule rule_x not found"}',
+};
 
 const mockFetch = jest.fn();
 
@@ -112,9 +124,14 @@ beforeEach(() => {
   flowFixture = buildFlowRow();
   nodeFixture = buildNodeRow();
   engineStatuses = [200, 200];
+  engineBodies = [];
 
   mockFetch.mockImplementation(async () => {
     callOrder.push('engine');
+    if (engineBodies.length > 0) {
+      const next = engineBodies.shift()!;
+      return engineResponse(next.status, next.body);
+    }
     const status = engineStatuses.length > 0 ? engineStatuses.shift()! : 200;
     return engineResponse(status);
   });
@@ -264,6 +281,20 @@ describe('DELETE /api/flows/:id/deploy', () => {
       ruleId: RULE_ID,
     });
     expect(engineCalls()).toHaveLength(2);
+  });
+
+  it('succeeds when the engine reports the rule missing as HTTP 400 (real engine shape)', async () => {
+    // Regression: the first implementation tolerated only 404, so undeploying an
+    // already-undeployed flow failed with EKRULE_DELETE_FAILED against a live engine.
+    mockedGetUser.mockResolvedValueOnce(actor);
+    engineBodies = [ENGINE_RULE_MISSING, ENGINE_RULE_MISSING];
+
+    const response = await DELETE_DEPLOY(deleteDeployRequest(), routeParams());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({ ok: true }),
+    );
   });
 
   it('returns a server-safe error when the engine delete fails', async () => {

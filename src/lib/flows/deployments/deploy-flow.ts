@@ -433,6 +433,20 @@ export interface UndeployFlowDependencies {
  * removed rule succeeds. Any other non-2xx becomes a server-safe
  * `ApiError`; transport failures map through `toTransportApiError`.
  */
+/**
+ * Is this engine response telling us the rule is already gone?
+ *
+ * eKuiper 2.4.1 does NOT answer 404 for a missing rule on stop or delete. It answers
+ * HTTP 400 with `{"error":1000,"message":"Delete rule error: rule <id> not found"}`.
+ * Treating only 404 as "already gone" made undeploy non-idempotent, so the delete path -
+ * which undeploys first by design - failed with EKRULE_DELETE_FAILED on any flow that was
+ * already undeployed. Measured against a live engine.
+ */
+function isRuleAlreadyGone(status: number, bodyText: string): boolean {
+  if (status === 404) return true;
+  return status === 400 && /not found/i.test(bodyText);
+}
+
 export async function defaultDeleteRule(
   args: DeleteRuleArgs,
   fetcher?: DeployFetcher,
@@ -458,18 +472,20 @@ export async function defaultDeleteRule(
   } catch (error) {
     throw toTransportApiError(error, 'EKRULE_STOP_FAILED');
   }
-  if (stopResponse.status !== 404 && !stopResponse.ok) {
+  if (!stopResponse.ok) {
     const bodyText = await stopResponse.text().catch(() => '');
     const detail = bodyText.trim();
-    throw new ApiError(
-      502,
-      sanitizeDeploymentError(
-        detail.length > 0
-          ? `eKuiper rule stop returned HTTP ${stopResponse.status}: ${detail}`
-          : `eKuiper rule stop returned HTTP ${stopResponse.status}`,
-      ),
-      'EKRULE_STOP_FAILED',
-    );
+    if (!isRuleAlreadyGone(stopResponse.status, bodyText)) {
+      throw new ApiError(
+        502,
+        sanitizeDeploymentError(
+          detail.length > 0
+            ? `eKuiper rule stop returned HTTP ${stopResponse.status}: ${detail}`
+            : `eKuiper rule stop returned HTTP ${stopResponse.status}`,
+        ),
+        'EKRULE_STOP_FAILED',
+      );
+    }
   }
 
   const deleteTarget = new URL(`/rules/${encodeURIComponent(args.ruleId)}`, node.baseUrl);
@@ -486,18 +502,20 @@ export async function defaultDeleteRule(
   } catch (error) {
     throw toTransportApiError(error, 'EKRULE_DELETE_FAILED');
   }
-  if (deleteResponse.status !== 404 && !deleteResponse.ok) {
+  if (!deleteResponse.ok) {
     const bodyText = await deleteResponse.text().catch(() => '');
     const detail = bodyText.trim();
-    throw new ApiError(
-      502,
-      sanitizeDeploymentError(
-        detail.length > 0
-          ? `eKuiper rule delete returned HTTP ${deleteResponse.status}: ${detail}`
-          : `eKuiper rule delete returned HTTP ${deleteResponse.status}`,
-      ),
-      'EKRULE_DELETE_FAILED',
-    );
+    if (!isRuleAlreadyGone(deleteResponse.status, bodyText)) {
+      throw new ApiError(
+        502,
+        sanitizeDeploymentError(
+          detail.length > 0
+            ? `eKuiper rule delete returned HTTP ${deleteResponse.status}: ${detail}`
+            : `eKuiper rule delete returned HTTP ${deleteResponse.status}`,
+        ),
+        'EKRULE_DELETE_FAILED',
+      );
+    }
   }
 }
 
