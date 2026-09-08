@@ -1,6 +1,12 @@
 FROM node:22.20.0-bookworm-slim@sha256:b21fe589dfbe5cc39365d0544b9be3f1f33f55f3c86c87a76ff65a02f8f5848e AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
+# The root package.json declares `workspaces: ["packages/*"]`. npm ci only links a workspace
+# it can see, so without the workspace manifests here the symlink for
+# @ekuiper-manager/flow-sdk is never created and the build stage fails with
+# "Module not found: Can't resolve '@ekuiper-manager/flow-sdk'". Copying the directory (rather
+# than one manifest) keeps this correct when another workspace package is added.
+COPY packages ./packages
 RUN npm ci
 
 FROM node:22.20.0-bookworm-slim@sha256:b21fe589dfbe5cc39365d0544b9be3f1f33f55f3c86c87a76ff65a02f8f5848e AS build
