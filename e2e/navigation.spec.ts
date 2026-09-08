@@ -15,9 +15,14 @@ test('all primary navigation destinations are reachable and mobile navigation wo
   expect(links.length).toBeGreaterThanOrEqual(10);
 
   for (const link of links) {
-    await page.goto(link.href);
+    // Assert the RESPONSE, not the page text. `getByText('404')` is a substring match, so it
+    // also matched user-generated content that merely contains those digits - the /flows list
+    // renders flow names built from Date.now(), and a timestamp ending in 404 failed the whole
+    // spec. That was a real intermittent failure once /flows joined the sidebar, and it said
+    // nothing about whether the route resolved.
+    const response = await page.goto(link.href);
+    expect(response?.status() ?? 0, `${link.href} should resolve, not 404`).toBeLessThan(400);
     await expect(page.locator('main')).toBeVisible();
-    await expect(page.getByText('404')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Open AI assistant' })).toBeVisible();
   }
   expect(errors).toEqual([]);

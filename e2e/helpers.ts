@@ -3,9 +3,31 @@ import { expect, type Page } from '@playwright/test';
 export const ownerUsername = process.env.E2E_USERNAME ?? 'e2e-owner';
 export const ownerPassword = process.env.E2E_PASSWORD ?? 'e2e-owner-password!42';
 
+/** Where global setup saves the one signed-in session the whole run shares. */
+export const STORAGE_STATE_PATH =
+  process.env.E2E_STORAGE_STATE ?? 'test-results/.auth/owner.json';
+
+/**
+ * Ensure this page is signed in.
+ *
+ * Normally a no-op: `storageState` from global setup already carries the session, so this
+ * just confirms we are past `/welcome`. Logging in again is the fallback for a session that
+ * genuinely expired mid-run - and it is deliberately the exception, because
+ * `POST /api/auth/login` allows only 10 attempts per 15 minutes per client+username
+ * (src/app/api/auth/login/route.ts), and a suite that signs in per test exhausts that budget
+ * and then fails every remaining spec at `toHaveURL(/dashboard$/)` on `/welcome`.
+ */
 export async function ensureSignedIn(page: Page): Promise<void> {
   await page.goto('/');
-  if (!page.url().includes('/welcome')) return;
+  if (!page.url().includes('/welcome')) {
+    // Already authenticated via storageState. `/` redirects to the dashboard, and returning
+    // the moment the URL is merely "not /welcome" hands the caller a page still mid-redirect,
+    // whose shell has not rendered. Wait for the destination the fresh-login path also awaited.
+    // Waiting on the navigation element instead would not work: on mobile it lives in a
+    // collapsed drawer and is not attached until the menu is opened.
+    await page.waitForURL(/\/dashboard$/, { timeout: 30_000 });
+    return;
+  }
 
   const setup = page.getByRole('heading', { name: 'Create the owner account' });
   const signIn = page.getByRole('heading', { name: 'Sign in' });

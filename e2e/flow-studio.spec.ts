@@ -569,9 +569,17 @@ test('flow studio happy path validates memory source, filter, and log sink then 
 
     // Memory/log built-ins only: no external service is required by the
     // bundled eKuiper stack (FS-0131). The log sink needs no configuration.
-    await addNodeViaQuickPicker('memory-source', 0.2, 0.4);
-    await addNodeViaQuickPicker('filter', 0.5, 0.4);
-    await addNodeViaQuickPicker('log-sink', 0.8, 0.4);
+    // Stack the three nodes in rows rather than a horizontal line. The canvas is roughly
+    // 400px wide between the palette, inspector and bottom dock, and a node is ~208px, so
+    // three side by side overlap and the last runs past the right edge with its input handle
+    // out of reach - the second connection below then cannot be made.
+    await addNodeViaQuickPicker('memory-source', 0.05, 0.12);
+    await addNodeViaQuickPicker('filter', 0.05, 0.42);
+    // Not bottom-left: React Flow's Controls panel sits there, the picker treats a panel as
+    // blocked, and its fallback candidate placed this node past the right edge of the canvas
+    // with its input handle unreachable (measured at x=915 in a canvas ending at 936).
+    // Mid-canvas clears both the Controls and the bottom-right attribution badge.
+    await addNodeViaQuickPicker('log-sink', 0.4, 0.72);
     await expect(nodes).toHaveCount(3, { timeout: 10_000 });
 
     // Identify each node by its port signature: the source exposes only an
@@ -599,8 +607,24 @@ test('flow studio happy path validates memory source, filter, and log sink then 
     await topicInput.fill(topic);
     await filterNode.click();
     await expect(page.getByTestId('node-inspector')).toContainText('filter@v1');
+    // The expression field starts as a plain textarea and swaps to the lazy-loaded Monaco
+    // editor ON FOCUS (FS-0128). `fill()` focuses first, so the textarea unmounts mid-write
+    // and the typed value is lost - the flow then fails server validation with
+    // FLOW_REQUIRED_PROPERTY_MISSING on an expression the test did set. Focus first, wait for
+    // the swap to settle, then type into whichever editor is mounted.
     await expect(expressionInput).toBeVisible({ timeout: 10_000 });
-    await expressionInput.fill('temperature > 20');
+    await expressionInput.click();
+    const monacoExpression = page
+      .getByTestId('property-field-expression')
+      .getByTestId('flow-expression-monaco');
+    await monacoExpression.waitFor({ state: 'visible', timeout: 15_000 });
+    await monacoExpression.locator('textarea').first().fill('temperature > 20');
+
+    // Let the edit land before the connection drags below: a pointer interaction started
+    // while the property write is still in flight loses it.
+    await expect(page.locator('[data-save-status="saved"]')).toBeVisible({
+      timeout: 30_000,
+    });
 
     // Connect source -> filter -> sink through the real XYFlow handles.
     // Pointer events (not HTML5 DnD) drive XYFlow connections, so the
