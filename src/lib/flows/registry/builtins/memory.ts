@@ -1,4 +1,5 @@
 import type { FlowNodeDefinition } from '../node-definition';
+import { OMIT_IF_EMPTY_PROPERTY } from './sink-common';
 
 /**
  * Memory source editor-semantic definition (v1).
@@ -79,6 +80,7 @@ export const memorySinkDefinition: FlowNodeDefinition = {
       description:
         'In-memory topic to publish to. Compiles to the eKuiper memory sink `topic` prop.',
     },
+    OMIT_IF_EMPTY_PROPERTY,
   ],
   runtimeKind: 'sink',
   operation: 'memory',

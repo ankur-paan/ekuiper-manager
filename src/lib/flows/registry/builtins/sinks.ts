@@ -1,4 +1,5 @@
 import type { FlowNodeDefinition } from '../node-definition';
+import { OMIT_IF_EMPTY_PROPERTY } from './sink-common';
 
 /**
  * REST/HTTP sink editor-semantic definition (v1).
@@ -67,6 +68,7 @@ export const restSinkDefinition: FlowNodeDefinition = {
       type: 'json',
       description: 'Extra HTTP headers sent with each request.',
     },
+    OMIT_IF_EMPTY_PROPERTY,
   ],
 };
 
@@ -94,5 +96,5 @@ export const logSinkDefinition: FlowNodeDefinition = {
   accent: 'sink',
   inputs: [{ id: 'in', label: 'Stream', kind: 'stream' }],
   outputs: [],
-  properties: [],
+  properties: [OMIT_IF_EMPTY_PROPERTY],
 };

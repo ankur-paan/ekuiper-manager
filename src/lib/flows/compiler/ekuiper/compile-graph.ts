@@ -273,6 +273,18 @@ function toMemorySourceNode(
   };
 }
 
+/**
+ * Common sink props shared by every sink node (AC-D003).
+ *
+ * `omitIfEmpty` is emitted ONLY when the user turned it on. Leaving it out otherwise keeps
+ * eKuiper's own default, so existing flows compile byte-identically and their semantic hash
+ * does not move.
+ */
+function commonSinkProps(irNode: FlowIrNode): Record<string, unknown> {
+  const omitIfEmpty = irNode.config?.omitIfEmpty;
+  return omitIfEmpty === true ? { omitIfEmpty: true } : {};
+}
+
 function toMemorySinkNode(
   irNode: FlowIrNode,
 ): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
@@ -284,7 +296,7 @@ function toMemorySinkNode(
     node: {
       type: 'sink',
       nodeType: MEMORY_OPERATION,
-      props: { topic: topic.topic },
+      props: { topic: topic.topic, ...commonSinkProps(irNode) },
     },
   };
 }
@@ -434,6 +446,7 @@ function toMqttSinkNode(
       props: {
         topic: topic.topic,
         server: broker.server,
+        ...commonSinkProps(irNode),
       },
     },
   };
@@ -560,6 +573,7 @@ function toRestSinkNode(
         ...(rest.method !== undefined ? { method: rest.method } : {}),
         ...(rest.bodyType !== undefined ? { bodyType: rest.bodyType } : {}),
         ...(rest.headers !== undefined ? { headers: rest.headers } : {}),
+        ...commonSinkProps(irNode),
       },
     },
   };
@@ -572,12 +586,11 @@ function toRestSinkNode(
  * Flow config into it.
  */
 function toLogSinkNode(irNode: FlowIrNode): { node: EkuiperGraphNode } {
-  void irNode;
   return {
     node: {
       type: 'sink',
       nodeType: LOG_OPERATION,
-      props: {},
+      props: { ...commonSinkProps(irNode) },
     },
   };
 }
