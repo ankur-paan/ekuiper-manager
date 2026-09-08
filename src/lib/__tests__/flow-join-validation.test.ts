@@ -106,12 +106,18 @@ describe('join builtin definition', () => {
 
     const from = join?.properties.find((property) => property.key === 'from');
     expect(from?.required).toBe(true);
-    expect(from?.type).toBe('string');
+    // UX-0005: from names an existing stream via the live streams provider
+    // instead of free text, so a typo is caught before deploy.
+    expect(from?.type).toBe('select');
+    expect(from?.optionsProvider).toBe('streams');
     const joinName = join?.properties.find(
       (property) => property.key === 'joinName',
     );
     expect(joinName?.required).toBe(true);
-    expect(joinName?.type).toBe('string');
+    // UX-0005: joinName names an existing table via the live tables provider
+    // (stream-table enrichment) instead of free text.
+    expect(joinName?.type).toBe('select');
+    expect(joinName?.optionsProvider).toBe('tables');
     const condition = join?.properties.find(
       (property) => property.key === 'condition',
     );
