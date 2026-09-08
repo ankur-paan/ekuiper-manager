@@ -32,6 +32,7 @@ export const windowDefinition: FlowNodeDefinition = {
   outputs: [{ id: 'out', label: 'Collection', kind: 'collection' }],
   properties: [
     {
+      // Authority: https://ekuiper.org/docs/en/latest/guide/rules/graph_rule.html#window — engine `window` prop `size` (int); Flow key `length` is the editor alias (envelope: public/ekuiper-openapi.json#/components/schemas/RuleGraph free-form props).
       key: 'length',
       label: 'Length',
       type: 'number',
@@ -40,6 +41,7 @@ export const windowDefinition: FlowNodeDefinition = {
         'Tumbling window length in timeUnit units. Stored as editor semantics; compiler mapping to the eKuiper window operator lands later.',
     },
     {
+      // Authority: https://ekuiper.org/docs/en/latest/guide/rules/graph_rule.html#window (`unit`) + https://ekuiper.org/docs/en/latest/sqls/windows.html#time-units (DD/HH/MI/SS/MS); Flow key `timeUnit` is the editor alias for engine `unit`.
       key: 'timeUnit',
       label: 'Time unit',
       type: 'select',
