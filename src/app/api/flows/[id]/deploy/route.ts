@@ -6,7 +6,7 @@ import {
   requireUser,
 } from '@/lib/api';
 import { recordAuditSafely } from '@/lib/audit';
-import { deployFlow } from '@/lib/flows/deployments/deploy-flow';
+import { deployFlow, undeployFlow } from '@/lib/flows/deployments/deploy-flow';
 
 export const dynamic = 'force-dynamic';
 
@@ -208,6 +208,55 @@ export async function POST(
     // Auth/origin/request-shape failures have no deployment outcome to
     // audit; service failures were already audited above. Never embed
     // request bodies or compiled config here.
+    return apiErrorResponse(error);
+  }
+}
+
+/**
+ * Undeploy the flow's rule from its registered eKuiper target (AC-D008).
+ *
+ * - Follows the POST opening sequence exactly: same-origin mutation guard
+ *   (`assertSameOrigin`) then repository auth (`requireUser`); no compiled
+ *   rule JSON or target URL is accepted (there is no body at all).
+ * - Delegates to `undeployFlow`, which resolves the flow and its target
+ *   like the deploy path, derives the same deterministic rule id, and
+ *   stops + removes the rule on the engine (`POST /rules/{id}/stop` then
+ *   `DELETE /rules/{id}`).
+ * - Idempotent: a flow with no target, or a rule the engine no longer
+ *   has, resolves to success, not an error.
+ * - Leaves the flow row, its draft and its revisions intact: undeploy is
+ *   not delete. Transport failures propagate as server-safe HTTP errors
+ *   via `apiErrorResponse`.
+ * - Audits the outcome with safe identifiers only (flow id, target node
+ *   id, rule id, whether engine removal ran).
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    assertSameOrigin(request);
+    const actor = await requireUser(request);
+    const { id } = await params;
+
+    const result = await undeployFlow({ flowId: id });
+
+    recordAuditSafely({
+      actorId: actor.id,
+      action: 'flow.undeploy',
+      resourceType: 'flow',
+      resourceId: id,
+      success: true,
+      ...(result.targetNodeId === null ? {} : { nodeId: result.targetNodeId }),
+      metadata: {
+        targetNodeId: result.targetNodeId,
+        ruleId: result.ruleId,
+        undeployed: result.undeployed,
+      },
+    });
+
+    return NextResponse.json(result);
+  } catch (error) {
     return apiErrorResponse(error);
   }
 }
