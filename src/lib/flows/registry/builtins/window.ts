@@ -14,7 +14,7 @@ import type { FlowNodeDefinition } from '../node-definition';
  *   config shapes, so they are out of scope for this v1 definition.
  *
  * Only the confirmed common properties required for one working tumbling
- * window are exposed: a numeric `length` plus a `timeUnit` string
+ * window are exposed: a numeric `length` plus a `timeUnit` select
  * (matching the two-argument `TumblingWindow(unit, size)` shape). Both are
  * stored as opaque editor semantics and are never parsed here; compiler
  * mapping (`runtimeKind`/`operation`) is intentionally omitted and lands in
@@ -42,10 +42,17 @@ export const windowDefinition: FlowNodeDefinition = {
     {
       key: 'timeUnit',
       label: 'Time unit',
-      type: 'string',
+      type: 'select',
       required: true,
       description:
-        'Time unit for the tumbling window length. Stored as editor semantics; compiler mapping to the eKuiper window operator lands later.',
+        'Time unit for the tumbling window length. eKuiper time literals: DD (days), HH (hours), MI (minutes), SS (seconds), MS (milliseconds). Previously saved values are preserved by the inspector and copied verbatim by the compiler, so existing flows keep compiling.',
+      options: [
+        { label: 'DD', value: 'DD' },
+        { label: 'HH', value: 'HH' },
+        { label: 'MI', value: 'MI' },
+        { label: 'SS', value: 'SS' },
+        { label: 'MS', value: 'MS' },
+      ],
     },
   ],
 };

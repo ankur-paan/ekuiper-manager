@@ -397,6 +397,29 @@ describe('createBuiltinNodeRegistry', () => {
     assertValidCompilerMapping(window);
   });
 
+  it('exposes window timeUnit as a select of the documented eKuiper time literals', () => {
+    const registry = createBuiltinNodeRegistry();
+    const window = registry.get('window', 1);
+
+    // UX-0003: free-text timeUnit failed at deploy on typos; the inspector
+    // now offers the closed documented set (DD, HH, MI, SS, MS). Spellings
+    // verified against the eKuiper windows reference (time literals
+    // `DD, HH, MI, SS, MS`); public/ekuiper-openapi.json carries no window
+    // unit enum (RuleGraph props are free-form), so the docs are the
+    // authority here.
+    const timeUnit = window?.properties.find((property) => property.key === 'timeUnit');
+    expect(timeUnit?.type).toBe('select');
+    expect(timeUnit?.required).toBe(true);
+    expect(timeUnit?.optionsProvider).toBeUndefined();
+    expect(timeUnit?.options?.map((option) => option.value)).toEqual([
+      'DD',
+      'HH',
+      'MI',
+      'SS',
+      'MS',
+    ]);
+  });
+
   it('validates the required window settings via the generic property validator', () => {
     const registry = createBuiltinNodeRegistry();
 
