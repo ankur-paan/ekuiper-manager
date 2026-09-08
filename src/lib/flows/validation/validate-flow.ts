@@ -3,6 +3,7 @@ import type { FlowDiagnostic } from '../model/diagnostic';
 import type { FlowDocument } from '../model/flow-document';
 import type { NodeRegistry } from '../registry/node-registry';
 import { validateFlowAggregateGrouping } from './aggregate-validation';
+import { validateExpressionShape } from './expression-shape';
 import { validateFlowDocumentShape } from './document-shape';
 import { validateFlowForEditor } from './editor-validation';
 
@@ -65,6 +66,7 @@ export function validateFlowServerSide(
   diagnostics.push(
     ...validateFlowAggregateGrouping(input.document as FlowDocument),
   );
+  diagnostics.push(...validateExpressionShape(input.document as FlowDocument));
   const valid = diagnostics.every(
     (diagnostic) => diagnostic.severity !== 'error',
   );

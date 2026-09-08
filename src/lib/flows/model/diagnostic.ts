@@ -26,6 +26,7 @@ export const FLOW_NO_SOURCE = 'FLOW_NO_SOURCE' as const;
 export const FLOW_NO_SINK = 'FLOW_NO_SINK' as const;
 export const FLOW_AGGREGATE_REQUIRES_GROUP_BY =
   'FLOW_AGGREGATE_REQUIRES_GROUP_BY' as const;
+export const FLOW_EXPRESSION_NOT_A_CALL = 'FLOW_EXPRESSION_NOT_A_CALL' as const;
 
 export const FLOW_DIAGNOSTIC_CODES = Object.freeze({
   FLOW_DUPLICATE_NODE_ID,
@@ -43,4 +44,5 @@ export const FLOW_DIAGNOSTIC_CODES = Object.freeze({
   FLOW_NO_SOURCE,
   FLOW_NO_SINK,
   FLOW_AGGREGATE_REQUIRES_GROUP_BY,
+  FLOW_EXPRESSION_NOT_A_CALL,
 } as const);
