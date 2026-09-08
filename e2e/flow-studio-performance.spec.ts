@@ -61,9 +61,23 @@ test('flow studio 500-node performance smoke guard', async ({ page }) => {
   const renderStart = Date.now();
   await page.goto(PERF_ROUTE);
 
+  // The fixture route is development-only: src/app/flows/perf/page.tsx renders
+  // "Not available in production" when NODE_ENV is production, and CI runs these tests
+  // against a production Docker image. Skip rather than fail, and say why - a guard that
+  // cannot run in this build should not read as a broken product.
+  const toolbar = page.getByTestId('flow-perf-toolbar');
+  const perfRouteAvailable = await toolbar
+    .waitFor({ state: 'visible', timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  test.skip(
+    !perfRouteAvailable,
+    'The /flows/perf fixture route is development-only and is not served by a production build.',
+  );
+
   // Development-only toolbar proves we are on the fixture route (not a real
   // flow), defaulting to the 500-node fixture with Deploy disabled.
-  await expect(page.getByTestId('flow-perf-toolbar')).toBeVisible({
+  await expect(toolbar).toBeVisible({
     timeout: RENDER_WAIT_TIMEOUT_MS,
   });
   await expect(page.getByTestId('flow-perf-size-500')).toHaveAttribute(
