@@ -1818,6 +1818,115 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
     expect(result.diagnostics[0]?.propertyPath).toBe('confKey');
   });
 
+  it('emits set mqtt source optionals while leaving unset ones out', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSourceFlow({
+        topic: MQTT_TOPIC_IN,
+        confKey: MQTT_CONF_KEY,
+        qos: 1,
+        protocolVersion: '3.1.1',
+        insecureSkipVerify: true,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sourceRuntimeId = createRuntimeId('source', MQTT_SOURCE_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+    expect(graph.nodes[sourceRuntimeId]?.props).toEqual({
+      datasource: MQTT_TOPIC_IN,
+      confKey: MQTT_CONF_KEY,
+      qos: 1,
+      protocolVersion: '3.1.1',
+      insecureSkipVerify: true,
+    });
+  });
+
+  it('emits qos 0 on mqtt sources instead of treating it as unset', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSourceFlow({
+        topic: MQTT_TOPIC_IN,
+        confKey: MQTT_CONF_KEY,
+        qos: 0,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sourceRuntimeId = createRuntimeId('source', MQTT_SOURCE_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+    expect(graph.nodes[sourceRuntimeId]?.props).toEqual({
+      datasource: MQTT_TOPIC_IN,
+      confKey: MQTT_CONF_KEY,
+      qos: 0,
+    });
+  });
+
+  it('omits false mqtt source booleans so existing flows stay byte-identical', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSourceFlow({
+        topic: MQTT_TOPIC_IN,
+        confKey: MQTT_CONF_KEY,
+        insecureSkipVerify: false,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sourceRuntimeId = createRuntimeId('source', MQTT_SOURCE_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+    expect(graph.nodes[sourceRuntimeId]?.props).toEqual({
+      datasource: MQTT_TOPIC_IN,
+      confKey: MQTT_CONF_KEY,
+    });
+  });
+
+  it('fails with a structured diagnostic for an invalid mqtt source qos', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSourceFlow({
+        topic: MQTT_TOPIC_IN,
+        confKey: MQTT_CONF_KEY,
+        qos: 5,
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SOURCE_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('qos');
+  });
+
+  it('fails with a structured diagnostic for an unknown mqtt source protocolVersion', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSourceFlow({
+        topic: MQTT_TOPIC_IN,
+        confKey: MQTT_CONF_KEY,
+        protocolVersion: '4.0',
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SOURCE_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('protocolVersion');
+  });
+
   it('produces the exact expected mqtt sink nodeType/props with topic and server', () => {
     const result = compileFlowToEkuiperGraph(buildMqttSinkFlow());
 
@@ -1875,6 +1984,78 @@ describe('flow eKuiper compiler (mqtt source and sink)', () => {
       topic: MQTT_TOPIC_OUT,
       server: MQTT_SERVER,
     });
+  });
+
+  it('emits set mqtt sink optionals while leaving unset ones out', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSinkFlow({
+        topic: MQTT_TOPIC_OUT,
+        server: MQTT_SERVER,
+        qos: 2,
+        retained: true,
+        protocolVersion: '3.1',
+        insecureSkipVerify: true,
+        omitIfEmpty: true,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sinkRuntimeId = createRuntimeId('sink', MQTT_SINK_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+    expect(graph.nodes[sinkRuntimeId]?.props).toEqual({
+      topic: MQTT_TOPIC_OUT,
+      server: MQTT_SERVER,
+      qos: 2,
+      retained: true,
+      protocolVersion: '3.1',
+      insecureSkipVerify: true,
+      omitIfEmpty: true,
+    });
+  });
+
+  it('omits false mqtt sink booleans so existing flows stay byte-identical', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSinkFlow({
+        topic: MQTT_TOPIC_OUT,
+        server: MQTT_SERVER,
+        retained: false,
+        insecureSkipVerify: false,
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const sinkRuntimeId = createRuntimeId('sink', MQTT_SINK_FLOW_ID);
+    const graph = result.artifact.ruleDefinition.graph as {
+      nodes: Record<string, { props: Record<string, unknown> }>;
+    };
+    expect(graph.nodes[sinkRuntimeId]?.props).toEqual({
+      topic: MQTT_TOPIC_OUT,
+      server: MQTT_SERVER,
+    });
+  });
+
+  it('fails with a structured diagnostic for an invalid mqtt sink qos', () => {
+    const result = compileFlowToEkuiperGraph(
+      buildMqttSinkFlow({
+        topic: MQTT_TOPIC_OUT,
+        server: MQTT_SERVER,
+        qos: '1',
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.artifact).toBeUndefined();
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0]?.code).toBe(
+      'FLOW_REQUIRED_PROPERTY_MISSING',
+    );
+    expect(result.diagnostics[0]?.nodeId).toBe(MQTT_SINK_FLOW_ID);
+    expect(result.diagnostics[0]?.propertyPath).toBe('qos');
   });
 
   it('emits no secret fields in mqtt props', () => {

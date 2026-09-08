@@ -182,8 +182,68 @@ describe('createBuiltinNodeRegistry', () => {
     }
   });
 
-  it('registers MQTT definitions deterministically', () => {
-    const first = createBuiltinNodeRegistry();
+  it('exposes optional MQTT plant settings with engine-documented values', () => {
+    const registry = createBuiltinNodeRegistry();
+    const source = registry.get('mqtt-source', 1);
+    const sink = registry.get('mqtt-sink', 1);
+
+    // UX-0006: qos as a 0/1/2 select (RuleOptions enum [0,1,2] in the
+    // audited OpenAPI plus the MQTT confKey examples and the v2.4.1
+    // source/sink docs). Optional on both so existing flows keep
+    // validating unchanged.
+    for (const definition of [source, sink]) {
+      const qos = definition?.properties.find((property) => property.key === 'qos');
+      expect(qos?.type).toBe('select');
+      expect(qos?.required).not.toBe(true);
+      expect(qos?.options?.map((option) => option.value)).toEqual([0, 1, 2]);
+    }
+
+    // UX-0006: protocolVersion as a select of documented spellings.
+    // The source doc proves 3.1, 3.1.1, and 5 (MQTT v5 message
+    // properties); the sink doc proves only 3.1 and 3.1.1.
+    const sourceProtocol = source?.properties.find(
+      (property) => property.key === 'protocolVersion',
+    );
+    expect(sourceProtocol?.type).toBe('select');
+    expect(sourceProtocol?.required).not.toBe(true);
+    expect(sourceProtocol?.options?.map((option) => option.value)).toEqual([
+      '3.1',
+      '3.1.1',
+      '5',
+    ]);
+    const sinkProtocol = sink?.properties.find(
+      (property) => property.key === 'protocolVersion',
+    );
+    expect(sinkProtocol?.type).toBe('select');
+    expect(sinkProtocol?.required).not.toBe(true);
+    expect(sinkProtocol?.options?.map((option) => option.value)).toEqual([
+      '3.1',
+      '3.1.1',
+    ]);
+
+    // UX-0006: insecureSkipVerify as an optional boolean on both;
+    // retained as an optional boolean on the sink only (it is a
+    // publish-side concept with no source meaning).
+    for (const definition of [source, sink]) {
+      const skipVerify = definition?.properties.find(
+        (property) => property.key === 'insecureSkipVerify',
+      );
+      expect(skipVerify?.type).toBe('boolean');
+      expect(skipVerify?.required).not.toBe(true);
+    }
+    const retained = sink?.properties.find((property) => property.key === 'retained');
+    expect(retained?.type).toBe('boolean');
+    expect(retained?.required).not.toBe(true);
+    expect(
+      source?.properties.find((property) => property.key === 'retained'),
+    ).toBeUndefined();
+
+    for (const definition of [source, sink]) {
+      assertValidCompilerMapping(definition);
+    }
+  });
+
+  it('registers MQTT definitions deterministically', () => {    const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
     expect(first.list()).toEqual(second.list());
     expect(first.get('mqtt-source', 1)).toEqual(second.get('mqtt-source', 1));

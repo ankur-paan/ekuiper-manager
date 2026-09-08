@@ -141,11 +141,16 @@ import {
  *   `{topic: "<topic>", server: "<broker>"}` taken from the node
  *   `topic`/`server` config. `connectionSelector` is never emitted on
  *   either and `server` is never emitted on sources. The v1
- *   `connectionSelector` config value is accepted as a legacy fallback
- *   for both (emitted under the corrected prop name) so existing flows
- *   keep compiling; new `confKey`/`server` values take precedence. A missing broker
- *   reference is a structured diagnostic, never a fabricated default or
- *   silent omission. No plaintext credential is ever read or emitted.
+  *   `connectionSelector` config value is accepted as a legacy fallback
+  *   for both (emitted under the corrected prop name) so existing flows
+  *   keep compiling; new `confKey`/`server` values take precedence. A missing broker
+  *   reference is a structured diagnostic, never a fabricated default or
+  *   silent omission. No plaintext credential is ever read or emitted.
+  *   Optional plant settings (UX-0006: `qos`/`protocolVersion`/
+  *   `insecureSkipVerify` on the source, plus `retained` on the sink)
+  *   are emitted only when set — `qos: 0` included, since 0 is a real
+  *   level, not "unset" — following the `commonSinkProps` rule, so
+  *   existing flows compile byte-identically.
  * - Sink values (FS-0078): sink `nodeType` mirrors the sink connector
  *   name (same graph_rule-doc rule as memory/mqtt). The REST sink maps the
  *   confirmed `RestSink`/`KNOWN_FIELDS.rest` subset (`url` required plus
@@ -405,6 +410,123 @@ function readMqttServer(
   };
 }
 
+/**
+ * Optional MQTT QoS levels and protocol versions (UX-0006).
+ *
+ * Provenance (eKuiper v2.4.1, same version as the audited OpenAPI):
+ * - QoS 0/1/2: `public/ekuiper-openapi.json` schema `RuleOptions`
+ *   (`{type: integer, enum: [0, 1, 2]}`) and the MQTT confKey PUT
+ *   examples (`{"qos": 0, ...}`); the MQTT sink doc pins "Only int type
+ *   value 0 or 1 or 2" and the MQTT source doc calls `qos` "The default
+ *   subscription QoS level".
+ * - Source protocol versions: the MQTT source doc ("MQTT protocol
+ *   version. 3.1 ... or 3.1.1 .... If not specified, the default value
+ *   is 3.1", plus "When `protocolVersion` is set to `5`" for MQTT v5).
+ * - Sink protocol versions: the MQTT sink doc ("3.1 ... or 3.1.1 ...,
+ *   default 3.1", sample `"protocolVersion": "3.1.1"`); `5` is not
+ *   documented for the sink, so it is not offered there.
+ * `retained` (sink, boolean default false) and `insecureSkipVerify`
+ * (boolean, default false, TLS only) come from the same two docs.
+ */
+const MQTT_SOURCE_PROTOCOL_VERSIONS = ['3.1', '3.1.1', '5'] as const;
+const MQTT_SINK_PROTOCOL_VERSIONS = ['3.1', '3.1.1'] as const;
+
+/**
+ * Read the optional MQTT `qos` editor config (UX-0006).
+ *
+ * Absent (undefined, null, empty string) means "not set" and is omitted
+ * so existing flows compile byte-identically. A present value must be
+ * the number 0, 1, or 2 — matching the `qos` select options — and is
+ * copied verbatim; anything else is a structured diagnostic, never a
+ * silent drop or a coerced guess (a string `"1"` stays a validation
+ * failure, owned jointly with the generic select validator).
+ */
+function readMqttQos(
+  config: Record<string, unknown>,
+  nodeId: string,
+): { qos?: 0 | 1 | 2 } | { diagnostic: FlowDiagnostic } {
+  const qos: unknown = config.qos;
+  if (qos === undefined || qos === null || qos === '') {
+    return {};
+  }
+  if (typeof qos === 'number' && (qos === 0 || qos === 1 || qos === 2)) {
+    return { qos };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message:
+        `MQTT node "${nodeId}" has an invalid "qos" property: ` +
+        `expected 0, 1, or 2.`,
+      nodeId,
+      propertyPath: 'qos',
+    },
+  };
+}
+
+/**
+ * Read the optional MQTT `protocolVersion` editor config (UX-0006).
+ *
+ * Absent means "not set" and is omitted so existing flows compile
+ * byte-identically. A present value must be one of the documented
+ * spellings for that node role (source also accepts MQTT 5); anything
+ * else is a structured diagnostic, never a silent drop.
+ */
+function readMqttProtocolVersion(
+  config: Record<string, unknown>,
+  nodeId: string,
+  allowed: readonly string[],
+): { protocolVersion?: string } | { diagnostic: FlowDiagnostic } {
+  const protocolVersion: unknown = config.protocolVersion;
+  if (
+    protocolVersion === undefined ||
+    protocolVersion === null ||
+    protocolVersion === ''
+  ) {
+    return {};
+  }
+  if (
+    typeof protocolVersion === 'string' &&
+    (allowed as readonly string[]).includes(protocolVersion)
+  ) {
+    return { protocolVersion };
+  }
+  return {
+    diagnostic: {
+      code: FLOW_REQUIRED_PROPERTY_MISSING,
+      severity: 'error',
+      message:
+        `MQTT node "${nodeId}" has an invalid "protocolVersion" property: ` +
+        `expected one of ${allowed.join(', ')}.`,
+      nodeId,
+      propertyPath: 'protocolVersion',
+    },
+  };
+}
+
+/**
+ * Emit MQTT boolean optionals only when explicitly turned on (UX-0006).
+ *
+ * Same rule `commonSinkProps` follows for `omitIfEmpty`: an unset or
+ * `false` value is omitted so eKuiper's own default (false) applies and
+ * existing flows compile byte-identically. Non-boolean values are
+ * omitted here and owned by generic boolean validation, which rejects
+ * them before deploy.
+ */
+function mqttTrueOnlyProps(
+  config: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> {
+  const props: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (config[key] === true) {
+      props[key] = true;
+    }
+  }
+  return props;
+}
+
 function toMqttSourceNode(
   irNode: FlowIrNode,
 ): { node: EkuiperGraphNode } | { diagnostic: FlowDiagnostic } {
@@ -416,6 +538,18 @@ function toMqttSourceNode(
   if ('diagnostic' in broker) {
     return broker;
   }
+  const qos = readMqttQos(irNode.config, irNode.id);
+  if ('diagnostic' in qos) {
+    return qos;
+  }
+  const protocolVersion = readMqttProtocolVersion(
+    irNode.config,
+    irNode.id,
+    MQTT_SOURCE_PROTOCOL_VERSIONS,
+  );
+  if ('diagnostic' in protocolVersion) {
+    return protocolVersion;
+  }
   return {
     node: {
       type: 'source',
@@ -423,6 +557,11 @@ function toMqttSourceNode(
       props: {
         datasource: topic.topic,
         confKey: broker.confKey,
+        ...('qos' in qos ? { qos: qos.qos } : {}),
+        ...(protocolVersion.protocolVersion !== undefined
+          ? { protocolVersion: protocolVersion.protocolVersion }
+          : {}),
+        ...mqttTrueOnlyProps(irNode.config, ['insecureSkipVerify']),
       },
     },
   };
@@ -439,6 +578,18 @@ function toMqttSinkNode(
   if ('diagnostic' in broker) {
     return broker;
   }
+  const qos = readMqttQos(irNode.config, irNode.id);
+  if ('diagnostic' in qos) {
+    return qos;
+  }
+  const protocolVersion = readMqttProtocolVersion(
+    irNode.config,
+    irNode.id,
+    MQTT_SINK_PROTOCOL_VERSIONS,
+  );
+  if ('diagnostic' in protocolVersion) {
+    return protocolVersion;
+  }
   return {
     node: {
       type: 'sink',
@@ -446,6 +597,12 @@ function toMqttSinkNode(
       props: {
         topic: topic.topic,
         server: broker.server,
+        ...('qos' in qos ? { qos: qos.qos } : {}),
+        ...mqttTrueOnlyProps(irNode.config, ['retained']),
+        ...(protocolVersion.protocolVersion !== undefined
+          ? { protocolVersion: protocolVersion.protocolVersion }
+          : {}),
+        ...mqttTrueOnlyProps(irNode.config, ['insecureSkipVerify']),
         ...commonSinkProps(irNode),
       },
     },
