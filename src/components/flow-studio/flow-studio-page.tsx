@@ -1399,36 +1399,11 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
                     />
                   ) : null}
                 </div>
-                {/* FS-0096: History access lives with the bottom dock: a slim
-                    toggle row that expands a read-only revision history/diff
-                    panel above the Validation/Definition tabs. No global
-                    navigation change; opening never mutates the document. */}
-                <div className="flex shrink-0 items-center justify-end border-t bg-background px-3 py-1.5">
-                  {/* FS-0127: keyboard-discoverable entry point for the
-                      command palette (Cmd/Ctrl+K). Opens only; no document
-                      mutation. */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handlePaletteOpen}
-                    aria-haspopup="dialog"
-                    data-testid="flow-command-palette-open"
-                  >
-                    Commands
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleHistoryToggle}
-                    aria-expanded={historyOpen}
-                    aria-controls="flow-history-panel"
-                    data-testid="flow-history-toggle"
-                  >
-                    {historyOpen ? 'Hide history' : 'History'}
-                  </Button>
-                </div>
+                {/* FS-0096: History access lives with the bottom dock. The toggle is
+                    rendered inside the dock's own header row rather than in a row of
+                    its own: an extra row costs canvas height, and at a 720px viewport
+                    that was enough to push nodes outside the canvas and leave them
+                    impossible to connect. Opening never mutates the document. */}
                 {historyOpen ? (
                   <div
                     id="flow-history-panel"
@@ -1445,7 +1420,38 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
                     />
                   </div>
                 ) : null}
-                <FlowBottomPanel flowId={flowId} clientDiagnostics={flowDiagnostics} ruleTestSupported={capabilityProfile.ruleTest === true} />
+                <FlowBottomPanel
+                  flowId={flowId}
+                  clientDiagnostics={flowDiagnostics}
+                  ruleTestSupported={capabilityProfile.ruleTest === true}
+                  historyToggle={
+                    <>
+                      {/* FS-0127: keyboard-discoverable entry point for the command
+                          palette (Cmd/Ctrl+K). Opens only; no document mutation. */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handlePaletteOpen}
+                        aria-haspopup="dialog"
+                        data-testid="flow-command-palette-open"
+                      >
+                        Commands
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleHistoryToggle}
+                        aria-expanded={historyOpen}
+                        aria-controls="flow-history-panel"
+                        data-testid="flow-history-toggle"
+                      >
+                        {historyOpen ? 'Hide history' : 'History'}
+                      </Button>
+                    </>
+                  }
+                />
               </div>
             ) : (
               <div className="flex h-full items-center justify-center p-6">

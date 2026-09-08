@@ -22,6 +22,13 @@ export interface FlowBottomPanelProps {
    */
   ruleTestSupported?: boolean;
   className?: string;
+  /**
+   * Rendered in the dock's own header rows. FS-0096's history toggle lives here
+   * rather than in a row of its own: an extra row costs canvas height, and at a
+   * 720px viewport that was enough to push nodes outside the canvas and make them
+   * impossible to connect.
+   */
+  historyToggle?: React.ReactNode;
 }
 
 /**
@@ -34,6 +41,7 @@ export function FlowBottomPanel({
   clientDiagnostics,
   ruleTestSupported = false,
   className,
+  historyToggle,
 }: FlowBottomPanelProps) {
   const [open, setOpen] = React.useState(true);
   const [tab, setTab] = React.useState<FlowBottomPanelTab>("validation");
@@ -67,6 +75,7 @@ export function FlowBottomPanel({
             ? "Validation: no client errors"
             : `Validation: ${clientErrorCount} client error(s)`}
         </span>
+        {historyToggle ? <div className="ml-auto">{historyToggle}</div> : null}
       </div>
     );
   }
@@ -103,6 +112,7 @@ export function FlowBottomPanel({
             </TabsTrigger>
           </TabsList>
           <div className="flex-1" />
+          {historyToggle}
           <Button
             type="button"
             variant="ghost"
