@@ -18,6 +18,17 @@ import { OMIT_IF_EMPTY_PROPERTY } from './sink-common';
  *   eKuiper and are never read back into an editable form
  *   (`src/app/connections/page.tsx`).
  *
+ * Broker binding (UX-0002): the source binds by eKuiper MQTT source
+ * connection NAME (`confKey`), served live by the `mqtt-confkeys` option
+ * provider (`src/lib/flows/options/index.ts`, names only so broker
+ * credentials never leave the server), exactly like `stream-source`
+ * declares `optionsProvider: 'streams'`. The v1 `connectionSelector`
+ * stays as a deprecated alias: the compiler
+ * (`src/lib/flows/compiler/ekuiper/compile-graph.ts`) maps it to
+ * `confKey` and still rejects a source with neither value via the
+ * existing `FLOW_REQUIRED_PROPERTY_MISSING`, so existing flows keep
+ * compiling.
+ *
  * Only confirmed non-secret editor-semantic properties are exposed. No
  * plaintext credential field (`password`, `privateKeyPath`, or similar) is
  * included; broker authentication stays inside the referenced shared
@@ -45,11 +56,19 @@ export const mqttSourceDefinition: FlowNodeDefinition = {
         'MQTT topic to subscribe to. Compiler mapping to the eKuiper MQTT source lands later.',
     },
     {
+      key: 'confKey',
+      label: 'Connection name',
+      type: 'select',
+      description:
+        'Name of the eKuiper MQTT source connection holding the broker. Loaded live from the selected node. A source binds by connection NAME, not by broker URL.',
+      optionsProvider: 'mqtt-confkeys',
+    },
+    {
       key: 'connectionSelector',
-      label: 'Shared connection',
+      label: 'Legacy shared connection (deprecated)',
       type: 'string',
       description:
-        'ID of an existing shared eKuiper MQTT connection. Broker credentials stay inside that connection.',
+        'Deprecated alias for Connection name: the compiler still maps it to confKey so existing flows keep compiling. Use Connection name for new flows. Broker credentials stay inside that connection.',
     },
   ],
 };
@@ -59,7 +78,14 @@ export const mqttSourceDefinition: FlowNodeDefinition = {
  *
  * `topic` (required) and `connectionSelector` are confirmed by both
  * `MqttSink` in `src/lib/ekuiper/types.ts` and `KNOWN_FIELDS.mqtt` in
- * `src/lib/ekuiper/rule-designer.ts`. Only these confirmed non-secret
+ * `src/lib/ekuiper/rule-designer.ts`.
+ *
+ * Broker binding (UX-0002): unlike the source, the sink binds by broker
+ * URL (`server`), never by confKey — passing a confKey name as the sink
+ * address fails with `dial tcp: address <name>: missing port in address`
+ * (see `compile-graph.ts:138-146`). The v1 `connectionSelector` stays as
+ * a deprecated alias mapped to `server` by the compiler so existing flows
+ * keep compiling. Only these confirmed non-secret
  * properties are exposed; no plaintext credential field is included and
  * compiler mapping (`runtimeKind`/`operation`) is intentionally omitted
  * until a later compiler ticket. No compiler code lives here.
@@ -85,11 +111,18 @@ export const mqttSinkDefinition: FlowNodeDefinition = {
         'MQTT topic to publish to. Compiler mapping to the eKuiper MQTT sink lands later.',
     },
     {
-      key: 'connectionSelector',
-      label: 'Shared connection',
+      key: 'server',
+      label: 'Broker URL',
       type: 'string',
       description:
-        'ID of an existing shared eKuiper MQTT connection. Broker credentials stay inside that connection.',
+        'MQTT broker address for the sink (for example tcp://broker-host:1883). A sink binds by broker URL, not by connection name.',
+    },
+    {
+      key: 'connectionSelector',
+      label: 'Legacy shared connection (deprecated)',
+      type: 'string',
+      description:
+        'Deprecated alias for Broker URL: the compiler still maps it to server so existing flows keep compiling. Use Broker URL for new flows. Broker credentials stay inside that connection.',
     },
     OMIT_IF_EMPTY_PROPERTY,
   ],

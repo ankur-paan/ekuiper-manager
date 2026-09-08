@@ -143,10 +143,48 @@ describe('createBuiltinNodeRegistry', () => {
     }
   });
 
+  it('exposes asymmetric MQTT broker bindings: confKey picker on the source, server URL on the sink', () => {
+    const registry = createBuiltinNodeRegistry();
+    const source = registry.get('mqtt-source', 1);
+    const sink = registry.get('mqtt-sink', 1);
+
+    // Source binds by connection NAME via the live mqtt-confkeys provider
+    // (same declaration pattern stream-source uses for 'streams').
+    const confKey = source?.properties.find((property) => property.key === 'confKey');
+    expect(confKey?.type).toBe('select');
+    expect(confKey?.optionsProvider).toBe('mqtt-confkeys');
+    expect(confKey?.required).not.toBe(true);
+
+    // Sink binds by broker URL, never by confKey: a confKey name is not a
+    // dialable address, so no option provider is declared here.
+    const server = sink?.properties.find((property) => property.key === 'server');
+    expect(server?.type).toBe('string');
+    expect(server?.optionsProvider).toBeUndefined();
+    expect(server?.required).not.toBe(true);
+    expect(sink?.properties.find((property) => property.key === 'confKey')).toBeUndefined();
+
+    // Labels say which binding each field is.
+    expect(confKey?.label).toMatch(/connection name/i);
+    expect(server?.label).toMatch(/broker url/i);
+
+    // Legacy alias stays optional on both so existing flows still validate
+    // and the compiler fallback keeps compiling them.
+    for (const definition of [source, sink]) {
+      const legacy = definition?.properties.find(
+        (property) => property.key === 'connectionSelector',
+      );
+      expect(legacy?.type).toBe('string');
+      expect(legacy?.required).not.toBe(true);
+    }
+
+    for (const definition of [source, sink]) {
+      assertValidCompilerMapping(definition);
+    }
+  });
+
   it('registers MQTT definitions deterministically', () => {
     const first = createBuiltinNodeRegistry();
     const second = createBuiltinNodeRegistry();
-
     expect(first.list()).toEqual(second.list());
     expect(first.get('mqtt-source', 1)).toEqual(second.get('mqtt-source', 1));
     expect(first.get('mqtt-sink', 1)).toEqual(second.get('mqtt-sink', 1));
