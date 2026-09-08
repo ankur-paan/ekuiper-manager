@@ -22,6 +22,9 @@ docs/*
 !docs/AI_ASSISTANT.md
 !docs/RULE_DESIGNER.md
 !docs/FLOW_STUDIO_ARCHITECTURE.md
+!docs/FLOW_STUDIO_RULE_TEST_NOTES.md
+!docs/FLOW_STUDIO.md
+!docs/FLOW_STUDIO_BETA_ACCEPTANCE.md
 
 # Testing
 coverage/
@@ -67,3 +70,5 @@ build_log.txt
 build_output.txt
 body.json
 response.txt
+!docs/FLOW_STUDIO_UI_COMPONENT_TESTING_DECISION.md
+!docs/FLOW_STUDIO_AUTO_LAYOUT_DECISION.md

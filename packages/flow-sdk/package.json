@@ -1,0 +1,12 @@
+{
+  "name": "@ekuiper-manager/flow-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Public-safe declarative Flow node definition subset for authoring eKuiper Manager extension descriptors (FS-0119). Types and data constants only; no validation, compiler, or editor implementation. Not published.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "src"
+  ]
+}

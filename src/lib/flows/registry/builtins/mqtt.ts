@@ -1,4 +1,5 @@
 import type { FlowNodeDefinition } from '../node-definition';
+import { OMIT_IF_EMPTY_PROPERTY } from './sink-common';
 
 /**
  * MQTT source editor-semantic definition (v1).
@@ -90,5 +91,6 @@ export const mqttSinkDefinition: FlowNodeDefinition = {
       description:
         'ID of an existing shared eKuiper MQTT connection. Broker credentials stay inside that connection.',
     },
+    OMIT_IF_EMPTY_PROPERTY,
   ],
 };

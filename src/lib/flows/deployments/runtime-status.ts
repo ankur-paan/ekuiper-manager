@@ -106,6 +106,61 @@ export function readStatusMessage(body: unknown): string | null {
   return sanitizeDeploymentError(message);
 }
 
+/** Static summary when a sink cannot reach its destination. */
+export const FLOW_RUNTIME_SINK_UNREACHABLE_MESSAGE =
+  'A sink cannot connect to its destination. The rule is running but delivering nothing.';
+
+/** Static summary when a sink is receiving rows but failing to emit them. */
+export const FLOW_RUNTIME_SINK_FAILING_MESSAGE =
+  'A sink is receiving rows but failing to send them. The rule is running but delivering nothing.';
+
+/**
+ * eKuiper reports a rule as `running` even when its sink cannot deliver: a broker that is
+ * unroutable, or an endpoint the engine refuses to call. The rule status string never changes,
+ * so a status-only read shows a healthy rule that emits nothing — measured twice in live
+ * acceptance testing (AC-D009, AC-D010).
+ *
+ * The per-node metrics in the same `RuleStatus` body do carry the truth:
+ * - `*_connection_status` is negative while a connection is down.
+ * - a sink with `records_in_total > 0`, `records_out_total === 0` and `exceptions_total > 0`
+ *   is consuming rows and dropping every one.
+ *
+ * Returns a static, non-reflected summary (the raw exception can carry broker addresses and
+ * credentials, so it is deliberately not surfaced here), or null when nothing is wrong.
+ */
+export function detectUnhealthyRuntime(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
+  const entries = Object.entries(body as Record<string, unknown>);
+
+  const num = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+  for (const [key, value] of entries) {
+    if (!/_connection_status$/.test(key)) continue;
+    const status = num(value);
+    if (status !== null && status < 0) return FLOW_RUNTIME_SINK_UNREACHABLE_MESSAGE;
+  }
+
+  // Group sink counters by their node prefix so one sink's totals are compared with its own.
+  const sinks = new Map<string, { in: number | null; out: number | null; exceptions: number | null }>();
+  for (const [key, value] of entries) {
+    const match = /^(sink_.*)_(records_in_total|records_out_total|exceptions_total)$/.exec(key);
+    if (!match) continue;
+    const [, prefix, field] = match;
+    const bucket = sinks.get(prefix) ?? { in: null, out: null, exceptions: null };
+    if (field === 'records_in_total') bucket.in = num(value);
+    else if (field === 'records_out_total') bucket.out = num(value);
+    else bucket.exceptions = num(value);
+    sinks.set(prefix, bucket);
+  }
+  for (const bucket of sinks.values()) {
+    if ((bucket.in ?? 0) > 0 && (bucket.out ?? 0) === 0 && (bucket.exceptions ?? 0) > 0) {
+      return FLOW_RUNTIME_SINK_FAILING_MESSAGE;
+    }
+  }
+  return null;
+}
+
 /**
  * Map a status-fetch failure to a safe summary.
  *
@@ -206,7 +261,13 @@ export async function getFlowRuntimeStatus(
     typeof body === 'object' && body !== null && !Array.isArray(body)
       ? (body as Record<string, unknown>).status
       : undefined;
-  const actualState = normalizeActualState(statusValue);
+  const reportedState = normalizeActualState(statusValue);
+  // A rule the engine calls `running` can still be delivering nothing. Only downgrade a
+  // reported-healthy rule: a rule already in error or stopped keeps its own reason.
+  const unhealthyReason =
+    reportedState === 'running' ? detectUnhealthyRuntime(body) : null;
+  const actualState: FlowRuntimeActualState =
+    unhealthyReason === null ? reportedState : 'error';
   return {
     flowId: flow.id,
     targetNodeId,
@@ -215,7 +276,7 @@ export async function getFlowRuntimeStatus(
     deployed: true,
     desiredState: 'running',
     actualState,
-    message: readStatusMessage(body),
+    message: unhealthyReason ?? readStatusMessage(body),
     checkedAt,
   };
 }

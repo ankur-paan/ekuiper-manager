@@ -1,86 +1,51 @@
 import type { FlowDiagnostic } from '../model/diagnostic';
-
-export type FlowNodeCategory =
-  | 'source'
-  | 'transform'
-  | 'streaming'
-  | 'routing'
-  | 'sink';
-
-export type FlowPortKind = 'stream' | 'collection' | 'table' | 'any';
-
-export type FlowIrNodeKind = 'source' | 'operator' | 'sink';
-
-export interface FlowPortDefinition {
-  id: string;
-  label?: string;
-  kind: FlowPortKind;
-  required?: boolean;
-  multiple?: boolean;
-}
-
-export interface FlowPropertyDefinition {
-  key: string;
-  label: string;
-  type:
-    | 'string'
-    | 'number'
-    | 'boolean'
-    | 'select'
-    | 'json'
-    | 'expression'
-    | 'secret-ref';
-  required?: boolean;
-  description?: string;
-  options?: Array<{ label: string; value: string | number | boolean }>;
-  defaultValue?: unknown;
-  /**
-   * Optional dynamic option provider for `select` properties (FS-0147).
-   *
-   * A NAMED provider id resolved server-side against a fixed allowlist
-   * (`FLOW_OPTION_PROVIDER_IDS`); never a URL and never caller-supplied.
-   * The inspector merges the provider's live names/ids with the static
-   * `options` above. Plain string so definitions stay JSON-serialisable.
-   */
-  optionsProvider?: string;
-  /**
-   * Optional display/range hints for the property control (FS-0146).
-   *
-   * Declarative only: plain JSON data, never a function or expression.
-   * `multiline`, `password` and `placeholder` are display-only. `min`,
-   * `max` and `step` are honoured by number controls; `min`/`max` are
-   * additionally enforced by range validation. `password` masks the
-   * input only and never changes storage semantics; secrets remain a
-   * separate concern (`secret-ref` type).
-   */
-  typeOptions?: FlowPropertyTypeOptions;
-  /**
-   * Optional conditional visibility predicate over sibling property values
-   * (FS-0145).
-   *
-   * Declarative only: plain JSON data (equality / one-of), never a
-   * function or expression, so definitions stay JSON-serialisable for
-   * future declarative extensions. When absent the property is always
-   * visible.
-   */
-  showWhen?: FlowPropertyShowWhen;
-}
+import {
+  FLOW_EKUIPER_RUNTIME_MAPPING_KEYS,
+  FLOW_NODE_ACCENT_TOKENS,
+  FLOW_NODE_ICON_TOKENS,
+} from '@ekuiper-manager/flow-sdk';
+import type {
+  FlowNodeAccentToken,
+  FlowNodeDefinition as SdkFlowNodeDefinition,
+  FlowNodeIconToken,
+  FlowPropertyDefinition,
+} from '@ekuiper-manager/flow-sdk';
+import type {
+  FlowEkuiperRuntimeMapping,
+  FlowIrNodeKind,
+} from '@ekuiper-manager/flow-sdk';
 
 /**
- * Declarative display/range hints for a single property (FS-0146).
+ * Public-safe declarative node definition subset (FS-0119).
  *
- * All fields are optional and JSON-serialisable. `password` masks the
- * input control only; it does not make the value a secret and never
- * changes how the value is stored.
+ * The authoring shapes (`FlowNodeCategory`, `FlowPortKind`,
+ * `FlowPortDefinition`, `FlowPropertyDefinition`,
+ * `FlowPropertyTypeOptions`, `FlowPropertyShowWhen`,
+ * `FlowEkuiperRuntimeMapping`, the icon/accent token lists, and the base
+ * `FlowNodeDefinition`) are canonical in `@ekuiper-manager/flow-sdk`
+ * (`packages/flow-sdk/src/index.ts`) and re-exported here, so there is
+ * exactly one contract and no divergent duplicate. The app's
+ * `FlowNodeDefinition` below extends the SDK type with the internal-only
+ * `runtimeKind`/`operation` fields.
  */
-export interface FlowPropertyTypeOptions {
-  multiline?: boolean;
-  min?: number;
-  max?: number;
-  step?: number;
-  password?: boolean;
-  placeholder?: string;
-}
+export type {
+  FlowEkuiperRuntimeMapping,
+  FlowIrNodeKind,
+  FlowNodeAccentToken,
+  FlowNodeCategory,
+  FlowNodeDefinition as SdkFlowNodeDefinition,
+  FlowNodeIconToken,
+  FlowPortDefinition,
+  FlowPortKind,
+  FlowPropertyDefinition,
+  FlowPropertyShowWhen,
+  FlowPropertyTypeOptions,
+} from '@ekuiper-manager/flow-sdk';
+export {
+  FLOW_EKUIPER_RUNTIME_MAPPING_KEYS,
+  FLOW_NODE_ACCENT_TOKENS,
+  FLOW_NODE_ICON_TOKENS,
+} from '@ekuiper-manager/flow-sdk';
 
 /**
  * Range validation for FS-0146 `typeOptions.min`/`max`.
@@ -139,22 +104,6 @@ export function validateFlowPropertyBounds(
 }
 
 /**
- * Declarative conditional-visibility predicate for a single property
- * (FS-0145, n8n/Node-RED `displayOptions` equivalent).
- *
- * Evaluated against the same node's config: `property` names the sibling
- * key, and the predicate passes when the sibling value matches `equals`
- * (when present) and is a member of `oneOf` (when present). Both present
- * means both must match. Neither present imposes no constraint, so the
- * property stays visible (fail-open, never hides on malformed data).
- */
-export interface FlowPropertyShowWhen {
-  property: string;
-  equals?: string | number | boolean | null;
-  oneOf?: Array<string | number | boolean | null>;
-}
-
-/**
  * Visibility evaluation for FS-0145 `showWhen`.
  *
  * Pure read: compares the sibling config value with strict (Object.is)
@@ -185,52 +134,6 @@ export function isFlowPropertyVisible(
   }
   return true;
 }
-
-/**
- * Fixed set of canvas icon tokens for FS-0148 node presentation.
- *
- * A named token only: never a URL, never an inline SVG payload, and never
- * a remote asset reference. The canvas renderer maps a known token to a
- * local mark; unknown tokens fall back to the category mark without
- * throwing. Plain strings so definitions stay JSON-serialisable.
- */
-export const FLOW_NODE_ICON_TOKENS = [
-  'mqtt',
-  'memory',
-  'rest',
-  'log',
-  'filter',
-  'pick',
-  'function',
-  'window',
-  'aggregate',
-  'join',
-  'switch',
-  'sort',
-] as const;
-
-/** A canvas icon token from {@link FLOW_NODE_ICON_TOKENS}. */
-export type FlowNodeIconToken = (typeof FLOW_NODE_ICON_TOKENS)[number];
-
-/**
- * Fixed set of canvas accent tokens for FS-0148 node presentation.
- *
- * A named token only: never a raw colour (no hex/rgb/hsl literal). The
- * canvas renderer maps a known token to a bounded local style; unknown
- * tokens fall back to the neutral style without throwing. Plain strings
- * so definitions stay JSON-serialisable.
- */
-export const FLOW_NODE_ACCENT_TOKENS = [
-  'source',
-  'transform',
-  'streaming',
-  'routing',
-  'sink',
-  'neutral',
-] as const;
-
-/** A canvas accent token from {@link FLOW_NODE_ACCENT_TOKENS}. */
-export type FlowNodeAccentToken = (typeof FLOW_NODE_ACCENT_TOKENS)[number];
 
 /**
  * Narrow an unknown value to a known icon token (FS-0148).
@@ -298,42 +201,262 @@ export function resolveFlowNodeSubtitle(
   return undefined;
 }
 
-export interface FlowNodeDefinition {
-  type: string;
-  version: number;
-  displayName: string;
-  description: string;
-  category: FlowNodeCategory;
-  inputs: FlowPortDefinition[];
-  outputs: FlowPortDefinition[];
-  properties: FlowPropertyDefinition[];
-  /**
-   * Optional canvas icon token (FS-0148).
-   *
-   * Must be a member of {@link FLOW_NODE_ICON_TOKENS}; never a URL or
-   * SVG payload and never a remote asset. The renderer falls back to the
-   * category mark for unknown tokens. Plain string so definitions stay
-   * JSON-serialisable.
-   */
-  icon?: FlowNodeIconToken;
-  /**
-   * Optional canvas accent token (FS-0148).
-   *
-   * Must be a member of {@link FLOW_NODE_ACCENT_TOKENS}; never a raw
-   * colour. The renderer falls back to the neutral style for unknown
-   * tokens. Plain string so definitions stay JSON-serialisable.
-   */
-  accent?: FlowNodeAccentToken;
-  /**
-   * Optional canvas subtitle key (FS-0148).
-   *
-   * Names exactly one property key whose scalar value renders as the
-   * canvas subtitle (truncated, never wrapped). Must reference an
-   * existing property key when present; nodes without a suitable scalar
-   * property omit it. Plain string so definitions stay
-   * JSON-serialisable.
-   */
-  subtitleKey?: string;
+/**
+ * Top-level keys permitted on a {@link FlowEkuiperRuntimeMapping}.
+ *
+ * Canonical list lives in `@ekuiper-manager/flow-sdk` and is re-exported
+ * above. Anything else (e.g. `template`, `expression`, `code`, `eval`) is
+ * an unknown mapping key and fails validation.
+ */
+
+/** Diagnostic code for a structurally invalid runtime mapping. */
+export const FLOW_EXTENSION_INVALID_RUNTIME_MAPPING =
+  'FLOW_EXTENSION_INVALID_RUNTIME_MAPPING' as const;
+
+/**
+ * Diagnostic code reused for function-valued mapping content.
+ *
+ * Kept string-identical to the extension validator's
+ * `FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED` so mapping violations and
+ * manifest/descriptor violations share one code without importing the
+ * extension validator (which would create a registry <-> extensions
+ * import cycle).
+ */
+export const FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED =
+  'FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED' as const;
+
+/** eKuiper graph `type` values permitted in a mapping `kind`. */
+const FLOW_EKUIPER_RUNTIME_KINDS: readonly FlowIrNodeKind[] = [
+  'source',
+  'operator',
+  'sink',
+];
+
+/** Safe `nodeType`/props-key shape: leading letter, then alphanumerics/`_`/`-`/`.`. */
+const FLOW_EKUIPER_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]*$/;
+
+function isMappingRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function pushMappingDiagnostic(
+  diagnostics: FlowDiagnostic[],
+  code: string,
+  message: string,
+  propertyPath?: string,
+): void {
+  diagnostics.push({
+    code,
+    severity: 'error',
+    message,
+    ...(propertyPath === undefined ? {} : { propertyPath }),
+  });
+}
+
+/**
+ * Find the first function value nested in mapping data.
+ *
+ * Returns the dotted key path of the offending value, or undefined when
+ * no function value is present. Reported instead of ever being called:
+ * mappings are plain JSON data and must never carry functions/eval.
+ */
+function findMappingFunctionPath(
+  value: unknown,
+  path: string,
+): string | undefined {
+  if (typeof value === 'function') {
+    return path;
+  }
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const found = findMappingFunctionPath(value[index], `${path}[${index}]`);
+      if (found !== undefined) {
+        return found;
+      }
+    }
+    return undefined;
+  }
+  if (isMappingRecord(value)) {
+    for (const key of Object.keys(value)) {
+      const found = findMappingFunctionPath(
+        value[key],
+        path.length === 0 ? key : `${path}.${key}`,
+      );
+      if (found !== undefined) {
+        return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Validate one declarative eKuiper runtime mapping (FS-0116).
+ *
+ * Rules:
+ * - must be a plain object with exactly the known keys (`kind`,
+ *   `nodeType`, `properties`); unknown keys fail;
+ * - `kind` must be `source`/`operator`/`sink`;
+ * - `nodeType` must be a safe non-empty name (never empty, never code);
+ * - `properties` must be a `configKey -> propKey` record of non-empty
+ *   safe strings; function values fail as executable content and are
+ *   never called;
+ * - when `declaredProperties` is provided, every mapped `configKey` must
+ *   name a declared property key, and `secret-ref` properties must not be
+ *   mapped (secret binding lands in a later design; blind inclusion
+ *   would leak secret references into compiled props).
+ *
+ * Returns structured `FlowDiagnostic[]` (empty means valid). Never throws
+ * for JSON-compatible input and never mutates its input.
+ */
+export function validateFlowEkuiperRuntimeMapping(
+  value: unknown,
+  declaredProperties?: readonly FlowPropertyDefinition[] | undefined,
+  prefix = '',
+): FlowDiagnostic[] {
+  const diagnostics: FlowDiagnostic[] = [];
+  const at = (path: string): string =>
+    prefix.length === 0 ? path : `${prefix}.${path}`;
+  if (!isMappingRecord(value)) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+      'Extension runtime mapping must be an object.',
+      prefix.length === 0 ? undefined : prefix,
+    );
+    return diagnostics;
+  }
+
+  for (const key of Object.keys(value)) {
+    if (
+      !(FLOW_EKUIPER_RUNTIME_MAPPING_KEYS as readonly string[]).includes(key)
+    ) {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        `Extension runtime mapping has an unknown key "${key}". ` +
+          `Allowed keys are ${FLOW_EKUIPER_RUNTIME_MAPPING_KEYS.join(', ')}.`,
+        at(key),
+      );
+    }
+  }
+
+  const functionPath = findMappingFunctionPath(
+    value,
+    prefix.length === 0 ? '' : prefix,
+  );
+  if (functionPath !== undefined && functionPath.length > 0) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_EXECUTABLE_UNSUPPORTED,
+      `Extension runtime mapping declares unsupported executable function at "${functionPath}". ` +
+        `Mappings are plain config-key -> props-key strings and are never executed.`,
+      functionPath,
+    );
+  }
+
+  const kind: unknown = value['kind'];
+  if (
+    typeof kind !== 'string' ||
+    !(FLOW_EKUIPER_RUNTIME_KINDS as readonly string[]).includes(kind)
+  ) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+      'Extension runtime mapping kind must be one of source, operator, sink.',
+      at('kind'),
+    );
+  }
+
+  const nodeType: unknown = value['nodeType'];
+  if (
+    typeof nodeType !== 'string' ||
+    nodeType.length === 0 ||
+    !FLOW_EKUIPER_NAME_PATTERN.test(nodeType)
+  ) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+      'Extension runtime mapping nodeType must be a non-empty safe name ' +
+        '(leading letter, then letters, digits, "_", "-", ".").',
+      at('nodeType'),
+    );
+  }
+
+  const properties: unknown = value['properties'];
+  if (!isMappingRecord(properties)) {
+    pushMappingDiagnostic(
+      diagnostics,
+      FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+      'Extension runtime mapping properties must be an object mapping config keys to eKuiper props keys.',
+      at('properties'),
+    );
+    return diagnostics;
+  }
+
+  const declaredByKey =
+    declaredProperties === undefined
+      ? undefined
+      : new Map(declaredProperties.map((property) => [property.key, property]));
+  for (const configKey of Object.keys(properties)) {
+    const entryPath = at(`properties.${configKey}`);
+    const propKey: unknown = properties[configKey];
+    if (configKey.length === 0) {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        'Extension runtime mapping config key must be a non-empty string.',
+        entryPath,
+      );
+      continue;
+    }
+    if (
+      typeof propKey !== 'string' ||
+      propKey.length === 0 ||
+      !FLOW_EKUIPER_NAME_PATTERN.test(propKey)
+    ) {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        `Extension runtime mapping for config key "${configKey}" must name a non-empty safe eKuiper props key.`,
+        entryPath,
+      );
+      continue;
+    }
+    if (declaredByKey !== undefined && !declaredByKey.has(configKey)) {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        `Extension runtime mapping config key "${configKey}" does not match any declared node property.`,
+        entryPath,
+      );
+      continue;
+    }
+    const declared = declaredByKey?.get(configKey);
+    if (declared !== undefined && declared.type === 'secret-ref') {
+      pushMappingDiagnostic(
+        diagnostics,
+        FLOW_EXTENSION_INVALID_RUNTIME_MAPPING,
+        `Extension runtime mapping config key "${configKey}" is a secret-ref property and must not be mapped into eKuiper props until the secret-binding design allows it.`,
+        entryPath,
+      );
+    }
+  }
+
+  return diagnostics;
+}
+
+/**
+ * App-internal Flow node definition (FS-0119).
+ *
+ * Extends the public-safe SDK contract (`SdkFlowNodeDefinition`,
+ * canonical in `@ekuiper-manager/flow-sdk`) with the internal-only
+ * runtime fields below. All authoring fields (identity, display metadata,
+ * category, ports, properties, canvas tokens, `runtimeMapping`) are
+ * inherited unchanged, so extension descriptors and built-ins share one
+ * contract with no divergent duplicate.
+ */
+export interface FlowNodeDefinition extends SdkFlowNodeDefinition {
   /**
    * Internal-only runtime metadata consumed by the Flow-to-IR builder.
    *

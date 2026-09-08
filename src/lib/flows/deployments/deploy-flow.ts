@@ -4,7 +4,7 @@ import { assertSafeNodeDestination } from '@/lib/network';
 import { getNode, getNodeWithAuthorization, type ManagedNode } from '@/lib/nodes';
 import type { TargetCapabilityProfile } from '../capabilities/types';
 import { resolveTargetCapabilities } from '../capabilities/resolve-capabilities';
-import { compileFlowToEkuiperGraph } from '../compiler/ekuiper/compile-graph';
+import { compileFlowToEkuiperGraph, toSafeRuleId } from '../compiler/ekuiper/compile-graph';
 import type { CompileFlowResult } from '../compiler/types';
 import { FLOW_DOCUMENT_VERSION, type FlowDocument } from '../model/flow-document';
 import type { FlowDiagnostic } from '../model/diagnostic';
@@ -385,6 +385,186 @@ export async function defaultFetchRuleStatus(
   }
   const bodyText = await response.text().catch(() => '');
   return parseEKuiperJson(bodyText);
+}
+
+export interface DeleteRuleArgs {
+  targetNodeId: string;
+  ruleId: string;
+}
+
+export interface UndeployFlowInput {
+  flowId: unknown;
+}
+
+export interface UndeployFlowResult {
+  ok: true;
+  /**
+   * True when the engine removal was attempted (the flow had a target).
+   * False when there was nothing to remove (the flow has no target):
+   * still success, no engine call is made.
+   */
+  undeployed: boolean;
+  targetNodeId: string | null;
+  /** Deterministic rule id, identical to the deploy path (`toSafeRuleId`). */
+  ruleId: string;
+}
+
+export interface UndeployFlowDependencies {
+  loadFlow?: (flowId: string) => Promise<FlowRecord | null>;
+  loadTarget?: (targetNodeId: string) => Promise<ManagedNode | null>;
+  deleteRule?: (args: DeleteRuleArgs) => Promise<void>;
+  /** Transport for the default delete implementation. */
+  fetcher?: DeployFetcher;
+}
+
+/**
+ * Default engine-side rule removal over the registered-node transport
+ * (AC-D008).
+ *
+ * Audited behavior (`public/ekuiper-openapi.json`, eKuiper 2.4.1):
+ * `POST /rules/{name}/stop` is "Stop a rule" (operationId `stopRule`)
+ * and `DELETE /rules/{name}` is "Delete a rule" (operationId
+ * `deleteRule`). The caller supplies only a registered node id; the
+ * destination and credential always come from the managed-node row behind
+ * the same SSRF boundary as the upsert and status helpers above.
+ *
+ * Idempotent: a 404 from either call means the rule is already gone and
+ * is swallowed, so undeploying a never-deployed flow or an already
+ * removed rule succeeds. Any other non-2xx becomes a server-safe
+ * `ApiError`; transport failures map through `toTransportApiError`.
+ */
+/**
+ * Is this engine response telling us the rule is already gone?
+ *
+ * eKuiper 2.4.1 does NOT answer 404 for a missing rule on stop or delete. It answers
+ * HTTP 400 with `{"error":1000,"message":"Delete rule error: rule <id> not found"}`.
+ * Treating only 404 as "already gone" made undeploy non-idempotent, so the delete path -
+ * which undeploys first by design - failed with EKRULE_DELETE_FAILED on any flow that was
+ * already undeployed. Measured against a live engine.
+ */
+function isRuleAlreadyGone(status: number, bodyText: string): boolean {
+  if (status === 404) return true;
+  return status === 400 && /not found/i.test(bodyText);
+}
+
+export async function defaultDeleteRule(
+  args: DeleteRuleArgs,
+  fetcher?: DeployFetcher,
+): Promise<void> {
+  const { node, authorization } = await getNodeWithAuthorization(args.targetNodeId);
+  const headers: Record<string, string> = {
+    Accept: 'application/json, text/plain;q=0.9',
+    ...(authorization ? { Authorization: authorization } : {}),
+  };
+  const doFetch = fetcher ?? globalThis.fetch.bind(globalThis);
+
+  const stopTarget = new URL(`/rules/${encodeURIComponent(args.ruleId)}/stop`, node.baseUrl);
+  await assertSafeNodeDestination(stopTarget);
+  let stopResponse: Response;
+  try {
+    stopResponse = await doFetch(stopTarget, {
+      method: 'POST',
+      headers,
+      cache: 'no-store',
+      redirect: 'error',
+      signal: AbortSignal.timeout(ekuiperTimeoutMs()),
+    });
+  } catch (error) {
+    throw toTransportApiError(error, 'EKRULE_STOP_FAILED');
+  }
+  if (!stopResponse.ok) {
+    const bodyText = await stopResponse.text().catch(() => '');
+    const detail = bodyText.trim();
+    if (!isRuleAlreadyGone(stopResponse.status, bodyText)) {
+      throw new ApiError(
+        502,
+        sanitizeDeploymentError(
+          detail.length > 0
+            ? `eKuiper rule stop returned HTTP ${stopResponse.status}: ${detail}`
+            : `eKuiper rule stop returned HTTP ${stopResponse.status}`,
+        ),
+        'EKRULE_STOP_FAILED',
+      );
+    }
+  }
+
+  const deleteTarget = new URL(`/rules/${encodeURIComponent(args.ruleId)}`, node.baseUrl);
+  await assertSafeNodeDestination(deleteTarget);
+  let deleteResponse: Response;
+  try {
+    deleteResponse = await doFetch(deleteTarget, {
+      method: 'DELETE',
+      headers,
+      cache: 'no-store',
+      redirect: 'error',
+      signal: AbortSignal.timeout(ekuiperTimeoutMs()),
+    });
+  } catch (error) {
+    throw toTransportApiError(error, 'EKRULE_DELETE_FAILED');
+  }
+  if (!deleteResponse.ok) {
+    const bodyText = await deleteResponse.text().catch(() => '');
+    const detail = bodyText.trim();
+    if (!isRuleAlreadyGone(deleteResponse.status, bodyText)) {
+      throw new ApiError(
+        502,
+        sanitizeDeploymentError(
+          detail.length > 0
+            ? `eKuiper rule delete returned HTTP ${deleteResponse.status}: ${detail}`
+            : `eKuiper rule delete returned HTTP ${deleteResponse.status}`,
+        ),
+        'EKRULE_DELETE_FAILED',
+      );
+    }
+  }
+}
+
+/**
+ * Undeploy one flow: stop and remove its rule on the registered eKuiper
+ * target (AC-D008).
+ *
+ * - Loads the flow row server-side and resolves the registered target
+ *   exactly as the deploy path does (404 `FLOW_NOT_FOUND` / 409
+ *   `NODE_REQUIRED` / 404 `NODE_NOT_FOUND`).
+ * - Derives the same deterministic rule id the deploy path uses
+ *   (`toSafeRuleId(flow.id)`), so the rule created by any deploy of this
+ *   flow is the rule removed here.
+ * - A flow with no target has nothing running anywhere: success with
+ *   `undeployed: false` and no engine call. An engine 404 is likewise
+ *   success (already gone), handled inside `defaultDeleteRule`.
+ * - Never touches the flow row, its draft, its revisions, or its
+ *   deployment history: this is undeploy, not delete.
+ */
+export async function undeployFlow(
+  input: UndeployFlowInput,
+  dependencies: UndeployFlowDependencies = {},
+): Promise<UndeployFlowResult> {
+  const flowId = normalizeRequiredText(input.flowId, 'flowId');
+
+  const loadFlow = dependencies.loadFlow ?? getFlow;
+  const flow = await loadFlow(flowId);
+  if (!flow) {
+    throw new ApiError(404, 'Flow not found', 'FLOW_NOT_FOUND');
+  }
+
+  const ruleId = toSafeRuleId(flow.id);
+  const targetNodeId = flow.targetNodeId;
+  if (targetNodeId === null) {
+    return { ok: true, undeployed: false, targetNodeId: null, ruleId };
+  }
+
+  const loadTarget = dependencies.loadTarget ?? getNode;
+  const target = await loadTarget(targetNodeId);
+  if (!target) {
+    throw new ApiError(404, 'eKuiper node not found', 'NODE_NOT_FOUND');
+  }
+
+  const fetcher = dependencies.fetcher;
+  const deleteRule =
+    dependencies.deleteRule ?? ((args: DeleteRuleArgs) => defaultDeleteRule(args, fetcher));
+  await deleteRule({ targetNodeId, ruleId });
+
+  return { ok: true, undeployed: true, targetNodeId, ruleId };
 }
 
 /**

@@ -36,11 +36,14 @@ export const aggregateDefinition: FlowNodeDefinition = {
   properties: [
     {
       key: 'fields',
-      label: 'Fields',
+      // AC-D002: labelled 'Fields' (plural) and described as expressions, this invited a
+      // comma-separated list, which eKuiper rejects at deploy time - the aggfunc operator
+      // parses `expr` as exactly one ast.Call.
+      label: 'Aggregate function',
       type: 'expression',
       required: true,
       description:
-        'Aggregate field expressions evaluated per windowed group. Stored as opaque text; compiler mapping to the eKuiper agg operator lands later.',
+        'One aggregate function call evaluated per windowed group, for example avg(temperature) AS avg_t. eKuiper accepts a single function call here, not a list.',
     },
   ],
 };

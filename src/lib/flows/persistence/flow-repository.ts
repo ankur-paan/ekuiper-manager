@@ -75,6 +75,20 @@ export async function createFlow(input: CreateFlowInput): Promise<FlowRecord> {
 }
 
 /**
+ * Deletes one flow by id.
+ *
+ * The schema already cascades (`flow_drafts.flow_id`,
+ * `flow_deployments.flow_id` and `flow_revisions.flow_id` all declare
+ * `REFERENCES flows(id) ON DELETE CASCADE`), so a plain delete is enough.
+ * Returns true when a row was deleted, false when no such flow exists,
+ * matching the `getFlow` null-on-missing convention as a boolean.
+ */
+export async function deleteFlow(id: string): Promise<boolean> {
+  const result = await query(`DELETE FROM flows WHERE id = $1`, [id]);
+  return (result.rowCount ?? 0) > 0;
+}
+
+/**
  * Updates only flow metadata (name, description, target node).
  * Never modifies id or created_by. Always refreshes updated_at.
  * Returns null when no flow with the given id exists,

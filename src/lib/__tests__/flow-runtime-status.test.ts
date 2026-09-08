@@ -9,8 +9,11 @@ import { getFlow } from '@/lib/flows/persistence/flow-repository';
 import type { FlowDeploymentRecord } from '@/lib/flows/deployments/types';
 import type { FlowRecord } from '@/lib/flows/persistence/types';
 import {
+  detectUnhealthyRuntime,
   FLOW_RUNTIME_NEVER_DEPLOYED_MESSAGE,
   FLOW_RUNTIME_READ_FAILED_MESSAGE,
+  FLOW_RUNTIME_SINK_FAILING_MESSAGE,
+  FLOW_RUNTIME_SINK_UNREACHABLE_MESSAGE,
   getFlowRuntimeStatus,
   normalizeActualState,
   readStatusMessage,
@@ -152,6 +155,90 @@ describe('normalizeActualState', () => {
   it('maps non-string bodies to unknown', () => {
     expect(normalizeActualState(undefined)).toBe('unknown');
     expect(normalizeActualState({ status: 'running' })).toBe('unknown');
+  });
+});
+
+describe('detectUnhealthyRuntime', () => {
+  // These metric shapes are copied from real eKuiper 2.4.1 RuleStatus bodies captured during
+  // live acceptance testing, not invented: a rule reporting `running` while delivering nothing
+  // is the failure mode this guards (AC-D009, AC-D010).
+  it('reports nothing for a healthy rule that is delivering', () => {
+    expect(
+      detectUnhealthyRuntime({
+        status: 'running',
+        source_src_0_records_in_total: 3,
+        sink_snk_0_records_in_total: 3,
+        sink_snk_0_records_out_total: 3,
+        sink_snk_0_exceptions_total: 0,
+        sink_snk_0_connection_status: 1,
+      }),
+    ).toBeNull();
+  });
+
+  it('detects a sink whose connection is down', () => {
+    expect(
+      detectUnhealthyRuntime({
+        status: 'running',
+        sink_sink_36e8072cf8b4_0_connection_status: -1,
+      }),
+    ).toBe(FLOW_RUNTIME_SINK_UNREACHABLE_MESSAGE);
+  });
+
+  it('detects a sink consuming rows and emitting none', () => {
+    expect(
+      detectUnhealthyRuntime({
+        status: 'running',
+        sink_snk_0_records_in_total: 1,
+        sink_snk_0_records_out_total: 0,
+        sink_snk_0_exceptions_total: 1,
+        sink_snk_0_last_exception: 'rest sink fails to send out the data',
+      }),
+    ).toBe(FLOW_RUNTIME_SINK_FAILING_MESSAGE);
+  });
+
+  it('does not flag a sink that simply has not received anything yet', () => {
+    expect(
+      detectUnhealthyRuntime({
+        status: 'running',
+        sink_snk_0_records_in_total: 0,
+        sink_snk_0_records_out_total: 0,
+        sink_snk_0_exceptions_total: 0,
+      }),
+    ).toBeNull();
+  });
+
+  it('compares each sink against its own counters, not another one', () => {
+    // One healthy sink and one failing sink in the same rule: the failing one must still win.
+    expect(
+      detectUnhealthyRuntime({
+        status: 'running',
+        sink_good_0_records_in_total: 5,
+        sink_good_0_records_out_total: 5,
+        sink_good_0_exceptions_total: 0,
+        sink_bad_0_records_in_total: 5,
+        sink_bad_0_records_out_total: 0,
+        sink_bad_0_exceptions_total: 5,
+      }),
+    ).toBe(FLOW_RUNTIME_SINK_FAILING_MESSAGE);
+  });
+
+  it('never reflects the engine exception text back to the caller', () => {
+    const reason = detectUnhealthyRuntime({
+      status: 'running',
+      sink_snk_0_connection_status: -1,
+      sink_snk_0_last_exception:
+        'dial tcp 10.1.2.3:1883: connect failed user=admin password=hunter2',
+    });
+    expect(reason).toBe(FLOW_RUNTIME_SINK_UNREACHABLE_MESSAGE);
+    expect(reason).not.toContain('hunter2');
+    expect(reason).not.toContain('10.1.2.3');
+  });
+
+  it('ignores non-numeric and malformed bodies', () => {
+    expect(detectUnhealthyRuntime(null)).toBeNull();
+    expect(detectUnhealthyRuntime('running')).toBeNull();
+    expect(detectUnhealthyRuntime([])).toBeNull();
+    expect(detectUnhealthyRuntime({ sink_snk_0_connection_status: 'down' })).toBeNull();
   });
 });
 

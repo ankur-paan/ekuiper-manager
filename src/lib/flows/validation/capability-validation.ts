@@ -68,7 +68,11 @@ const FLOW_TYPE_CAPABILITY_REQUIREMENTS: Readonly<
   switch: { kind: 'operator', name: 'switch' },
   sort: { kind: 'operator', name: 'orderby' },
   join: { kind: 'operator', name: 'join' },
-  func: { kind: 'operator', name: 'func' },
+  // Every entry maps the Flow node type to the eKuiper OPERATOR name it compiles to
+  // (aggregate -> aggfunc, group-by -> groupby, sort -> orderby). `func` compiles to
+  // `function` (compile-graph.ts FUNCTION_OPERATION); mapping it to its own type name
+  // made every flow containing a func node undeployable on every target.
+  func: { kind: 'operator', name: 'function' },
 };
 
 function readExplicitRequirement(

@@ -35,11 +35,13 @@ export const funcDefinition: FlowNodeDefinition = {
   properties: [
     {
       key: 'expression',
-      label: 'Expression',
+      // AC-D002: "Expression" invited arithmetic such as `temperature * 9 / 5 + 32`, which
+      // eKuiper rejects at deploy time - the function operator parses `expr` as one ast.Call.
+      label: 'Function call',
       type: 'expression',
       required: true,
       description:
-        'Function expression evaluated per event by eKuiper. Stored as opaque text and never executed in Manager; compiler mapping to the eKuiper func operator lands later.',
+        'One function call evaluated per event, for example round(temperature) or upper(device). eKuiper accepts a single function call here, not arithmetic or a list. Stored as opaque text and never executed in Manager.',
     },
   ],
 };

@@ -18,6 +18,7 @@ import { FlowStudioShell } from './flow-studio-shell';
 import { FlowStudioHeader, type FlowDeploymentStatus, type FlowStudioSaveStatus } from './shell/flow-studio-header';
 import { FlowDeployDialog } from './deploy/deploy-dialog';
 import { NodeInspector } from './inspector/node-inspector';
+import { NodeFocusDialog } from './inspector/node-focus-dialog';
 import { FlowSettingsPanel } from './inspector/flow-settings-panel';
 import { NodePalette } from './palette/node-palette';
 import { FlowCanvas, flowNodeTypes, type FlowCanvasEmptyDoubleClick, type FlowCanvasNodeDragStopMove, type FlowCanvasSelection, type FlowPaletteDrop } from './canvas/flow-canvas';
@@ -25,18 +26,21 @@ import { FlowBottomPanel } from './panels/flow-bottom-panel';
 import { RevisionHistory } from './history/revision-history';
 import { RuntimePanel, fetchFlowRuntime, resolveRuntimeLabel } from './panels/runtime-panel';
 import { QuickNodePicker } from './palette/quick-node-picker';
+import { FlowCommandPalette } from './command/flow-command-palette';
 import type { FlowNodeDefinition } from '@/lib/flows/registry/node-definition';
 import { toFlowCanvasPresentation, toReactFlow } from './canvas/to-react-flow';
 import { generateFlowNodeId } from '@/lib/flows/model/create-flow-node';
 import { createFlowEdgeForConnection, generateFlowEdgeId } from '@/lib/flows/model/create-flow-edge';
 import { buildFlowDirtyBaseline, computeFlowDirtyState, type FlowDirtyBaseline } from '@/lib/flows/model/flow-dirty-state';
 import { createBuiltinNodeRegistry } from '@/lib/flows/registry/builtin-registry';
+import { validateExtensionNodeDescriptor } from '@/lib/flows/extensions/validate-extension';
 import { resolveTargetCapabilities } from '@/lib/flows/capabilities/resolve-capabilities';
 import { canConnect } from '@/lib/flows/validation/port-compatibility';
 import { validateFlowForEditor } from '@/lib/flows/validation/editor-validation';
 import { isDefinitionSupportedByCapabilities } from '@/lib/flows/validation/capability-validation';
 import type { FlowDiagnostic } from '@/lib/flows/model/diagnostic';
 import { useFlowAutosave, type FlowAutosaveSaved, type FlowAutosaveStatus } from './hooks/use-flow-autosave';
+import { useFlowRuntimeMetrics } from './hooks/use-flow-runtime-metrics';
 import { useFlowEditorStore } from '@/stores/flow-editor-store';
 
 interface FlowSummary {
@@ -136,6 +140,41 @@ async function fetchDeployment(flowId: string): Promise<FlowDeploymentPayload> {
   return (await response.json()) as FlowDeploymentPayload;
 }
 
+/**
+ * One server-supplied extension summary (FS-0115).
+ *
+ * Carries only safe editor data: extension identity plus node definition
+ * data. The server never sends manifest descriptor paths or server
+ * filesystem paths, so there is nothing path-like to consume here.
+ * Descriptors stay `unknown` until the combined-registry memo below
+ * validates each one with the same FS-0112 contract the server uses.
+ */
+interface FlowExtensionSummary {
+  id: string;
+  name: string;
+  version: string;
+  nodes: unknown[];
+}
+
+function isFlowExtensionSummary(value: unknown): value is FlowExtensionSummary {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record['id'] === 'string' &&
+    typeof record['name'] === 'string' &&
+    typeof record['version'] === 'string' &&
+    Array.isArray(record['nodes'])
+  );
+}
+
+async function fetchFlowExtensions(): Promise<FlowExtensionSummary[]> {
+  const response = await fetch('/api/flow-extensions', { cache: 'no-store' });
+  if (!response.ok) throw new FlowPageError(response.status, await readErrorMessage(response));
+  const payload = (await response.json()) as { extensions?: unknown };
+  if (!Array.isArray(payload.extensions)) return [];
+  return payload.extensions.filter(isFlowExtensionSummary);
+}
+
 function buildDocument(flow: FlowSummary, draft: FlowDraftPayload | null): FlowDocument {
   const metadata =
     flow.description === null || flow.description === undefined
@@ -224,10 +263,47 @@ function resolveFlowSaveDisplay(status: FlowAutosaveStatus): {
   }
 }
 
-export function FlowStudioPage({ flowId }: { flowId: string }) {
+/**
+ * FS-0127: activate an existing FlowBottomPanel tab from the command
+ * palette without touching FlowBottomPanel state ownership. The bottom
+ * panel owns its open/tab state; this helper only clicks the same tab
+ * trigger and expand buttons the user could click, so no action is
+ * invented and no duplicate panel implementation is introduced. No-ops
+ * when the panel is not mounted (palette commands stay disabled then).
+ */
+function activateFlowBottomPanelTab(tab: 'validation' | 'definition' | 'test'): void {
+  if (typeof document === 'undefined') return;
+  const expand = document.querySelector('[data-testid="flow-bottom-panel-expand"]');
+  if (expand instanceof HTMLElement) expand.click();
+  const trigger = document.querySelector(`[data-testid="flow-bottom-panel-tab-${tab}"]`);
+  if (trigger instanceof HTMLElement) trigger.click();
+}
+
+/**
+ * FS-0127: trigger the existing XYFlow canvas fit-view control from the
+ * command palette. The Controls `showFitView` button is already exposed in
+ * the canvas DOM (FS-0126); this helper only clicks it, so no new
+ * viewport behavior is invented. No-ops when the canvas is not mounted.
+ */
+function activateFlowCanvasFitView(): void {
+  if (typeof document === 'undefined') return;
+  const fitView = document.querySelector('.react-flow__controls-fitview');
+  if (fitView instanceof HTMLElement) fitView.click();
+}
+
+/**
+ * FS-0122: optional local fixture document for the development-only
+ * performance route (`/flows/perf`). When provided, the page renders this
+ * document directly without loading any flow/draft from the server and
+ * without autosaving: no flow, draft, deployment, or runtime requests fire
+ * and no draft PUT is ever issued. Edits stay in browser memory only.
+ */
+export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; initialDocument?: FlowDocument }) {
+  const isLocalFixture = initialDocument !== undefined;
   const flowQuery = useQuery({
     queryKey: ['flow', flowId],
     queryFn: () => fetchFlow(flowId),
+    enabled: !isLocalFixture,
     staleTime: 5 * 1000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -235,7 +311,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const draftQuery = useQuery({
     queryKey: ['flow-draft', flowId],
     queryFn: () => fetchDraft(flowId),
-    enabled: flowQuery.isSuccess,
+    enabled: !isLocalFixture && flowQuery.isSuccess,
     staleTime: 5 * 1000,
     refetchOnWindowFocus: false,
     retry: false,
@@ -273,8 +349,20 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const deploymentQuery = useQuery({
     queryKey: ['flow-deployment', flowId],
     queryFn: () => fetchDeployment(flowId),
-    enabled: flowQuery.isSuccess,
+    enabled: !isLocalFixture && flowQuery.isSuccess,
     staleTime: 10 * 1000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+  // FS-0115: server-supplied declarative extension descriptors for the
+  // combined registry below. Read-only GET with a long stale time and no
+  // polling; a lookup failure leaves the query in error and the editor
+  // falls back to built-ins only, so Flow Studio never crashes on an
+  // unavailable or invalid extension payload.
+  const extensionsQuery = useQuery({
+    queryKey: ['flow-extensions'],
+    queryFn: fetchFlowExtensions,
+    staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
     retry: false,
   });
@@ -289,13 +377,22 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const runtimeQuery = useQuery({
     queryKey: ['flow-runtime', flowId],
     queryFn: () => fetchFlowRuntime(flowId),
-    enabled: flowQuery.isSuccess && hasSuccessfulDeployment,
+    enabled: !isLocalFixture && flowQuery.isSuccess && hasSuccessfulDeployment,
     staleTime: 4 * 1000,
     refetchInterval: 5 * 1000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     retry: false,
   });
+  // FS-0105: 1Hz per-node metrics poll into the separate runtime store.
+  // Enabled only while the runtime reports running (with a successful
+  // deployment), so stopped/never-deployed flows fire no metrics requests.
+  // Snapshots land in the runtime store only; the Flow document/editor state
+  // (and therefore semantic/layout hashes) is never touched here. React
+  // Query teardown on unmount stops polling.
+  const metricsPollEnabled =
+    hasSuccessfulDeployment && runtimeQuery.data?.actualState === 'running';
+  useFlowRuntimeMetrics(flowId, { enabled: metricsPollEnabled });
   const queryClient = useQueryClient();
 
   const loadDocument = useFlowEditorStore((state) => state.loadDocument);
@@ -308,9 +405,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const setSelection = useFlowEditorStore((state) => state.setSelection);
 
   const document = React.useMemo<FlowDocument | null>(() => {
+    // FS-0122: local fixture mode bypasses server loading entirely.
+    if (isLocalFixture) return initialDocument ?? null;
     if (!flowQuery.isSuccess || !draftQuery.isSuccess) return null;
     return buildDocument(flowQuery.data, draftQuery.data ?? null);
-  }, [flowQuery.isSuccess, flowQuery.data, draftQuery.isSuccess, draftQuery.data]);
+  }, [isLocalFixture, initialDocument, flowQuery.isSuccess, flowQuery.data, draftQuery.isSuccess, draftQuery.data]);
 
   const documentKey = React.useMemo<string | null>(() => {
     if (!document) return null;
@@ -328,27 +427,107 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   const canvasSource =
     storeDocument && storeDocument.metadata.id === flowId ? storeDocument : document;
 
+  // FS-0115: combined built-in + extension registry. Extension descriptors
+  // arrive from GET /api/flow-extensions and are re-validated here with the
+  // same FS-0112 contract before merging, keeping NodeRegistry the canonical
+  // interface. An invalid extension (failed descriptor validation or a
+  // type+version collision with a built-in or another extension) is omitted
+  // with a safe diagnostic instead of crashing Flow Studio; while loading
+  // or on fetch failure the shared built-in registry above is used as-is.
+  const combinedExtensionState = React.useMemo(() => {
+    const summaries = extensionsQuery.data;
+    if (!summaries || summaries.length === 0) {
+      return { registry: builtinRegistry, diagnostics: [] as FlowDiagnostic[] };
+    }
+    const registry = createBuiltinNodeRegistry();
+    const diagnostics: FlowDiagnostic[] = [];
+    for (const summary of summaries) {
+      let invalid = false;
+      const valid: FlowNodeDefinition[] = [];
+      for (const descriptor of summary.nodes) {
+        const issues = validateExtensionNodeDescriptor(descriptor);
+        if (issues.length > 0) {
+          diagnostics.push(...issues);
+          invalid = true;
+          continue;
+        }
+        valid.push(descriptor as FlowNodeDefinition);
+      }
+      if (invalid) continue;
+      const seen = new Set<string>();
+      let collides = false;
+      for (const definition of valid) {
+        const key = `${definition.type}@${definition.version}`;
+        if (seen.has(key) || registry.has(definition.type, definition.version)) {
+          diagnostics.push({
+            code: 'FLOW_EXTENSION_NODE_COLLISION',
+            severity: 'error',
+            message:
+              `Extension "${summary.id}" node type="${definition.type}" version=${definition.version} ` +
+              `collides with an existing definition and was omitted.`,
+            propertyPath: summary.id,
+          });
+          collides = true;
+          break;
+        }
+        seen.add(key);
+      }
+      if (collides) continue;
+      for (const definition of valid) {
+        registry.register(definition);
+      }
+    }
+    return { registry, diagnostics };
+  }, [extensionsQuery.data]);
+  const flowRegistry = combinedExtensionState.registry;
+
+  // FS-0115: omitted invalid extensions stay visible as a safe devtools
+  // diagnostic only; the editor keeps running on the combined registry.
+  React.useEffect(() => {
+    if (combinedExtensionState.diagnostics.length > 0) {
+      console.warn(
+        '[flow-extensions] omitted invalid extension definitions',
+        combinedExtensionState.diagnostics,
+      );
+    }
+  }, [combinedExtensionState]);
+
   // R1: resolve the exact (type, typeVersion) definition at the page/view
   // boundary and attach only presentation fields (category, display name,
   // input/output ports) to canvas node data. The adapter stays pure; this
   // closure owns the only registry lookup. Unknown types resolve to
   // undefined so the adapter marks them unsupported without crashing.
+  // FS-0124: adapter recomputation depends only on the document slices
+  // the XYFlow view actually reads (spec nodes/edges + layout). The editor
+  // store preserves unchanged slice references across immutable updates
+  // (see flow-editor-store.ts), so unrelated state changes — selection,
+  // deployment/runtime polling, panel visibility, header queries — reuse
+  // the previous view instead of rebuilding every node/edge object for a
+  // large fixture. The adapter (to-react-flow.ts) reads spec.nodes,
+  // spec.edges and layout.nodes only, never metadata, so excluding
+  // metadata from the dependency list cannot serve stale canvas data.
+  const canvasSpecNodes = canvasSource?.spec.nodes;
+  const canvasSpecEdges = canvasSource?.spec.edges;
+  const canvasLayout = canvasSource?.layout;
   const canvasView = React.useMemo(
     () =>
       canvasSource
         ? toReactFlow(canvasSource, (type, version) => {
-            const definition = builtinRegistry.get(type, version);
+            const definition = flowRegistry.get(type, version);
             if (!definition) return undefined;
             return toFlowCanvasPresentation(definition);
           })
         : null,
-    [canvasSource],
+    // Narrow on purpose: whole-document identity changes on every store
+    // commit, while these slices change only when the canvas must change.
+    [canvasSpecNodes, canvasSpecEdges, canvasLayout, flowRegistry],
   );
 
-  // FS-0063: palette is driven by the built-in registry, not a hard-coded
-  // catalog. list() is already deterministically ordered; grouping and
-  // display order are owned by NodePalette.
-  const paletteDefinitions = React.useMemo(() => builtinRegistry.list(), []);
+  // FS-0063/FS-0115: palette is driven by the combined built-in +
+  // extension registry, not a hard-coded catalog. list() is already
+  // deterministically ordered; grouping and display order are owned by
+  // NodePalette, so an extension node appears without palette source edits.
+  const paletteDefinitions = React.useMemo(() => flowRegistry.list(), [flowRegistry]);
 
   // FS-0080: normalized target capability profile for palette gating and
   // capability validation. Temporary audited 2.4.1 reachable baseline until
@@ -370,8 +549,8 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // only counts flow to node chrome while messages render in the inspector.
   const flowDiagnostics = React.useMemo<FlowDiagnostic[]>(() => {
     if (!storeDocument || storeDocument.metadata.id !== flowId) return [];
-    return validateFlowForEditor(storeDocument, builtinRegistry, capabilityProfile);
-  }, [storeDocument, flowId, capabilityProfile]);
+    return validateFlowForEditor(storeDocument, flowRegistry, capabilityProfile);
+  }, [storeDocument, flowId, flowRegistry, capabilityProfile]);
 
   // FS-0068: collapse diagnostics to per-node error/warning counts for the
   // canvas. Diagnostics carrying nodeId count directly; edge-only
@@ -486,10 +665,13 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // shell container expose dirty/autosave state for instrumentation without
   // changing save-state display (FS-0048 owns that mapping).
   const queryBaseline = React.useMemo(() => {
+    // FS-0122: no server baseline exists for a local fixture; the autosave
+    // hook below is disabled in fixture mode, so this stays null.
+    if (isLocalFixture) return null;
     const draft = draftQuery.data ?? null;
     if (!draft) return null;
     return buildFlowDirtyBaseline(draft.semanticDocument, draft.layoutDocument);
-  }, [draftQuery.data]);
+  }, [isLocalFixture, draftQuery.data]);
   // FS-0047: baseline of the most recently autosaved document. Advanced
   // from the PUT response without reloading the document or refetching the
   // draft; reset whenever a different flow is opened.
@@ -529,6 +711,21 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   React.useEffect(() => {
     setQuickPicker(null);
   }, [flowId]);
+  // FS-0127: command palette visibility. Reset per flow so a stale palette
+  // never issues a command against a different flow. Opening or closing
+  // never mutates the document.
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
+  React.useEffect(() => {
+    setPaletteOpen(false);
+  }, [flowId]);
+  // FS-0129: focus-mode node id opened by double-clicking an existing
+  // canvas node. Null means closed; opening or closing never mutates the
+  // document. Reset per flow so a stale dialog never edits a different
+  // flow.
+  const [focusNodeId, setFocusNodeId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    setFocusNodeId(null);
+  }, [flowId]);
   const baseline = savedBaseline ?? queryBaseline;
   const dirtyState = React.useMemo(() => {
     if (!storeDocument || !baseline) {
@@ -549,17 +746,20 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // R3: predicate for the next draft PUT. Prefer the chained hashes from the
   // last successful autosave; otherwise use the loaded draft hashes so a
   // stale tab cannot silently replace newer edits (409 surfaces instead).
+  // FS-0122: always null for a local fixture (no draft PUT ever fires).
   const baselineHashes = React.useMemo(() => {
+    if (isLocalFixture) return null;
     if (savedHashes) return savedHashes;
     const draft = draftQuery.data ?? null;
     if (!draft) return null;
     return { semanticHash: draft.semanticHash, layoutHash: draft.layoutHash };
-  }, [savedHashes, draftQuery.data]);
+  }, [isLocalFixture, savedHashes, draftQuery.data]);
 
   // FS-0047: debounced draft autosave. Fires only for committed store
   // changes while dirty, PUTs {spec,layout} to the Manager draft API (never
   // eKuiper), and clears dirty state via handleAutosaved on success. The
   // autosave status is mapped to header display below (FS-0048).
+  // FS-0122: always disabled for a local fixture (no draft PUT ever fires).
   const autosave = useFlowAutosave({
     flowId,
     spec: storeDocument?.spec ?? null,
@@ -567,6 +767,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     baseline,
     baselineHashes,
     disabled:
+      isLocalFixture ||
       !draftQuery.isSuccess ||
       !storeDocument ||
       storeDocument.metadata.id !== flowId,
@@ -707,7 +908,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
   // unavailable nodes already in the document remain untouched.
   const handlePaletteDrop = React.useCallback(
     (drop: FlowPaletteDrop) => {
-      const definition = builtinRegistry.get(drop.type, drop.version);
+      const definition = flowRegistry.get(drop.type, drop.version);
       if (!definition) return;
       if (!isDefinitionSupportedByCapabilities(definition, capabilityProfile).supported) {
         return;
@@ -718,7 +919,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         position: { x: drop.position.x, y: drop.position.y },
       });
     },
-    [addNode, capabilityProfile],
+    [addNode, capabilityProfile, flowRegistry],
   );
 
   // FS-0067: preflight validation shared by connect creation and the
@@ -753,11 +954,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         (entry) => entry.id === targetNodeId,
       );
       if (!sourceNode || !targetNode) return false;
-      const sourceDefinition = builtinRegistry.get(
+      const sourceDefinition = flowRegistry.get(
         sourceNode.type,
         sourceNode.typeVersion,
       );
-      const targetDefinition = builtinRegistry.get(
+      const targetDefinition = flowRegistry.get(
         targetNode.type,
         targetNode.typeVersion,
       );
@@ -771,7 +972,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       if (!sourcePort || !targetPort) return false;
       return canConnect(sourcePort.kind, targetPort.kind);
     },
-    [flowId],
+    [flowId, flowRegistry],
   );
 
   // FS-0067: create one semantic FlowEdge from an XYFlow connect event after
@@ -818,11 +1019,11 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         toast.error('Cannot connect: node not found.');
         return;
       }
-      const sourceDefinition = builtinRegistry.get(
+      const sourceDefinition = flowRegistry.get(
         sourceNode.type,
         sourceNode.typeVersion,
       );
-      const targetDefinition = builtinRegistry.get(
+      const targetDefinition = flowRegistry.get(
         targetNode.type,
         targetNode.typeVersion,
       );
@@ -856,7 +1057,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         }),
       );
     },
-    [addEdge, flowId],
+    [addEdge, flowId, flowRegistry],
   );
 
   // FS-0070: open the searchable compact picker at/near the cursor when
@@ -893,6 +1094,99 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     [addNode, quickPicker],
   );
 
+  // FS-0129: open focus mode by double-clicking an existing canvas node.
+  // FlowCanvas intentionally filters node double-clicks out of
+  // onEmptyDoubleClick (FS-0070), and this ticket may only touch
+  // flow-studio-page.tsx, so the parent column observes the bubbled
+  // dblclick and resolves the XYFlow node id from the DOM. The id is
+  // validated against committed store state before opening; unknown ids
+  // are ignored without mutation. Closing creates no extra save: config
+  // edits are already committed to the store (autosaved by FS-0047).
+  const handleCanvasColumnDoubleClick = React.useCallback(
+    (event: React.MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const nodeElement = target.closest('.react-flow__node');
+      if (!(nodeElement instanceof HTMLElement)) return;
+      const id = nodeElement.getAttribute('data-id');
+      if (!id) return;
+      const current = useFlowEditorStore.getState().document;
+      if (!current || !current.spec.nodes.some((node) => node.id === id)) {
+        return;
+      }
+      setFocusNodeId(id);
+    },
+    [],
+  );
+
+  const handleFocusClose = React.useCallback(() => {
+    setFocusNodeId(null);
+  }, []);
+
+  // FS-0129: same node-scoped diagnostics for the focus-mode dialog,
+  // filtered by the focused node id (not the side-inspector selection) so
+  // both surfaces report identical validation for the same node. Pure
+  // read of the same editor pipeline; never mutates the document.
+  const focusDiagnostics = React.useMemo<FlowDiagnostic[]>(() => {
+    if (!focusNodeId || !storeDocument) return [];
+    const edgesById = new Map(
+      storeDocument.spec.edges.map((edge) => [edge.id, edge]),
+    );
+    return flowDiagnostics.filter((diagnostic) => {
+      if (diagnostic.nodeId === focusNodeId) return true;
+      if (!diagnostic.nodeId && diagnostic.edgeId) {
+        const edge = edgesById.get(diagnostic.edgeId);
+        return (
+          edge !== undefined &&
+          (edge.sourceNodeId === focusNodeId ||
+            edge.targetNodeId === focusNodeId)
+        );
+      }
+      return false;
+    });
+  }, [flowDiagnostics, focusNodeId, storeDocument]);
+
+  // FS-0127: command palette callbacks. Every command delegates to an
+  // action that already exists: the quick picker (same registry catalog,
+  // no duplicate source), the Deploy dialog opener, the existing
+  // bottom-panel tabs/history toggle, and the existing canvas fit-view
+  // control. Callbacks never invent navigation or mutate the document
+  // directly; availability is decided at render time via the disabled
+  // flags passed to the palette.
+  const handlePaletteOpen = React.useCallback(() => {
+    setPaletteOpen(true);
+  }, []);
+
+  const handlePaletteAddNode = React.useCallback(() => {
+    if (typeof window !== 'undefined') {
+      setQuickPicker({
+        position: { x: 0, y: 0 },
+        screenPosition: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+      });
+    } else {
+      setQuickPicker({
+        position: { x: 0, y: 0 },
+        screenPosition: { x: 0, y: 0 },
+      });
+    }
+  }, []);
+
+  const handleCommandShowValidation = React.useCallback(() => {
+    activateFlowBottomPanelTab('validation');
+  }, []);
+
+  const handleCommandShowDefinition = React.useCallback(() => {
+    activateFlowBottomPanelTab('definition');
+  }, []);
+
+  const handleCommandShowTestOutput = React.useCallback(() => {
+    activateFlowBottomPanelTab('test');
+  }, []);
+
+  const handleCommandFitView = React.useCallback(() => {
+    activateFlowCanvasFitView();
+  }, []);
+
   // FS-0050: keyboard undo/redo and delete. Ctrl/Cmd+Z undoes,
   // Ctrl/Cmd+Shift+Z redoes, and Delete/Backspace removes the current
   // selection (nodes plus incident edges plus selected edges) as one
@@ -927,8 +1221,29 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
     };
   }, []);
 
+  // FS-0127: Cmd/Ctrl+K toggles the command palette. Capture phase plus
+  // stopPropagation keeps the global UnifiedSearch palette (which also
+  // listens for Cmd+K) from opening underneath the Flow palette. Opening
+  // while typing in an input is intentional: it is a command shortcut,
+  // not a graph edit, so the FS-0050 editable-target guard does not apply.
+  React.useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        event.stopPropagation();
+        setPaletteOpen((open) => !open);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, []);
+
   const body = React.useMemo(() => {
-    if (flowQuery.isPending) {
+    // FS-0122: fixture mode skips server loading states (those queries are
+    // disabled above) and renders the local fixture document instead.
+    if (!isLocalFixture && flowQuery.isPending) {
       return (
         <Card>
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
@@ -937,7 +1252,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         </Card>
       );
     }
-    if (flowQuery.isError) {
+    if (!isLocalFixture && flowQuery.isError) {
       const status = flowQuery.error instanceof FlowPageError ? flowQuery.error.status : undefined;
       if (status === 404) {
         return (
@@ -968,7 +1283,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         </div>
       );
     }
-    if (draftQuery.isPending) {
+    if (!isLocalFixture && draftQuery.isPending) {
       return (
         <Card>
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
@@ -977,7 +1292,7 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         </Card>
       );
     }
-    if (draftQuery.isError) {
+    if (!isLocalFixture && draftQuery.isError) {
       return (
         <div className="space-y-4">
           <div
@@ -993,7 +1308,21 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
       );
     }
 
-    const flow = flowQuery.data;
+    // FS-0122: fixture mode has no server flow record; the header and
+    // deploy dialog fall back to the fixture document name with no target.
+    // Deploy stays disabled in fixture mode (no saved draft exists).
+    const flow = isLocalFixture
+      ? { name: initialDocument?.metadata.name ?? 'Performance fixture', targetNodeId: null as string | null }
+      : (flowQuery.data ?? undefined);
+    if (!flow) {
+      return (
+        <Card>
+          <CardContent className="py-16 text-center text-sm text-muted-foreground">
+            Loading flow…
+          </CardContent>
+        </Card>
+      );
+    }
     // FS-0048: header save-state display is derived solely from the autosave
     // hook status so semantic edits and layout-only moves share the same
     // Saved / Saving… / Unsaved changes / Save failed states. A failed save
@@ -1039,13 +1368,20 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
           palette={<NodePalette definitions={paletteDefinitions} capabilities={capabilityProfile} />}
           canvas={
             canvasViewWithValidation ? (
-              <div className="flex h-full min-h-0 flex-col" data-testid="flow-studio-canvas-column">
+              <div
+                className="flex h-full min-h-0 flex-col"
+                data-testid="flow-studio-canvas-column"
+                onDoubleClick={handleCanvasColumnDoubleClick}
+              >
                 <div className="relative min-h-0 flex-1">
                   <FlowCanvas
                     edges={canvasViewWithValidation.edges}
                     nodes={canvasViewWithValidation.nodes}
                     selectedNodeIds={selectedNodeIds}
                     selectedEdgeIds={selectedEdgeIds}
+                    // FS-0124: module-stable reference imported from the
+                    // canvas module — never inline a new object here, or
+                    // ReactFlow remounts every node per render.
                     nodeTypes={flowNodeTypes}
                     onNodeDragStop={handleCanvasNodeDragStop}
                     onSelectionChange={handleCanvasSelectionChange}
@@ -1087,18 +1423,33 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
                 <FlowBottomPanel
                   flowId={flowId}
                   clientDiagnostics={flowDiagnostics}
+                  ruleTestSupported={capabilityProfile.ruleTest === true}
                   historyToggle={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleHistoryToggle}
-                      aria-expanded={historyOpen}
-                      aria-controls="flow-history-panel"
-                      data-testid="flow-history-toggle"
-                    >
-                      {historyOpen ? 'Hide history' : 'History'}
-                    </Button>
+                    <>
+                      {/* FS-0127: keyboard-discoverable entry point for the command
+                          palette (Cmd/Ctrl+K). Opens only; no document mutation. */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handlePaletteOpen}
+                        aria-haspopup="dialog"
+                        data-testid="flow-command-palette-open"
+                      >
+                        Commands
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleHistoryToggle}
+                        aria-expanded={historyOpen}
+                        aria-controls="flow-history-panel"
+                        data-testid="flow-history-toggle"
+                      >
+                        {historyOpen ? 'Hide history' : 'History'}
+                      </Button>
+                    </>
                   }
                 />
               </div>
@@ -1140,9 +1491,43 @@ export function FlowStudioPage({ flowId }: { flowId: string }) {
         />
       </div>
     );
-  }, [flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, storeDocument]);
+  }, [isLocalFixture, initialDocument, flowQuery, draftQuery, canvasViewWithValidation, paletteDefinitions, capabilityProfile, dirtyState, autosave.status, autosave.error, handleCanvasNodeDragStop, selectedNodeIds, selectedEdgeIds, handleCanvasSelectionChange, handlePaletteDrop, handleConnect, isFlowConnectionValid, flowDiagnostics, inspectorDiagnostics, documentDiagnostics, quickPicker, handleEmptyCanvasDoubleClick, handleQuickPickerSelect, handleQuickPickerClose, deployReady, deployOpen, targetName, dialogSemanticHash, deploymentDisplay, hasSuccessfulDeployment, runtimeQuery.data, runtimeQuery.isPending, runtimeQuery.isError, handleDeployOpen, handleDeployClose, handleDeployed, historyOpen, handleHistoryToggle, handlePaletteOpen, handleCanvasColumnDoubleClick, storeDocument]);
+
+  // FS-0127: command availability mirrors the underlying actions. Deploy
+  // follows the same `deployReady` gate as the header button; node and
+  // panel commands require the loaded canvas view; fit view requires the
+  // mounted canvas controls.
+  const palettePanelsAvailable = canvasViewWithValidation !== null;
 
   return (
-    <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>{body}</AppLayout>
+    <AppLayout title={flowQuery.data ? flowQuery.data.name : 'Flow Studio'}>
+      {body}
+      {/* FS-0129: focus-mode dialog. The canvas stays mounted behind the
+          portal overlay; closing flips local state only and creates no
+          extra save beyond config changes already committed to the store. */}
+      <NodeFocusDialog
+        open={focusNodeId !== null}
+        nodeId={focusNodeId}
+        diagnostics={focusDiagnostics}
+        documentDiagnostics={documentDiagnostics}
+        onClose={handleFocusClose}
+      />
+      <FlowCommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        canAddNode={paletteDefinitions.length > 0 && palettePanelsAvailable}
+        onAddNode={handlePaletteAddNode}
+        canDeploy={deployReady}
+        onDeploy={handleDeployOpen}
+        panelsAvailable={palettePanelsAvailable}
+        onShowValidation={handleCommandShowValidation}
+        onShowDefinition={handleCommandShowDefinition}
+        onShowTestOutput={handleCommandShowTestOutput}
+        historyOpen={historyOpen}
+        onToggleHistory={handleHistoryToggle}
+        canFitView={palettePanelsAvailable}
+        onFitView={handleCommandFitView}
+      />
+    </AppLayout>
   );
 }

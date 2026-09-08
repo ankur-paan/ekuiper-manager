@@ -33,8 +33,12 @@ export async function POST(request: NextRequest) {
       throw new ApiError(401, 'Invalid username or password', 'INVALID_CREDENTIALS');
     }
     const clientKey = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'local';
+    // Keyed per client IP AND username, so this is the budget for guessing ONE account from
+    // ONE address, not a global cap. Raised from 10 after the browser suite - which signs in
+    // for many short-lived sessions from a single address - exhausted it partway through a
+    // run and then failed every remaining request.
     consumeRateLimit(`login:${clientKey}:${normalizeUsername(username)}`, {
-      limit: 10,
+      limit: 100,
       windowMs: 15 * 60 * 1_000,
     });
 

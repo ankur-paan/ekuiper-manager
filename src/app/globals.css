@@ -33,6 +33,26 @@
     --ring: 224.3 76.3% 48%;
 
     --radius: 0.5rem;
+
+    /* FS-0130: Flow Studio chrome tokens. Surfaces/borders reuse the
+       existing theme variables so dark/light inheritance follows the
+       current app approach (overriding --card/--border/--primary etc.
+       automatically re-themes Flow Studio). Warning channels have no
+       theme equivalent and are defined once here. */
+    --flow-canvas-surface: var(--muted);
+    --flow-node-surface: var(--card);
+    --flow-node-foreground: var(--card-foreground);
+    --flow-node-border: var(--border);
+    --flow-node-selected: var(--primary);
+    --flow-node-selected-foreground: var(--primary-foreground);
+    --flow-node-error: var(--destructive);
+    --flow-node-error-foreground: var(--destructive-foreground);
+    --flow-node-warning: 45 93% 47%;
+    --flow-node-warning-foreground: 26 83% 14%;
+    --flow-panel-surface: var(--background);
+    --flow-port-size: 0.625rem;
+    --flow-radius: var(--radius);
+    --flow-spacing: 0.75rem;
   }
 }
 
@@ -56,12 +76,80 @@
 
 /* React Flow Customization */
 .react-flow__node {
-  border-radius: 0.5rem;
+  border-radius: var(--flow-radius);
 }
 
 .react-flow__handle {
-  width: 10px;
-  height: 10px;
+  width: var(--flow-port-size);
+  height: var(--flow-port-size);
+}
+
+/* FS-0130: Flow Studio chrome. All semantic colors resolve through the
+   --flow-* tokens above; no hard-coded palette values and no expensive
+   blur/filter effects. */
+.flow-studio-shell {
+  background-color: hsl(var(--flow-panel-surface));
+}
+
+.flow-studio-panel {
+  background-color: hsl(var(--flow-panel-surface));
+}
+
+.flow-studio-canvas {
+  background-color: hsl(var(--flow-canvas-surface) / 0.2);
+}
+
+.flow-studio-node {
+  background-color: hsl(var(--flow-node-surface));
+  color: hsl(var(--flow-node-foreground));
+  border-color: hsl(var(--flow-node-border));
+  border-radius: var(--flow-radius);
+}
+
+.flow-studio-node-selected {
+  border-color: hsl(var(--flow-node-selected));
+  box-shadow:
+    0 0 0 2px hsl(var(--flow-panel-surface)),
+    0 0 0 4px hsl(var(--flow-node-selected));
+}
+
+.flow-studio-node-body {
+  padding-left: var(--flow-spacing);
+  padding-right: var(--flow-spacing);
+}
+
+.flow-studio-selected-mark {
+  background-color: hsl(var(--flow-node-selected));
+  color: hsl(var(--flow-node-selected-foreground));
+}
+
+.flow-studio-node-accent-selected {
+  background-color: hsl(var(--flow-node-selected));
+}
+
+.flow-studio-port {
+  /* !important preserves the previous Tailwind `!border-primary`
+     / `!bg-background` precedence over the XYFlow base stylesheet. */
+  border-color: hsl(var(--flow-node-selected)) !important;
+  background-color: hsl(var(--flow-panel-surface)) !important;
+}
+
+.flow-studio-error-badge {
+  border-color: hsl(var(--flow-node-error));
+  background-color: hsl(var(--flow-node-error));
+  color: hsl(var(--flow-node-error-foreground));
+}
+
+.flow-studio-warning-badge {
+  border-color: hsl(var(--flow-node-warning) / 0.6);
+  background-color: hsl(var(--flow-node-warning));
+  color: hsl(var(--flow-node-warning-foreground));
+}
+
+.flow-studio-unsupported-badge {
+  border-color: hsl(var(--flow-node-warning) / 0.4);
+  background-color: hsl(var(--flow-node-warning) / 0.1);
+  color: hsl(var(--flow-node-warning-foreground));
 }
 
 /* Custom scrollbar */

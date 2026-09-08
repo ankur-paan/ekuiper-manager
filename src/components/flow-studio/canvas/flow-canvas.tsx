@@ -3,6 +3,8 @@
 import * as React from "react";
 import {
   Background,
+  Controls,
+  MiniMap,
   ReactFlow,
   applyEdgeChanges,
   applyNodeChanges,
@@ -26,6 +28,14 @@ import { FlowNode } from "../nodes/flow-node";
 import { FLOW_CANVAS_NODE_TYPE } from "./to-react-flow";
 import { FLOW_PALETTE_DRAG_MIME } from "../palette/node-palette";
 
+/**
+ * FS-0124: module-stable node type map.
+ *
+ * Declared once at module scope so its reference never changes across
+ * renders. Callers must pass this same reference straight through (never an
+ * inline object literal) so ReactFlow does not re-register node types —
+ * and therefore does not remount every node — on each parent render.
+ */
 export const flowNodeTypes: NodeTypes = {
   [FLOW_CANVAS_NODE_TYPE]: FlowNode,
 };
@@ -330,13 +340,23 @@ export function FlowCanvas({
     [selectedEdgeIds],
   );
 
+  // FS-0124: identity-preserving selection overlay. The memoized node
+  // renderer (flow-node.tsx) skips nodes whose props are referentially
+  // unchanged, so nodes whose `selected` flag already matches keep their
+  // exact object identity here. A single selection change in a 500-node
+  // fixture therefore allocates new objects only for the toggled nodes
+  // instead of rebuilding all 500 on every click.
   const displayNodes = React.useMemo(
     () =>
       selectedNodeSet
-        ? viewNodes.map((viewNode) => ({
-            ...viewNode,
-            selected: selectedNodeSet.has(viewNode.id),
-          }))
+        ? viewNodes.map((viewNode) => {
+            const wantSelected = selectedNodeSet.has(viewNode.id);
+            if ((viewNode.selected ?? false) === wantSelected) return viewNode;
+            return {
+              ...viewNode,
+              selected: wantSelected,
+            };
+          })
         : viewNodes,
     [viewNodes, selectedNodeSet],
   );
@@ -344,10 +364,14 @@ export function FlowCanvas({
   const displayEdges = React.useMemo(
     () =>
       selectedEdgeSet
-        ? viewEdges.map((viewEdge) => ({
-            ...viewEdge,
-            selected: selectedEdgeSet.has(viewEdge.id),
-          }))
+        ? viewEdges.map((viewEdge) => {
+            const wantSelected = selectedEdgeSet.has(viewEdge.id);
+            if ((viewEdge.selected ?? false) === wantSelected) return viewEdge;
+            return {
+              ...viewEdge,
+              selected: wantSelected,
+            };
+          })
         : viewEdges,
     [viewEdges, selectedEdgeSet],
   );
@@ -355,8 +379,55 @@ export function FlowCanvas({
   displayNodesRef.current = displayNodes;
   displayEdgesRef.current = displayEdges;
 
+  // FS-0125: viewport culling deliberately stays disabled. A repeatable
+  // local benchmark of the 250/500/1000-node perf fixtures showed fixture
+  // generation + canvas adapter conversion averaging ~1-2 ms (see
+  // docs/FLOW_STUDIO_PERFORMANCE.md), so the data path is not the
+  // bottleneck, and no browser FPS A/B demonstrated that
+  // `onlyRenderVisibleElements` (which adds per-frame visibility overhead
+  // per XYFlow docs) improves these graph sizes. Do not introduce an
+  // arbitrary node-count threshold without a measured browser improvement.
+  //
+  // FS-0126: bounded canvas chrome. Controls (zoom/fit) and a simple MiniMap
+  // were added after the same perf-fixture evidence showed no data-path
+  // bottleneck at 500 nodes. MiniMap uses default simple rect rendering
+  // (no nodeComponent, no metrics, no custom SVG filters), so per-node
+  // overhead stays minimal.
+  //
+  // AC-D011: the MiniMap IS hidden below a size threshold, and this is the measured
+  // interaction evidence FS-0126 asked for before adding one. React Flow's MiniMap is
+  // 200x150 and sits bottom-right. At a 1280x720 viewport the canvas measures roughly
+  // 400x250 between the palette, inspector and bottom dock, so the MiniMap covers about
+  // 30% of it and its SVG intercepts pointer events: a node underneath cannot be clicked,
+  // moved or wired. Playwright reported exactly that -
+  //   <svg class="react-flow__minimap-svg"> ... subtree intercepts pointer events
+  // - on a node the user could plainly see. The threshold below is the size at which the
+  // MiniMap stops consuming a disruptive share of the canvas, not an arbitrary number.
+  // Measure the canvas so the MiniMap can be withheld when it would cover a disruptive
+  // share of it (see AC-D011 above). Measured, not guessed: an observer on the real element.
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const [canvasSize, setCanvasSize] = React.useState<{ width: number; height: number } | null>(
+    null,
+  );
+  React.useEffect(() => {
+    const element = containerRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect) setCanvasSize({ width: rect.width, height: rect.height });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // React Flow's MiniMap is 200x150. Show it only where that leaves the canvas usable;
+  // until the first measurement arrives, prefer showing it so nothing flickers in on load.
+  const showMiniMap =
+    canvasSize === null || (canvasSize.width >= 640 && canvasSize.height >= 400);
+
   return (
     <div
+      ref={containerRef}
       aria-label="Flow canvas"
       className={cn("h-full min-h-0 w-full", className)}
       data-testid="flow-canvas"
@@ -366,6 +437,7 @@ export function FlowCanvas({
         nodes={displayNodes}
         edges={displayEdges}
         nodeTypes={nodeTypes}
+        onlyRenderVisibleElements={false}
         onInit={handleInit}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
@@ -378,6 +450,19 @@ export function FlowCanvas({
         zoomOnDoubleClick={onEmptyDoubleClick ? false : undefined}
       >
         <Background />
+        <Controls
+          aria-label="Flow canvas controls"
+          showZoom
+          showFitView
+          showInteractive={false}
+        />
+        {showMiniMap ? (
+          <MiniMap
+            ariaLabel="Flow overview minimap"
+            pannable
+            nodeBorderRadius={2}
+          />
+        ) : null}
       </ReactFlow>
     </div>
   );

@@ -1,0 +1,15 @@
+{
+  "type": "example-source",
+  "version": 1,
+  "displayName": "Example Source",
+  "description": "Declarative test source used by loader and compiler tests.",
+  "category": "source",
+  "inputs": [],
+  "outputs": [{ "id": "out", "kind": "stream" }],
+  "properties": [{ "key": "topic", "label": "Topic", "type": "string" }],
+  "runtimeMapping": {
+    "kind": "source",
+    "nodeType": "examplesrc",
+    "properties": { "topic": "datasource" }
+  }
+}

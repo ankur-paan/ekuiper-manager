@@ -9,6 +9,7 @@ import {
 } from "@xyflow/react";
 import { Check } from "lucide-react";
 
+import { useShallow } from "zustand/shallow";
 import { cn } from "@/lib/utils";
 import {
   isFlowNodeAccentToken,
@@ -19,6 +20,12 @@ import {
   type FlowNodeIconToken,
   type FlowPortDefinition,
 } from "@/lib/flows/registry/node-definition";
+import type { FlowNodeRuntimeMetrics } from "@/lib/flows/runtime/metrics-types";
+import {
+  selectFlowNodeMetrics,
+  useFlowRuntimeStore,
+} from "@/stores/flow-runtime-store";
+import { useFlowEditorStore } from "@/stores/flow-editor-store";
 
 /**
  * Subset of FlowNodeDefinition metadata the canvas chrome may render.
@@ -133,7 +140,76 @@ export function resolveFlowNodeIconMark(icon: unknown): string | undefined {
   return token.slice(0, 1).toUpperCase();
 }
 
-export function FlowNode({ data, selected }: FlowNodeProps) {
+function formatMetricNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/**
+ * FS-0105: tiny bounded one-line summary of a node's current runtime
+ * metrics. Returns undefined when nothing was reported (absent means
+ * unknown, never fabricated). Counters render when present; dropped/error
+ * counts only when nonzero; source-reported rates and latency render when
+ * present. Never touches the Flow document.
+ */
+function formatFlowNodeMetricSummary(
+  metrics: FlowNodeRuntimeMetrics | undefined,
+): string | undefined {
+  if (!metrics) return undefined;
+  const parts: string[] = [];
+  if (metrics.inputTotal !== undefined) {
+    parts.push(`in ${formatMetricNumber(metrics.inputTotal)}`);
+  }
+  if (metrics.outputTotal !== undefined) {
+    parts.push(`out ${formatMetricNumber(metrics.outputTotal)}`);
+  }
+  if (metrics.droppedTotal !== undefined && metrics.droppedTotal > 0) {
+    parts.push(`drop ${formatMetricNumber(metrics.droppedTotal)}`);
+  }
+  if (metrics.errorTotal !== undefined && metrics.errorTotal > 0) {
+    parts.push(`err ${formatMetricNumber(metrics.errorTotal)}`);
+  }
+  if (metrics.inputRatePerSec !== undefined) {
+    parts.push(`${formatMetricNumber(metrics.inputRatePerSec)}/s in`);
+  }
+  if (metrics.outputRatePerSec !== undefined) {
+    parts.push(`${formatMetricNumber(metrics.outputRatePerSec)}/s out`);
+  }
+  if (metrics.latencyMsAvg !== undefined) {
+    parts.push(`~${formatMetricNumber(metrics.latencyMsAvg)}ms`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/**
+ * FS-0124: memoized canvas node renderer.
+ *
+ * The function below stays a plain component so hooks and the fine-grained
+ * FS-0105 runtime subscription read naturally; the memo wrapper skips
+ * re-rendering when XYFlow parent props (`data`, `selected`) are
+ * referentially unchanged. This only pays off because the page memoizes the
+ * `toReactFlow` adapter on document slices and the canvas preserves
+ * node-object identity for untouched selection flags — otherwise every
+ * parent render would hand this component fresh props and memo would be
+ * dead weight. No behavior change: same props still render the same chrome.
+ */
+function FlowNodeView({ data, selected }: FlowNodeProps) {
+  // FS-0105: fine-grained runtime subscription. The node reads only its own
+  // metrics entry (keyed by the editor document id + its own node id) with a
+  // shallow comparison, so a metrics update for an unrelated node with
+  // unchanged values for this node does not rerender this component. The
+  // full snapshot is never passed through canvas node props.
+  const runtimeFlowId = useFlowEditorStore(
+    (state) => state.document?.metadata.id,
+  );
+  const nodeIdForMetrics = typeof data.id === "string" ? data.id : "";
+  const nodeMetrics = useFlowRuntimeStore(
+    useShallow((state) =>
+      runtimeFlowId !== undefined && nodeIdForMetrics !== ""
+        ? selectFlowNodeMetrics(state, runtimeFlowId, nodeIdForMetrics)
+        : undefined,
+    ),
+  );
+  const metricSummary = formatFlowNodeMetricSummary(nodeMetrics);
   const unsupported = data.unsupported === true;
   const category = data.definition?.category ?? data.category;
   const inputs = resolvePorts(data.inputs, data.definition?.inputs);
@@ -178,10 +254,8 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
     <div
       aria-selected={selected === true}
       className={cn(
-        "relative w-52 rounded-md border bg-card text-card-foreground shadow-sm",
-        selected
-          ? "border-2 border-primary ring-2 ring-primary ring-offset-2"
-          : "border-border",
+        "relative w-52 border shadow-sm flow-studio-node",
+        selected ? "border-2 flow-studio-node-selected" : undefined,
       )}
       data-accent={accentToken}
       data-selected={selected === true ? "true" : undefined}
@@ -191,7 +265,7 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
         <Handle
           key={`in-${port.id}`}
           aria-label={`Input ${port.label ?? port.id}`}
-          className="!h-2.5 !w-2.5 !border !border-primary !bg-background"
+          className="!border flow-studio-port !h-[var(--flow-port-size)] !w-[var(--flow-port-size)]"
           data-testid={`flow-node-input-${port.id}`}
           id={port.id}
           position={Position.Left}
@@ -204,7 +278,7 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
         <Handle
           key={`out-${port.id}`}
           aria-label={`Output ${port.label ?? port.id}`}
-          className="!h-2.5 !w-2.5 !border !border-primary !bg-background"
+          className="!border flow-studio-port !h-[var(--flow-port-size)] !w-[var(--flow-port-size)]"
           data-testid={`flow-node-output-${port.id}`}
           id={port.id}
           position={Position.Right}
@@ -214,11 +288,11 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
         />
       ))}
 
-      <div className="flex items-center gap-2 px-3 pt-2">
+      <div className="flex items-center gap-2 pt-2 flow-studio-node-body">
         {selected === true ? (
           <span
             aria-hidden="true"
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full flow-studio-selected-mark"
             data-testid="flow-node-selected-mark"
           >
             <Check className="h-3 w-3" strokeWidth={3} />
@@ -249,7 +323,7 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
         {hasValidationError ? (
           <span
             aria-label={`${validationErrorCount} validation error${validationErrorCount === 1 ? "" : "s"}`}
-            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border border-destructive bg-destructive px-1 text-[11px] font-bold leading-none text-destructive-foreground"
+            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border flow-studio-error-badge px-1 text-[11px] font-bold leading-none"
             data-testid="flow-node-validation-badge"
             data-validation="error"
             title={`${validationErrorCount} validation error${validationErrorCount === 1 ? "" : "s"}. See inspector for details.`}
@@ -259,7 +333,7 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
         ) : hasValidationWarning ? (
           <span
             aria-label={`${validationWarningCount} validation warning${validationWarningCount === 1 ? "" : "s"}`}
-            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border border-yellow-500 bg-yellow-400 px-1 text-[11px] font-bold leading-none text-yellow-950"
+            className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border flow-studio-warning-badge px-1 text-[11px] font-bold leading-none"
             data-testid="flow-node-validation-badge"
             data-validation="warning"
             title={`${validationWarningCount} validation warning${validationWarningCount === 1 ? "" : "s"}. See inspector for details.`}
@@ -271,7 +345,7 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
 
       {showSubtitle === true ? (
         <div
-          className="truncate px-3 pb-1 text-xs text-muted-foreground"
+          className="truncate pb-1 text-xs text-muted-foreground flow-studio-node-body"
           data-testid="flow-node-subtitle"
           title={subtitle}
         >
@@ -279,10 +353,20 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
         </div>
       ) : null}
 
+      {metricSummary !== undefined ? (
+        <div
+          className="truncate pb-1 text-[10px] tabular-nums text-muted-foreground flow-studio-node-body"
+          data-testid="flow-node-metrics"
+          title={metricSummary}
+        >
+          {metricSummary}
+        </div>
+      ) : null}
+
       {unsupported === true ? (
-        <div className="px-3 pb-2">
+        <div className="pb-2 flow-studio-node-body">
           <span
-            className="inline-flex items-center rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+            className="inline-flex items-center rounded border flow-studio-unsupported-badge px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
             data-testid="flow-node-unsupported"
             title="Unknown node type. The saved node is preserved."
           >
@@ -298,12 +382,14 @@ export function FlowNode({ data, selected }: FlowNodeProps) {
       <div
         aria-hidden="true"
         className={cn(
-          "mx-3 mb-2 mt-1 h-0.5 rounded",
+          "mb-2 mt-1 h-0.5 rounded mx-[var(--flow-spacing)]",
           selected === true
-            ? "bg-primary"
+            ? "flow-studio-node-accent-selected"
             : FLOW_NODE_ACCENT_BAR_CLASS[accentToken],
         )}
       />
     </div>
   );
 }
+
+export const FlowNode = React.memo(FlowNodeView);

@@ -166,7 +166,7 @@ describe('createBuiltinNodeRegistry', () => {
     expect(logSink?.outputs).toEqual([]);
   });
 
-  it('requires url on the REST sink, exposes method/body/header concepts, and leaves the log sink field-free', () => {
+  it('requires url on the REST sink, exposes method/body/header concepts, and exposes omitIfEmpty on the log sink', () => {
     const registry = createBuiltinNodeRegistry();
     const restSink = registry.get('rest-sink', 1);
     const logSink = registry.get('log-sink', 1);
@@ -185,7 +185,12 @@ describe('createBuiltinNodeRegistry', () => {
     const headers = restSink?.properties.find((property) => property.key === 'headers');
     expect(headers?.type).toBe('json');
 
-    expect(logSink?.properties).toEqual([]);
+    // AC-D003: every sink now exposes eKuiper's common `omitIfEmpty`, so the log sink is
+    // no longer field-free. It carries that one property and nothing else.
+    expect(logSink?.properties.map((property) => property.key)).toEqual(['omitIfEmpty']);
+    const omitIfEmpty = logSink?.properties.find((property) => property.key === 'omitIfEmpty');
+    expect(omitIfEmpty?.type).toBe('boolean');
+    expect(omitIfEmpty?.required).not.toBe(true);
 
     for (const definition of [restSink, logSink]) {
       assertValidCompilerMapping(definition);
