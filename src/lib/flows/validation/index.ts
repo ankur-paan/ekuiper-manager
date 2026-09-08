@@ -1,3 +1,4 @@
+export { validateFlowAggregateGrouping } from './aggregate-validation';
 export { validateFlowDocumentShape } from './document-shape';
 export { validateFlowForEditor } from './editor-validation';
 export { validateFlowRequiredProperties } from './property-validation';

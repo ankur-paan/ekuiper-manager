@@ -2,6 +2,7 @@ import type { TargetCapabilityProfile } from '../capabilities/types';
 import type { FlowDiagnostic } from '../model/diagnostic';
 import type { FlowDocument } from '../model/flow-document';
 import type { NodeRegistry } from '../registry/node-registry';
+import { validateFlowAggregateGrouping } from './aggregate-validation';
 import { validateFlowDocumentShape } from './document-shape';
 import { validateFlowForEditor } from './editor-validation';
 
@@ -40,7 +41,9 @@ export interface ValidateFlowServerSideInput {
  *    well-shaped FlowDocument;
  * 2. structural, registry, property, join, and capability validation via
  *    the shared `validateFlowForEditor` pipeline, so server verdicts agree
- *    with client diagnostics for the same document + registry + profile.
+ *    with client diagnostics for the same document + registry + profile,
+ *    plus the aggregate grouping check (`validateFlowAggregateGrouping`,
+ *    AC-D001) which the engine reports as valid yet silently emits nulls.
  *
  * `valid` is true only when no error-severity diagnostic exists; warnings
  * alone do not invalidate. Never calls eKuiper official rule validation
@@ -58,6 +61,9 @@ export function validateFlowServerSide(
     input.document as FlowDocument,
     input.registry,
     input.capabilityProfile,
+  );
+  diagnostics.push(
+    ...validateFlowAggregateGrouping(input.document as FlowDocument),
   );
   const valid = diagnostics.every(
     (diagnostic) => diagnostic.severity !== 'error',
