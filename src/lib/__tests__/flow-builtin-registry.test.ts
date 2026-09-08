@@ -148,11 +148,13 @@ describe('createBuiltinNodeRegistry', () => {
     const source = registry.get('mqtt-source', 1);
     const sink = registry.get('mqtt-sink', 1);
 
-    // Source binds by connection NAME via the live mqtt-confkeys provider
-    // (same declaration pattern stream-source uses for 'streams').
+    // Source binds by connection NAME via the live connections provider
+    // (GR-0001: `GET /connections` `listConnections` in
+    // `public/ekuiper-openapi.json` eKuiper 2.4.1; same declaration pattern
+    // stream-source uses for 'streams').
     const confKey = source?.properties.find((property) => property.key === 'confKey');
     expect(confKey?.type).toBe('select');
-    expect(confKey?.optionsProvider).toBe('mqtt-confkeys');
+    expect(confKey?.optionsProvider).toBe('connections');
     expect(confKey?.required).not.toBe(true);
 
     // Sink binds by broker URL, never by confKey: a confKey name is not a

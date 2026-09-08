@@ -18,10 +18,13 @@ import { OMIT_IF_EMPTY_PROPERTY } from './sink-common';
  *   eKuiper and are never read back into an editable form
  *   (`src/app/connections/page.tsx`).
  *
-  * Broker binding (UX-0002): the source binds by eKuiper MQTT source
-  * connection NAME (`confKey`), served live by the `mqtt-confkeys` option
-  * provider (`src/lib/flows/options/index.ts`, names only so broker
-  * credentials never leave the server), exactly like `stream-source`
+  * Broker binding (UX-0002, GR-0001): the source binds by unified
+  * connection-registry NAME (`confKey`), served live by the `connections`
+  * option provider (`src/lib/flows/options/index.ts`, reading
+  * `GET /connections` — `listConnections` in
+  * `public/ekuiper-openapi.json` eKuiper 2.4.1 — returning the
+  * `ConnectionResponse` `id` values only so `props`, which carry
+  * credentials, never leave the server), exactly like `stream-source`
   * declares `optionsProvider: 'streams'`. The v1 `connectionSelector`
   * stays as a deprecated alias: the compiler
   * (`src/lib/flows/compiler/ekuiper/compile-graph.ts`) maps it to
@@ -79,7 +82,10 @@ export const mqttSourceDefinition: FlowNodeDefinition = {
       type: 'select',
       description:
         'Name of the eKuiper MQTT source connection holding the broker. Loaded live from the selected node. A source binds by connection NAME, not by broker URL.',
-      optionsProvider: 'mqtt-confkeys',
+      // GR-0001: unified connection registry ids from `GET /connections`
+      // (`listConnections` in `public/ekuiper-openapi.json` eKuiper 2.4.1);
+      // sink (`mqtt-sink`) intentionally stays on free-text `server` here.
+      optionsProvider: 'connections',
     },
     {
       key: 'qos',

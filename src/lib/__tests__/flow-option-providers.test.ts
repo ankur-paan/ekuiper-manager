@@ -86,12 +86,13 @@ beforeEach(() => {
 });
 
 describe('optionsProvider definition shape (FS-0147)', () => {
-  it('exposes exactly the streams, tables, mqtt-confkeys and source-connectors providers', () => {
+  it('exposes exactly the streams, tables, mqtt-confkeys, source-connectors and connections providers', () => {
     expect([...FLOW_OPTION_PROVIDER_IDS]).toEqual([
       'streams',
       'tables',
       'mqtt-confkeys',
       'source-connectors',
+      'connections',
     ]);
   });
 
@@ -100,7 +101,10 @@ describe('optionsProvider definition shape (FS-0147)', () => {
     expect(isFlowOptionProviderId('tables')).toBe(true);
     expect(isFlowOptionProviderId('mqtt-confkeys')).toBe(true);
     expect(isFlowOptionProviderId('source-connectors')).toBe(true);
-    expect(isFlowOptionProviderId('connections')).toBe(false);
+    // GR-0001: unified connection registry ids from `GET /connections`
+    // (`listConnections` in `public/ekuiper-openapi.json` eKuiper 2.4.1).
+    expect(isFlowOptionProviderId('connections')).toBe(true);
+    expect(isFlowOptionProviderId('connection')).toBe(false);
     expect(isFlowOptionProviderId('')).toBe(false);
     expect(isFlowOptionProviderId('https://evil.example/streams')).toBe(false);
     expect(isFlowOptionProviderId('/streams')).toBe(false);
@@ -204,6 +208,9 @@ describe('toFlowOptionItems (FS-0147)', () => {
     expect(resolveFlowOptionsUpstreamPath('source-connectors')).toBe(
       '/metadata/sources',
     );
+    // GR-0001: reads `GET /connections` (`listConnections` in
+    // `public/ekuiper-openapi.json` eKuiper 2.4.1).
+    expect(resolveFlowOptionsUpstreamPath('connections')).toBe('/connections');
   });
 
   it('maps stream/table name arrays to option rows', () => {
@@ -244,6 +251,41 @@ describe('toFlowOptionItems (FS-0147)', () => {
       { label: 'cloudConf', value: 'cloudConf' },
     ]);
     expect(JSON.stringify(items)).not.toContain('s3cret');
+  });
+
+  it('returns connection ids only, never props which carry credentials (GR-0001)', () => {
+    // `GET /connections` `listConnections` in `public/ekuiper-openapi.json`
+    // eKuiper 2.4.1 returns `ConnectionResponse[]`; `props` may expose
+    // plaintext credentials and must never leave the server.
+    const payload = [
+      {
+        id: 'plant-broker',
+        typ: 'mqtt',
+        props: { server: 'tcp://broker:1883', password: 's3cret' },
+        isNamed: true,
+        status: 'connected',
+      },
+      {
+        id: 'cloud-broker',
+        typ: 'mqtt',
+        props: { server: 'tcp://cloud:1883' },
+        isNamed: true,
+        status: 'connected',
+      },
+      { typ: 'mqtt', props: {}, isNamed: true },
+      { id: '  ', typ: 'mqtt', props: {}, isNamed: true },
+    ];
+
+    const items = toFlowOptionItems('connections', payload);
+
+    expect(items).toEqual([
+      { label: 'plant-broker', value: 'plant-broker' },
+      { label: 'cloud-broker', value: 'cloud-broker' },
+    ]);
+    expect(JSON.stringify(items)).not.toContain('s3cret');
+    expect(JSON.stringify(items)).not.toContain('tcp://broker:1883');
+    expect(toFlowOptionItems('connections', { id: 'x' })).toEqual([]);
+    expect(toFlowOptionItems('connections', [])).toEqual([]);
   });
 });
 
@@ -355,6 +397,42 @@ describe('GET /api/flows/options/[provider] (FS-0147)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toBe(
       'http://edge-node:9081/metadata/sources/yaml/mqtt',
+    );
+  });
+
+  it('serves connection ids without props from the registered node transport (GR-0001)', async () => {
+    // `GET /connections` `listConnections` in `public/ekuiper-openapi.json`
+    // eKuiper 2.4.1; `props` may expose plaintext credentials.
+    mockedGetUser.mockResolvedValueOnce(actor);
+    mockedGetNodeWithAuth.mockResolvedValueOnce(buildNode());
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          {
+            id: 'plant-broker',
+            typ: 'mqtt',
+            props: { server: 'tcp://broker:1883', password: 's3cret' },
+            isNamed: true,
+            status: 'connected',
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+
+    const response = await GET(
+      getRequest('connections', '?targetNodeId=node-1'),
+      routeParams('connections'),
+    );
+    const raw = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(raw).toContain('plant-broker');
+    expect(raw).not.toContain('s3cret');
+    expect(raw).not.toContain('tcp://broker:1883');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://edge-node:9081/connections',
     );
   });
 
