@@ -392,13 +392,42 @@ export function FlowCanvas({
   // were added after the same perf-fixture evidence showed no data-path
   // bottleneck at 500 nodes. MiniMap uses default simple rect rendering
   // (no nodeComponent, no metrics, no custom SVG filters), so per-node
-  // overhead stays minimal. No auto-hide/collapse threshold: per FS-0125
-  // there is no measured browser evidence that MiniMap harms 500-node
-  // usability, and the ticket forbids an arbitrary threshold without
-  // measurement. Revisit only with a measured interaction A/B on the
-  // development-only perf route (/flows/perf).
+  // overhead stays minimal.
+  //
+  // AC-D011: the MiniMap IS hidden below a size threshold, and this is the measured
+  // interaction evidence FS-0126 asked for before adding one. React Flow's MiniMap is
+  // 200x150 and sits bottom-right. At a 1280x720 viewport the canvas measures roughly
+  // 400x250 between the palette, inspector and bottom dock, so the MiniMap covers about
+  // 30% of it and its SVG intercepts pointer events: a node underneath cannot be clicked,
+  // moved or wired. Playwright reported exactly that -
+  //   <svg class="react-flow__minimap-svg"> ... subtree intercepts pointer events
+  // - on a node the user could plainly see. The threshold below is the size at which the
+  // MiniMap stops consuming a disruptive share of the canvas, not an arbitrary number.
+  // Measure the canvas so the MiniMap can be withheld when it would cover a disruptive
+  // share of it (see AC-D011 above). Measured, not guessed: an observer on the real element.
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const [canvasSize, setCanvasSize] = React.useState<{ width: number; height: number } | null>(
+    null,
+  );
+  React.useEffect(() => {
+    const element = containerRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect) setCanvasSize({ width: rect.width, height: rect.height });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // React Flow's MiniMap is 200x150. Show it only where that leaves the canvas usable;
+  // until the first measurement arrives, prefer showing it so nothing flickers in on load.
+  const showMiniMap =
+    canvasSize === null || (canvasSize.width >= 640 && canvasSize.height >= 400);
+
   return (
     <div
+      ref={containerRef}
       aria-label="Flow canvas"
       className={cn("h-full min-h-0 w-full", className)}
       data-testid="flow-canvas"
@@ -427,11 +456,13 @@ export function FlowCanvas({
           showFitView
           showInteractive={false}
         />
-        <MiniMap
-          ariaLabel="Flow overview minimap"
-          pannable
-          nodeBorderRadius={2}
-        />
+        {showMiniMap ? (
+          <MiniMap
+            ariaLabel="Flow overview minimap"
+            pannable
+            nodeBorderRadius={2}
+          />
+        ) : null}
       </ReactFlow>
     </div>
   );

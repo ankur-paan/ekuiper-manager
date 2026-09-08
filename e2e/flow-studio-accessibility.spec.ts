@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { captureUnexpectedErrors, ensureSignedIn } from './helpers';
+import { captureUnexpectedErrors, dblclickEmptyCanvas, ensureSignedIn } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -55,36 +55,9 @@ async function openStudio(page: Page, flowId: string): Promise<void> {
 
 /** Double-click empty canvas to open the quick node picker, then add one node. */
 async function addMemorySourceViaQuickPicker(page: Page): Promise<void> {
-  const canvas = page.getByTestId('flow-canvas');
   const nodes = page.locator('.react-flow__node');
   const before = await nodes.count();
-  const box = await canvas.boundingBox();
-  expect(box).not.toBeNull();
-  if (!box) throw new Error('Flow canvas has no bounding box');
-  const candidates = [
-    { x: 0.3, y: 0.4 },
-    { x: 0.3, y: 0.8 },
-    { x: 0.7, y: 0.8 },
-    { x: 0.5, y: 0.15 },
-  ];
-  let position: { x: number; y: number } | null = null;
-  for (const c of candidates) {
-    const px = box.x + box.width * c.x;
-    const py = box.y + box.height * c.y;
-    const blocked = await page.evaluate(([x, y]) => {
-      const el = document.elementFromPoint(x as number, y as number);
-      if (!el) return true;
-      return Boolean(
-        el.closest('.react-flow__node') || el.closest('.react-flow__panel'),
-      );
-    }, [px, py]);
-    if (!blocked) {
-      position = { x: Math.round(box.width * c.x), y: Math.round(box.height * c.y) };
-      break;
-    }
-  }
-  if (!position) throw new Error('No empty canvas point found');
-  await canvas.dblclick({ position });
+  await dblclickEmptyCanvas(page, { x: 0.3, y: 0.4 });
   const picker = page.getByTestId('quick-node-picker');
   await expect(picker).toBeVisible({ timeout: 10_000 });
   await page.getByTestId('quick-node-picker-search').fill('memory-source');
@@ -139,13 +112,10 @@ test('command palette and picker are keyboard operable with Escape close', async
     await expect(paletteInput).toBeHidden({ timeout: 10_000 });
 
     // Quick node picker: dialog role, search focus on open, Escape closes.
-    const canvas = page.getByTestId('flow-canvas');
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    if (!box) throw new Error('Flow canvas has no bounding box');
-    await canvas.dblclick({
-      position: { x: Math.round(box.width * 0.5), y: Math.round(box.height * 0.6) },
-    });
+    // A fixed fraction is not safe here: FS-0126 added the MiniMap and Controls, which are
+    // React Flow panels, and flow-canvas.tsx ignores double-clicks inside a panel, so the
+    // picker never opens. Probe for a genuinely empty point instead.
+    await dblclickEmptyCanvas(page, { x: 0.5, y: 0.4 });
     const picker = page.getByTestId('quick-node-picker');
     await expect(picker).toBeVisible({ timeout: 10_000 });
     await expect(picker).toHaveAttribute('role', 'dialog');
