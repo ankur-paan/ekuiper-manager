@@ -32,9 +32,7 @@ async function deleteFlowBestEffort(page: Page, flowId: string): Promise<void> {
   // not mask the original failure with a teardown error.
   if (page.isClosed()) return;
   try {
-    // No DELETE /api/flows endpoint exists yet, so this is a best-effort
-    // removal that a future delete route will honor. Flow names are unique
-    // per run to avoid collisions in the meantime.
+    // Flow deletion also undeploys its engine rule server-side.
     await page.evaluate(async (id: string) => {
       try {
         await fetch(`/api/flows/${encodeURIComponent(id)}`, { method: 'DELETE' });
@@ -409,24 +407,34 @@ test('flow studio happy path validates memory source, filter, and log sink then 
   // fallback: when no managed node exists the test still covers
   // authoring + autosave + server validation, and skips the deploy step.
   const targetNodeId = await page.evaluate(async () => {
-    try {
-      const response = await fetch('/api/nodes', { cache: 'no-store' });
-      if (!response.ok) return null;
-      const payload = (await response.json()) as {
-        nodes?: Array<{ id: string }>;
-        selectedNodeId?: string | null;
-      };
-      if (
-        typeof payload.selectedNodeId === 'string' &&
-        payload.selectedNodeId.length > 0
-      ) {
-        return payload.selectedNodeId;
-      }
+    const response = await fetch('/api/nodes', { cache: 'no-store' });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as {
+      nodes?: Array<{ id: string }>;
+      selectedNodeId?: string | null;
+    };
+    let target: string | null = null;
+    if (
+      typeof payload.selectedNodeId === 'string' &&
+      payload.selectedNodeId.length > 0
+    ) {
+      target = payload.selectedNodeId;
+    } else {
       const first = Array.isArray(payload.nodes) ? payload.nodes[0] : undefined;
-      return typeof first?.id === 'string' ? first.id : null;
-    } catch {
-      return null;
+      target = typeof first?.id === 'string' ? first.id : null;
     }
+    if (!target) return null;
+
+    // A freshly bootstrapped node has no version-derived Flow Studio
+    // capabilities until it is probed. Resolve them here instead of
+    // depending on another spec having warmed the node first.
+    const probe = await fetch(`/api/nodes/${encodeURIComponent(target)}/probe`, {
+      method: 'POST',
+    });
+    if (!probe.ok) {
+      throw new Error(`Failed to probe Flow Studio target (${probe.status})`);
+    }
+    return target;
   });
 
   const flowName = `e2e-flow-studio-happy-${Date.now()}`;
@@ -618,13 +626,46 @@ test('flow studio happy path validates memory source, filter, and log sink then 
       .getByTestId('property-field-expression')
       .getByTestId('flow-expression-monaco');
     await monacoExpression.waitFor({ state: 'visible', timeout: 15_000 });
-    await monacoExpression.locator('textarea').first().fill('temperature > 20');
+    // Monaco also renders a hidden readonly IME textarea, which `.first()`
+    // selected in CI. Drive the accessible editor control instead; Chromium
+    // exposes it as a native EditContext textbox in this Monaco version.
+    const monacoInput = monacoExpression.getByRole('textbox', {
+      name: 'Editor content',
+    });
+    await expect(monacoInput).toBeVisible({ timeout: 15_000 });
+    await monacoInput.focus();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.insertText('temperature > 20');
 
     // Let the edit land before the connection drags below: a pointer interaction started
     // while the property write is still in flight loses it.
     await expect(page.locator('[data-save-status="saved"]')).toBeVisible({
       timeout: 30_000,
     });
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async (id: string) => {
+            const response = await fetch(`/api/flows/${encodeURIComponent(id)}/draft`, {
+              cache: 'no-store',
+            });
+            if (!response.ok) return false;
+            const payload = (await response.json()) as {
+              draft?: {
+                semanticDocument?: {
+                  nodes?: Array<{ config?: Record<string, unknown> }>;
+                };
+              };
+            };
+            return Boolean(
+              payload.draft?.semanticDocument?.nodes?.some(
+                (node) => node.config?.expression === 'temperature > 20',
+              ),
+            );
+          }, flowId),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
 
     // Connect source -> filter -> sink through the real XYFlow handles.
     // Pointer events (not HTML5 DnD) drive XYFlow connections, so the
@@ -710,37 +751,6 @@ test('flow studio happy path validates memory source, filter, and log sink then 
     );
     expect(happyUnexpectedErrors).toEqual([]);
   } finally {
-    await page.evaluate(
-      async ({ id, ruleId }: { id: string; ruleId: string | null }) => {
-        try {
-          if (ruleId) {
-            try {
-              await fetch(`/api/ekuiper/rules/${encodeURIComponent(ruleId)}/stop`, {
-                method: 'POST',
-              });
-            } catch {
-              // Intentionally ignored: cleanup only.
-            }
-            try {
-              await fetch(`/api/ekuiper/rules/${encodeURIComponent(ruleId)}`, {
-                method: 'DELETE',
-              });
-            } catch {
-              // Intentionally ignored: cleanup only.
-            }
-          }
-        } finally {
-          try {
-            await fetch(`/api/flows/${encodeURIComponent(id)}`, {
-              method: 'DELETE',
-            });
-          } catch {
-            // Intentionally ignored: cleanup only.
-          }
-        }
-      },
-      { id: flowId, ruleId: deployedRuleId },
-    );
     await deleteFlowBestEffort(page, flowId);
   }
 });
