@@ -483,6 +483,7 @@ export const FLOW_OPTION_PROVIDER_IDS = [
   'streams',
   'tables',
   'mqtt-confkeys',
+  'source-connectors',
 ] as const;
 
 /** A provider id from {@link FLOW_OPTION_PROVIDER_IDS}. */

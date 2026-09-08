@@ -86,11 +86,12 @@ beforeEach(() => {
 });
 
 describe('optionsProvider definition shape (FS-0147)', () => {
-  it('exposes exactly the streams, tables and mqtt-confkeys providers', () => {
+  it('exposes exactly the streams, tables, mqtt-confkeys and source-connectors providers', () => {
     expect([...FLOW_OPTION_PROVIDER_IDS]).toEqual([
       'streams',
       'tables',
       'mqtt-confkeys',
+      'source-connectors',
     ]);
   });
 
@@ -98,6 +99,7 @@ describe('optionsProvider definition shape (FS-0147)', () => {
     expect(isFlowOptionProviderId('streams')).toBe(true);
     expect(isFlowOptionProviderId('tables')).toBe(true);
     expect(isFlowOptionProviderId('mqtt-confkeys')).toBe(true);
+    expect(isFlowOptionProviderId('source-connectors')).toBe(true);
     expect(isFlowOptionProviderId('connections')).toBe(false);
     expect(isFlowOptionProviderId('')).toBe(false);
     expect(isFlowOptionProviderId('https://evil.example/streams')).toBe(false);
@@ -199,6 +201,9 @@ describe('toFlowOptionItems (FS-0147)', () => {
     expect(resolveFlowOptionsUpstreamPath('mqtt-confkeys')).toBe(
       '/metadata/sources/yaml/mqtt',
     );
+    expect(resolveFlowOptionsUpstreamPath('source-connectors')).toBe(
+      '/metadata/sources',
+    );
   });
 
   it('maps stream/table name arrays to option rows', () => {
@@ -209,6 +214,20 @@ describe('toFlowOptionItems (FS-0147)', () => {
     expect(toFlowOptionItems('tables', [{ name: 't1' }, 't2'])).toEqual([
       { label: 't1', value: 't1' },
       { label: 't2', value: 't2' },
+    ]);
+  });
+
+  it('maps source connector metadata summaries to option rows by name', () => {
+    // UX-0004: GET /metadata/sources returns MetadataPluginSummary[] (audited
+    // public/ekuiper-openapi.json eKuiper 2.4.1 listSourceMetadata); names only.
+    expect(
+      toFlowOptionItems('source-connectors', [
+        { name: 'mqtt', about: {} },
+        { name: 'memory', about: {} },
+      ]),
+    ).toEqual([
+      { label: 'mqtt', value: 'mqtt' },
+      { label: 'memory', value: 'memory' },
     ]);
   });
 

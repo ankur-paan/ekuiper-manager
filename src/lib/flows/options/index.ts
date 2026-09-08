@@ -34,6 +34,8 @@ export const MAX_FLOW_OPTION_ITEMS = 1000 as const;
  * - `tables` -> `GET /tables` (audited OpenAPI array of names).
  * - `mqtt-confkeys` -> `GET /metadata/sources/yaml/mqtt` (`ConfigKeyMap`
  *   in the audited OpenAPI; keys are the confKey names).
+ * - `source-connectors` -> `GET /metadata/sources` (audited OpenAPI
+ *   `MetadataPluginSummary` array; names only, same shape as streams/tables).
  */
 export function resolveFlowOptionsUpstreamPath(
   provider: FlowOptionProviderId,
@@ -45,6 +47,8 @@ export function resolveFlowOptionsUpstreamPath(
       return '/tables';
     case 'mqtt-confkeys':
       return '/metadata/sources/yaml/mqtt';
+    case 'source-connectors':
+      return '/metadata/sources';
   }
 }
 
@@ -65,8 +69,11 @@ function toName(value: unknown): string | null {
 /**
  * Reduce an upstream payload to names/ids-only option rows.
  *
- * - `streams`/`tables`: array entries as names (plain strings or
- *   `{name}` objects, mirroring `EKuiperClient.listStreams/listTables`).
+ * - `streams`/`tables`/`source-connectors`: array entries as names (plain strings or
+ *   `{name}` objects, mirroring `EKuiperClient.listStreams/listTables` and
+ *   `listSourceMetadata` which returns `MetadataPluginSummary[]` with a
+ *   `name` per entry — see `public/ekuiper-openapi.json` eKuiper 2.4.1
+ *   `listSourceMetadata`).
  * - `mqtt-confkeys`: object keys only; the confKey bodies (which may
  *   carry broker credentials) are discarded and never leave the server.
  *

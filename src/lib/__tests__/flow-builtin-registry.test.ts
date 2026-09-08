@@ -996,7 +996,10 @@ describe('createBuiltinNodeRegistry', () => {
         (property) => property.key === 'connector',
       );
       expect(connector?.required).toBe(true);
-      expect(connector?.type).toBe('string');
+      // UX-0004: connector is a select backed by the source-connectors
+      // provider (GET /metadata/sources, names only) instead of free text.
+      expect(connector?.type).toBe('select');
+      expect(connector?.optionsProvider).toBe('source-connectors');
 
       expect(definition?.subtitleKey).toBe(
         definition?.type === 'stream-source' ? 'stream' : 'table',
