@@ -584,12 +584,15 @@ export class EKuiperClient {
       // 404 or network error
     }
 
-    // Try source metadata fallback (eKuiper shares schemas for mqtt, edgex, etc.)
-    try {
-      const src = await this.request<MetadataDetail>(`/metadata/sources/${encodeURIComponent(sinkType)}`);
-      if (hasProps(src)) return src;
-    } catch {
-      // ignore
+    // Try source metadata fallback only for connectors known to share source/sink schemas (e.g. mqtt, edgex)
+    // Avoid blind queries to /metadata/sources for sink-only types (like 'log') which return 400
+    if (['mqtt', 'edgex'].includes(sinkType.toLowerCase())) {
+      try {
+        const src = await this.request<MetadataDetail>(`/metadata/sources/${encodeURIComponent(sinkType)}`);
+        if (hasProps(src)) return src;
+      } catch {
+        // ignore
+      }
     }
 
     const fallbackProps = getBuiltinConnectorProperties('sinks', sinkType);

@@ -54,6 +54,12 @@ export interface StreamVisualEditorProps {
   name?: string;
 }
 
+export function createdResourceName(sql: string, kind: ResourceKind): string | null {
+  const keyword = kind === 'stream' ? 'STREAM' : 'TABLE';
+  const match = sql.match(new RegExp(`^\\s*CREATE\\s+${keyword}\\s+(?:\`([^\`]+)\`|([A-Za-z0-9_-]+))`, 'i'));
+  return match?.[1] ?? match?.[2] ?? null;
+}
+
 export function StreamVisualEditor({ kind, name }: StreamVisualEditorProps) {
   const router = useRouter();
   const { servers, activeServerId } = useServerStore();
@@ -253,7 +259,7 @@ export function StreamVisualEditor({ kind, name }: StreamVisualEditorProps) {
   };
 
   const save = async () => {
-    const finalSql = mode === 'sql' ? sql.trim() : generatedSql.trim();
+    const finalSql = mode === 'sql' ? sql.trim() : (sql.trim() || generatedSql.trim());
     if (!finalSql) {
       toast.error('SQL definition cannot be empty');
       return;
@@ -270,7 +276,8 @@ export function StreamVisualEditor({ kind, name }: StreamVisualEditorProps) {
       }
 
       toast.success(`${kind === 'stream' ? 'Stream' : 'Table'} ${name ? 'updated' : 'created'}`);
-      router.push(`/${kind}s`);
+      const destinationName = name ?? createdResourceName(finalSql, kind) ?? (resourceName.trim() || undefined);
+      router.push(`/${kind}s${destinationName ? `/${encodeURIComponent(destinationName)}` : ''}`);
       router.refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : `Failed to save ${kind}`);
@@ -742,16 +749,30 @@ export function StreamVisualEditor({ kind, name }: StreamVisualEditorProps) {
                       </div>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-3">
-                      <pre className="p-3 rounded-md bg-muted/60 text-[11px] font-mono overflow-x-auto whitespace-pre-wrap text-foreground max-h-80 leading-relaxed border">
-                        {generatedSql}
-                      </pre>
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="resource-sql" className="text-xs font-medium text-muted-foreground">
+                          eKuiper SQL
+                        </Label>
+                        <Textarea
+                          id="resource-sql"
+                          value={sql || generatedSql}
+                          onChange={(e) => {
+                            setSql(e.target.value);
+                            const parsedName = createdResourceName(e.target.value, kind);
+                            if (parsedName) setResourceName(parsedName);
+                          }}
+                          className="min-h-64 font-mono text-[11px] leading-relaxed resize-y border bg-muted/40"
+                          spellCheck={false}
+                          placeholder={generatedSql}
+                        />
+                      </div>
                       <Button
                         type="button"
                         onClick={() => void save()}
-                        disabled={saving || !resourceName.trim()}
+                        disabled={saving || (!sql.trim() && !resourceName.trim())}
                         className="w-full text-xs"
                       >
-                        {saving ? 'Submitting…' : `Submit ${kind === 'stream' ? 'Stream' : 'Table'}`}
+                        {saving ? 'Saving…' : `Save ${kind}`}
                       </Button>
                     </CardContent>
                   </Card>
@@ -770,19 +791,29 @@ export function StreamVisualEditor({ kind, name }: StreamVisualEditorProps) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
-                <Textarea
-                  value={sql}
-                  onChange={(e) => setSql(e.target.value)}
-                  placeholder={`CREATE ${kind.toUpperCase()} sensor (id STRING, val FLOAT) WITH (TYPE="mqtt", DATASOURCE="sensor/data");`}
-                  className="min-h-[300px] font-mono text-xs leading-relaxed"
-                  spellCheck={false}
-                />
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="resource-sql-raw" className="text-xs font-medium">
+                    eKuiper SQL
+                  </Label>
+                  <Textarea
+                    id="resource-sql-raw"
+                    value={sql}
+                    onChange={(e) => {
+                      setSql(e.target.value);
+                      const parsedName = createdResourceName(e.target.value, kind);
+                      if (parsedName) setResourceName(parsedName);
+                    }}
+                    placeholder={`CREATE ${kind.toUpperCase()} sensor (id STRING, val FLOAT) WITH (TYPE="mqtt", DATASOURCE="sensor/data");`}
+                    className="min-h-[300px] font-mono text-xs leading-relaxed"
+                    spellCheck={false}
+                  />
+                </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => router.back()} className="text-xs">
                     Cancel
                   </Button>
                   <Button onClick={() => void save()} disabled={saving || !sql.trim()} className="text-xs">
-                    {saving ? 'Saving…' : `Execute & Save ${kind}`}
+                    {saving ? 'Saving…' : `Save ${kind}`}
                   </Button>
                 </div>
               </CardContent>

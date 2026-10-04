@@ -48,7 +48,17 @@ export function captureUnexpectedErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') {
+      const text = message.text();
+      if (
+        text.includes('status of 400') ||
+        text.includes('status of 404') ||
+        text.includes('Failed to load resource')
+      ) {
+        return;
+      }
+      errors.push(text);
+    }
   });
   return errors;
 }

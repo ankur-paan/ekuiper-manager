@@ -8,7 +8,9 @@ const DOCS_RESOURCES_DIR = path.resolve(
   '../../rekuiper/ekuiper/docs/en_US/example/resources'
 );
 
-const COMPARISON_DIR = 'C:/Users/paanday/.gemini/antigravity-ide/brain/1ceca723-eca7-4d7a-b8e0-7fc0c474fd43/comparison';
+const COMPARISON_DIR =
+  process.env.COMPARISON_DIR ||
+  path.resolve(__dirname, '../test-results/comparison');
 
 async function saveScreenshot(locator: any, filename: string) {
   const docsPath = path.join(DOCS_RESOURCES_DIR, filename);
@@ -43,8 +45,15 @@ async function saveScreenshot(locator: any, filename: string) {
     await page.waitForTimeout(300);
   }
 
-  await locator.screenshot({ path: docsPath });
   try {
+    fs.mkdirSync(path.dirname(docsPath), { recursive: true });
+    await locator.screenshot({ path: docsPath });
+  } catch (err) {
+    console.warn(`Could not save docs screenshot: ${err}`);
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(comparisonPath), { recursive: true });
     fs.copyFileSync(docsPath, comparisonPath);
   } catch (err) {
     console.warn(`Could not copy screenshot to comparison dir: ${err}`);
@@ -57,6 +66,8 @@ async function saveScreenshot(locator: any, filename: string) {
 }
 
 test.describe.serial('Generate howto.md screenshots with real eKuiper verification', () => {
+  test.skip(Boolean(process.env.CI), 'Screenshot generator is only intended for local documentation asset generation');
+
   test.use({
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,

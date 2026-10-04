@@ -20,10 +20,15 @@ test('owner, node, stream, rule, and user lifecycle', async ({ page }) => {
   await expect(page.getByTestId('node-card').first()).toBeVisible();
 
   await page.goto('/streams/new');
-  await page.getByLabel('eKuiper SQL').fill(
+  const sqlTab = page.getByRole('tab', { name: /SQL/i });
+  if (await sqlTab.isVisible()) {
+    await sqlTab.click();
+  }
+  const sqlInput = page.getByLabel('eKuiper SQL').or(page.locator('#rule-sql')).or(page.locator('textarea')).first();
+  await sqlInput.fill(
     'CREATE STREAM e2e_stream (id BIGINT, value FLOAT) WITH (TYPE="memory", DATASOURCE="e2e_stream", FORMAT="json");',
   );
-  await page.getByRole('button', { name: 'Save stream' }).click();
+  await page.getByRole('button', { name: /Save stream|Submit/i }).first().click();
   await expect(page).toHaveURL(/\/streams\/e2e_stream$/);
   await expect(page.getByRole('heading', { name: 'e2e_stream' })).toBeVisible();
 

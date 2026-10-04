@@ -6,7 +6,7 @@ test('all primary navigation destinations are reachable and mobile navigation wo
   await ensureSignedIn(page);
 
   if (testInfo.project.name === 'mobile-chromium') {
-    await page.getByRole('button', { name: 'Toggle Menu' }).click();
+    await page.getByRole('button', { name: /Toggle Menu|Open navigation menu/i }).click();
   }
   const nav = page.getByRole('navigation', { name: 'Primary navigation' });
   const links = await nav.getByRole('link').evaluateAll((elements) =>
