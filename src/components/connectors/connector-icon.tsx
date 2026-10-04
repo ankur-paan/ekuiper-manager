@@ -53,7 +53,6 @@ export function ConnectorIcon({
   if (!iconUrl) return fallback ? <>{fallback}</> : null;
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={iconUrl}
       alt={type || 'Connector'}
