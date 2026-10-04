@@ -478,11 +478,17 @@ export interface FlowNodeDefinition extends SdkFlowNodeDefinition {
  * resolves a provider id against exactly this list and fetches from the
  * selected registered eKuiper node. No other value is valid and no
  * caller-supplied URL is ever accepted.
+ *
+ * `connections` (GR-0001) serves unified connection-registry ids from
+ * `GET /connections` (`listConnections` in `public/ekuiper-openapi.json`
+ * eKuiper 2.4.1).
  */
 export const FLOW_OPTION_PROVIDER_IDS = [
   'streams',
   'tables',
   'mqtt-confkeys',
+  'source-connectors',
+  'connections',
 ] as const;
 
 /** A provider id from {@link FLOW_OPTION_PROVIDER_IDS}. */

@@ -254,7 +254,7 @@ function FlowNodeView({ data, selected }: FlowNodeProps) {
     <div
       aria-selected={selected === true}
       className={cn(
-        "relative w-52 border shadow-sm flow-studio-node",
+        "relative w-52 border shadow-beautiful-sm flow-studio-node",
         selected ? "border-2 flow-studio-node-selected" : undefined,
       )}
       data-accent={accentToken}

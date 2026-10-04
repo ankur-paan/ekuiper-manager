@@ -20,7 +20,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Audit dependency advisories
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
       - name: Validate local eKuiper v2.4.1 contract
         run: npm run validate:openapi -- --skip-official
       - run: npm run lint

@@ -71,10 +71,10 @@ export default function FunctionDetailPage() {
     if (error || !details) {
         return (
             <AppLayout title={`Function: ${name}`}>
-                <div className="space-y-6">
+                <div className="flex flex-col gap-6">
                     <div className="flex items-center gap-4">
-                        <Button variant="outline" size="icon" onClick={() => router.back()}>
-                            <ArrowLeft className="h-4 w-4" />
+                        <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
+                            <ArrowLeft className="size-4" aria-hidden="true" />
                         </Button>
                         <h2 className="text-3xl font-bold tracking-tight">{name}</h2>
                     </div>
@@ -90,13 +90,13 @@ export default function FunctionDetailPage() {
 
     return (
         <AppLayout title={`Function: ${name}`}>
-            <div className="space-y-6">
+            <div className="flex flex-col gap-6">
                 {/* Header Information */}
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div className="space-y-2">
+                    <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-4">
-                            <Button variant="outline" size="icon" onClick={() => router.back()}>
-                                <ArrowLeft className="h-4 w-4" />
+                            <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
+                                <ArrowLeft className="size-4" aria-hidden="true" />
                             </Button>
                             <h2 className="text-3xl font-bold tracking-tight">{name}</h2>
                         </div>
@@ -111,11 +111,11 @@ export default function FunctionDetailPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
-                                <Zap className="h-5 w-5 text-yellow-500" />
+                                <Zap className="size-5 text-yellow-500" />
                                 Function Info
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-4">
+                        <CardContent className="flex flex-col gap-4">
                             <div className="grid grid-cols-2 gap-2 text-sm">
                                 <span className="text-muted-foreground">Name:</span>
                                 <span className="font-medium">{details.name}</span>
@@ -129,11 +129,11 @@ export default function FunctionDetailPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center gap-2">
-                                <Server className="h-5 w-5 text-blue-500" />
+                                <Server className="size-5 text-blue-500" />
                                 Service Provider
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="space-y-4">
+                        <CardContent className="flex flex-col gap-4">
                             <div className="grid grid-cols-2 gap-2 text-sm">
                                 <span className="text-muted-foreground">Service:</span>
                                 <Button variant="link" className="p-0 h-auto font-medium justify-start" onClick={() => router.push(`/services/${encodeURIComponent(details.serviceName)}`)}>
@@ -153,7 +153,7 @@ export default function FunctionDetailPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <FileCode className="h-5 w-5 text-purple-500" />
+                            <FileCode className="size-5 text-purple-500" />
                             Usage Example
                         </CardTitle>
                         <CardDescription>

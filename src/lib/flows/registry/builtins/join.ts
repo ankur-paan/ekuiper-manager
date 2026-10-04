@@ -34,9 +34,11 @@ import type { FlowNodeDefinition } from '../node-definition';
  * `collection`) and one stream output. A direct stream (or table) upstream
  * is rejected by `src/lib/flows/validation/join-validation.ts` with an
  * existing diagnostic code; no `FlowPortKind` is widened and no new
- * diagnostic code is introduced. The required `from` and `joinName`
- * strings name the joined streams and compile verbatim to the eKuiper
- * `from` and `joins[0].name` props; the required opaque `condition`
+  * diagnostic code is introduced. The required `from` and `joinName`
+  * selects name the joined stream/table and compile verbatim to the eKuiper
+  * `from` and `joins[0].name` props (`from` offers the live `streams`
+  * provider names, `joinName` the live `tables` provider names, matching
+  * the stream-table enrichment pattern); the required opaque `condition`
  * expression compiles verbatim to `joins[0].on`. All three are stored as
  * text and never parsed here. The join type stays pinned to `inner` in the
  * compiler (the SQL default); no join-type control is exposed. Compiler
@@ -59,18 +61,20 @@ export const joinDefinition: FlowNodeDefinition = {
     {
       key: 'from',
       label: 'From stream',
-      type: 'string',
+      type: 'select',
       required: true,
       description:
-        'Left stream identity for the eKuiper join `from` prop. Stored as opaque text and copied verbatim by the compiler; never parsed here.',
+        'Left stream identity for the eKuiper join `from` prop. Offers the live stream names from the selected node; stored as opaque text and copied verbatim by the compiler, never parsed here.',
+      optionsProvider: 'streams',
     },
     {
       key: 'joinName',
       label: 'Join stream',
-      type: 'string',
+      type: 'select',
       required: true,
       description:
-        'Right stream identity for the eKuiper join `joins[0].name` prop. Stored as opaque text and copied verbatim by the compiler; never parsed here.',
+        'Right relation identity for the eKuiper join `joins[0].name` prop. Offers the live table names from the selected node; stored as opaque text and copied verbatim by the compiler, never parsed here.',
+      optionsProvider: 'tables',
     },
     {
       key: 'condition',

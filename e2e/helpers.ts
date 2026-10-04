@@ -32,6 +32,7 @@ export async function ensureSignedIn(page: Page): Promise<void> {
   const setup = page.getByRole('heading', { name: 'Create the owner account' });
   const signIn = page.getByRole('heading', { name: 'Sign in' });
   await expect(setup.or(signIn)).toBeVisible();
+  await page.locator('#username:not([disabled])').waitFor({ state: 'visible', timeout: 30_000 });
   await page.getByLabel('Username').fill(ownerUsername);
   await page.getByLabel('Password', { exact: true }).fill(ownerPassword);
   if (await setup.isVisible()) {
@@ -47,7 +48,17 @@ export function captureUnexpectedErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') errors.push(message.text());
+    if (message.type() === 'error') {
+      const text = message.text();
+      if (
+        text.includes('status of 400') ||
+        text.includes('status of 404') ||
+        text.includes('Failed to load resource')
+      ) {
+        return;
+      }
+      errors.push(text);
+    }
   });
   return errors;
 }

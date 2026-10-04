@@ -53,7 +53,7 @@
     "clsx": "^2.1.0",
     "cmdk": "^1.1.1",
     "lucide-react": "0.562.0",
-    "next": "16.2.11",
+    "next": "16.3.8",
     "pg": "^8.16.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -61,7 +61,6 @@
     "remark-gfm": "4.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "3.4.0",
-    "tailwindcss-animate": "^1.0.7",
     "zustand": "^5.0.10"
   },
   "devDependencies": {
@@ -76,12 +75,13 @@
     "autoprefixer": "^10.4.16",
     "dotenv": "^17.2.3",
     "eslint": "9.39.2",
-    "eslint-config-next": "16.2.11",
+    "eslint-config-next": "16.3.8",
     "jest": "^30.2.0",
     "jest-environment-jsdom": "^30.2.0",
     "postcss": "8.5.26",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "tailwindcss-animate": "^1.0.7"
   },
   "overrides": {
     "@babel/core": "7.29.7",
@@ -95,15 +95,15 @@
     "flatted": ">=3.4.2",
     "effect": ">=3.20.0",
     "picomatch": ">=4.0.4",
-    "brace-expansion": "5.0.9",
+    "brace-expansion": "5.0.12",
     "defu": ">=6.1.5",
-    "js-yaml": "4.3.1",
+    "js-yaml": "4.3.2",
     "nanoid": "3.3.18",
     "postcss": "8.5.26",
-    "sharp": "0.35.3",
+    "sharp": "0.35.5",
     "ws": "8.21.3",
     "@istanbuljs/load-nyc-config": {
-      "js-yaml": "3.15.1"
+      "js-yaml": "3.15.2"
     }
   }
 }

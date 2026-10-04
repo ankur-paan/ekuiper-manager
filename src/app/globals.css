@@ -32,6 +32,11 @@
     --input: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 48%;
 
+    /* Emil Kowalski custom easings */
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
     --radius: 0.5rem;
 
     /* FS-0130: Flow Studio chrome tokens. Surfaces/borders reuse the
@@ -201,10 +206,37 @@
 }
 
 .glass-morphism {
-  @apply backdrop-blur-xl bg-white/70;
+  @apply backdrop-blur-xl bg-background/80 border border-border;
 }
 
-[data-theme='dark'] .glass-morphism {
-  @apply bg-slate-900/80;
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
+
+/* MengTo beautiful-shadows dark mode elevation */
+.dark .shadow-beautiful-sm {
+  box-shadow: 0px 2px 4px -1px rgba(0, 0, 0, 0.5), 0px 1px 0px 0px rgba(255, 255, 255, 0.02), 0px 0px 0px 1px rgba(255, 255, 255, 0.06);
+}
+.dark .shadow-beautiful-md {
+  box-shadow: 0px 0px 0px 1px rgba(255, 255, 255, 0.07), 0px 2px 4px rgba(0, 0, 0, 0.4), 0px 12px 24px -4px rgba(0, 0, 0, 0.6);
+}
+.dark .shadow-beautiful-lg {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 24px -4px rgba(0, 0, 0, 0.6), 0 24px 48px -12px rgba(0, 0, 0, 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* WCAG 2.4.11: Ensure focused items clear fixed/sticky navigation headers */
+:focus {
+  scroll-margin-top: 60px;
+  scroll-margin-bottom: 60px;
+}
+
 

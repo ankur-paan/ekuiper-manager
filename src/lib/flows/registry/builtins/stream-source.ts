@@ -54,10 +54,11 @@ export const streamSourceDefinition: FlowNodeDefinition = {
     {
       key: 'connector',
       label: 'Connector',
-      type: 'string',
+      type: 'select',
       required: true,
       description:
-        'Source connector TYPE of the stream (for example memory or mqtt). Must match the stream definition; copied verbatim into the eKuiper graph `nodeType` and never guessed here.',
+        'Source connector TYPE of the stream (for example memory or mqtt). Must match the stream definition; copied verbatim into the eKuiper graph `nodeType` and never guessed here. Loaded live from the selected node.',
+      optionsProvider: 'source-connectors',
     },
   ],
 };
@@ -111,10 +112,11 @@ export const tableSourceDefinition: FlowNodeDefinition = {
     {
       key: 'connector',
       label: 'Connector',
-      type: 'string',
+      type: 'select',
       required: true,
       description:
-        'Source connector TYPE of the table (for example memory or redis). Must match the table definition; copied verbatim into the eKuiper graph `nodeType` and never guessed here.',
+        'Source connector TYPE of the table (for example memory or redis). Must match the table definition; copied verbatim into the eKuiper graph `nodeType` and never guessed here. Loaded live from the selected node.',
+      optionsProvider: 'source-connectors',
     },
   ],
 };

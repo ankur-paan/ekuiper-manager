@@ -146,13 +146,13 @@ export function QuickNodePicker({
       aria-label="Quick node picker"
       data-testid="quick-node-picker"
       className={cn(
-        "fixed z-50 flex flex-col overflow-hidden rounded-md border bg-background shadow-lg",
+        "fixed z-50 flex flex-col overflow-hidden rounded-xl border border-border/80 bg-background/95 backdrop-blur-md shadow-beautiful-md",
         className,
       )}
       style={clampedStyle}
       onKeyDown={handleKeyDown}
     >
-      <div className="shrink-0 space-y-1 border-b px-3 py-2">
+      <div className="shrink-0 flex flex-col gap-1 border-b px-3 py-2">
         <p className="text-xs font-semibold leading-tight">Add node</p>
         <Input
           ref={inputRef}
@@ -183,7 +183,7 @@ export function QuickNodePicker({
                     data-testid={`quick-node-picker-item-${definition.type}`}
                     data-highlighted={highlightedItem ? "true" : "false"}
                     className={cn(
-                      "flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "flex w-full flex-col items-start gap-0.5 rounded-lg px-2.5 py-1.5 text-left text-xs transition-[background-color,color,transform] duration-100 active:scale-[0.99] select-none hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       highlightedItem && "bg-accent text-accent-foreground",
                     )}
                     onMouseEnter={() => setHighlightedIndex(index)}

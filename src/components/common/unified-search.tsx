@@ -95,24 +95,29 @@ export function UnifiedSearch() {
         <>
             <CommandDialog open={open} onOpenChange={setOpen}>
                 <CommandInput placeholder={loading ? "Loading node resources…" : "Type a command or search…"} />
+                {loading && (
+                    <div className="h-0.5 w-full bg-primary/20 overflow-hidden">
+                        <div className="h-full bg-primary animate-pulse w-full" />
+                    </div>
+                )}
                 <CommandList>
                     <CommandEmpty>No results found.</CommandEmpty>
 
                     <CommandGroup heading="Suggestions">
                         <CommandItem onSelect={() => runCommand(() => router.push("/dashboard"))}>
-                            <Server className="mr-2 h-4 w-4" />
+                            <Server className="mr-2 h-4 w-4" aria-hidden="true" />
                             <span>Dashboard</span>
                         </CommandItem>
                         <CommandItem onSelect={() => runCommand(() => router.push("/streams"))}>
-                            <Database className="mr-2 h-4 w-4" />
+                            <Database className="mr-2 h-4 w-4" aria-hidden="true" />
                             <span>Streams</span>
                         </CommandItem>
                         <CommandItem onSelect={() => runCommand(() => router.push("/rules"))}>
-                            <Workflow className="mr-2 h-4 w-4" />
+                            <Workflow className="mr-2 h-4 w-4" aria-hidden="true" />
                             <span>Rules</span>
                         </CommandItem>
                         <CommandItem onSelect={() => runCommand(() => router.push("/data/import"))}>
-                            <Upload className="mr-2 h-4 w-4" />
+                            <Upload className="mr-2 h-4 w-4" aria-hidden="true" />
                             <span>Import configuration</span>
                         </CommandItem>
                     </CommandGroup>
@@ -124,7 +129,7 @@ export function UnifiedSearch() {
                         <CommandGroup heading="Rules">
                             {items.filter(i => i.type === "rule").slice(0, 5).map(item => (
                                 <CommandItem key={item.id} onSelect={() => runCommand(() => router.push(item.href))}>
-                                    <Workflow className="mr-2 h-4 w-4" />
+                                    <Workflow className="mr-2 h-4 w-4" aria-hidden="true" />
                                     <span>{item.title}</span>
                                 </CommandItem>
                             ))}
@@ -135,7 +140,7 @@ export function UnifiedSearch() {
                         <CommandGroup heading="Streams">
                             {items.filter(i => i.type === "stream").slice(0, 5).map(item => (
                                 <CommandItem key={item.id} onSelect={() => runCommand(() => router.push(item.href))}>
-                                    <Database className="mr-2 h-4 w-4" />
+                                    <Database className="mr-2 h-4 w-4" aria-hidden="true" />
                                     <span>{item.title}</span>
                                 </CommandItem>
                             ))}
@@ -146,7 +151,7 @@ export function UnifiedSearch() {
                         <CommandGroup heading="Tables">
                             {items.filter(i => i.type === "table").slice(0, 5).map(item => (
                                 <CommandItem key={item.id} onSelect={() => runCommand(() => router.push(item.href))}>
-                                    <Database className="mr-2 h-4 w-4" />
+                                    <Database className="mr-2 h-4 w-4" aria-hidden="true" />
                                     <span>{item.title}</span>
                                 </CommandItem>
                             ))}

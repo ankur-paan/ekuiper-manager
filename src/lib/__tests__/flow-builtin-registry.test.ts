@@ -143,10 +143,110 @@ describe('createBuiltinNodeRegistry', () => {
     }
   });
 
-  it('registers MQTT definitions deterministically', () => {
-    const first = createBuiltinNodeRegistry();
-    const second = createBuiltinNodeRegistry();
+  it('exposes asymmetric MQTT broker bindings: confKey picker on the source, server URL on the sink', () => {
+    const registry = createBuiltinNodeRegistry();
+    const source = registry.get('mqtt-source', 1);
+    const sink = registry.get('mqtt-sink', 1);
 
+    // Source binds by connection NAME via the live connections provider
+    // (GR-0001: `GET /connections` `listConnections` in
+    // `public/ekuiper-openapi.json` eKuiper 2.4.1; same declaration pattern
+    // stream-source uses for 'streams').
+    const confKey = source?.properties.find((property) => property.key === 'confKey');
+    expect(confKey?.type).toBe('select');
+    expect(confKey?.optionsProvider).toBe('connections');
+    expect(confKey?.required).not.toBe(true);
+
+    // Sink binds by broker URL, never by confKey: a confKey name is not a
+    // dialable address, so no option provider is declared here.
+    const server = sink?.properties.find((property) => property.key === 'server');
+    expect(server?.type).toBe('string');
+    expect(server?.optionsProvider).toBeUndefined();
+    expect(server?.required).not.toBe(true);
+    expect(sink?.properties.find((property) => property.key === 'confKey')).toBeUndefined();
+
+    // Labels say which binding each field is.
+    expect(confKey?.label).toMatch(/connection name/i);
+    expect(server?.label).toMatch(/broker url/i);
+
+    // Legacy alias stays optional on both so existing flows still validate
+    // and the compiler fallback keeps compiling them.
+    for (const definition of [source, sink]) {
+      const legacy = definition?.properties.find(
+        (property) => property.key === 'connectionSelector',
+      );
+      expect(legacy?.type).toBe('string');
+      expect(legacy?.required).not.toBe(true);
+    }
+
+    for (const definition of [source, sink]) {
+      assertValidCompilerMapping(definition);
+    }
+  });
+
+  it('exposes optional MQTT plant settings with engine-documented values', () => {
+    const registry = createBuiltinNodeRegistry();
+    const source = registry.get('mqtt-source', 1);
+    const sink = registry.get('mqtt-sink', 1);
+
+    // UX-0006: qos as a 0/1/2 select (RuleOptions enum [0,1,2] in the
+    // audited OpenAPI plus the MQTT confKey examples and the v2.4.1
+    // source/sink docs). Optional on both so existing flows keep
+    // validating unchanged.
+    for (const definition of [source, sink]) {
+      const qos = definition?.properties.find((property) => property.key === 'qos');
+      expect(qos?.type).toBe('select');
+      expect(qos?.required).not.toBe(true);
+      expect(qos?.options?.map((option) => option.value)).toEqual([0, 1, 2]);
+    }
+
+    // UX-0006: protocolVersion as a select of documented spellings.
+    // The source doc proves 3.1, 3.1.1, and 5 (MQTT v5 message
+    // properties); the sink doc proves only 3.1 and 3.1.1.
+    const sourceProtocol = source?.properties.find(
+      (property) => property.key === 'protocolVersion',
+    );
+    expect(sourceProtocol?.type).toBe('select');
+    expect(sourceProtocol?.required).not.toBe(true);
+    expect(sourceProtocol?.options?.map((option) => option.value)).toEqual([
+      '3.1',
+      '3.1.1',
+      '5',
+    ]);
+    const sinkProtocol = sink?.properties.find(
+      (property) => property.key === 'protocolVersion',
+    );
+    expect(sinkProtocol?.type).toBe('select');
+    expect(sinkProtocol?.required).not.toBe(true);
+    expect(sinkProtocol?.options?.map((option) => option.value)).toEqual([
+      '3.1',
+      '3.1.1',
+    ]);
+
+    // UX-0006: insecureSkipVerify as an optional boolean on both;
+    // retained as an optional boolean on the sink only (it is a
+    // publish-side concept with no source meaning).
+    for (const definition of [source, sink]) {
+      const skipVerify = definition?.properties.find(
+        (property) => property.key === 'insecureSkipVerify',
+      );
+      expect(skipVerify?.type).toBe('boolean');
+      expect(skipVerify?.required).not.toBe(true);
+    }
+    const retained = sink?.properties.find((property) => property.key === 'retained');
+    expect(retained?.type).toBe('boolean');
+    expect(retained?.required).not.toBe(true);
+    expect(
+      source?.properties.find((property) => property.key === 'retained'),
+    ).toBeUndefined();
+
+    for (const definition of [source, sink]) {
+      assertValidCompilerMapping(definition);
+    }
+  });
+
+  it('registers MQTT definitions deterministically', () => {    const first = createBuiltinNodeRegistry();
+    const second = createBuiltinNodeRegistry();
     expect(first.list()).toEqual(second.list());
     expect(first.get('mqtt-source', 1)).toEqual(second.get('mqtt-source', 1));
     expect(first.get('mqtt-sink', 1)).toEqual(second.get('mqtt-sink', 1));
@@ -357,6 +457,29 @@ describe('createBuiltinNodeRegistry', () => {
     expect(timeUnit?.required).toBe(true);
 
     assertValidCompilerMapping(window);
+  });
+
+  it('exposes window timeUnit as a select of the documented eKuiper time literals', () => {
+    const registry = createBuiltinNodeRegistry();
+    const window = registry.get('window', 1);
+
+    // UX-0003: free-text timeUnit failed at deploy on typos; the inspector
+    // now offers the closed documented set (DD, HH, MI, SS, MS). Spellings
+    // verified against the eKuiper windows reference (time literals
+    // `DD, HH, MI, SS, MS`); public/ekuiper-openapi.json carries no window
+    // unit enum (RuleGraph props are free-form), so the docs are the
+    // authority here.
+    const timeUnit = window?.properties.find((property) => property.key === 'timeUnit');
+    expect(timeUnit?.type).toBe('select');
+    expect(timeUnit?.required).toBe(true);
+    expect(timeUnit?.optionsProvider).toBeUndefined();
+    expect(timeUnit?.options?.map((option) => option.value)).toEqual([
+      'DD',
+      'HH',
+      'MI',
+      'SS',
+      'MS',
+    ]);
   });
 
   it('validates the required window settings via the generic property validator', () => {
@@ -935,7 +1058,10 @@ describe('createBuiltinNodeRegistry', () => {
         (property) => property.key === 'connector',
       );
       expect(connector?.required).toBe(true);
-      expect(connector?.type).toBe('string');
+      // UX-0004: connector is a select backed by the source-connectors
+      // provider (GET /metadata/sources, names only) instead of free text.
+      expect(connector?.type).toBe('select');
+      expect(connector?.optionsProvider).toBe('source-connectors');
 
       expect(definition?.subtitleKey).toBe(
         definition?.type === 'stream-source' ? 'stream' : 'table',

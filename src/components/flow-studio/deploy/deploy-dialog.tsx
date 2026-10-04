@@ -433,7 +433,7 @@ export function FlowDeployDialog({
             ) : null}
             {validation.phase === "valid" ? (
               <p
-                className="text-xs font-medium text-green-700"
+                className="text-xs font-medium text-emerald-600 dark:text-emerald-400"
                 data-testid="flow-deploy-validation-summary"
               >
                 Server: valid — the saved draft can be deployed.
@@ -563,12 +563,13 @@ export function FlowDeployDialog({
           ) : null}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
           <Button
             type="button"
             variant="outline"
             onClick={onClose}
             data-testid="flow-deploy-cancel"
+            className="touch-manipulation"
           >
             {deploy.phase === "succeeded" ? "Close" : "Cancel"}
           </Button>
@@ -577,6 +578,7 @@ export function FlowDeployDialog({
             onClick={handleDeploy}
             disabled={confirmDisabled}
             data-testid="flow-deploy-confirm"
+            className="touch-manipulation"
           >
             {deploying ? "Deploying…" : "Deploy"}
           </Button>

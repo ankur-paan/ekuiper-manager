@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -91,13 +92,13 @@ export default function PluginsPage() {
   const getPluginIcon = (type: InstallablePluginType) => {
     switch (type) {
       case "sources":
-        return <Plug className="h-4 w-4 text-blue-500" />;
+        return <Plug className="size-4 text-blue-500" />;
       case "sinks":
-        return <Plug className="h-4 w-4 text-green-500" />;
+        return <Plug className="size-4 text-green-500" />;
       case "functions":
-        return <Code2 className="h-4 w-4 text-purple-500" />;
+        return <Code2 className="size-4 text-purple-500" />;
       case "portables":
-        return <Box className="h-4 w-4 text-orange-500" />;
+        return <Box className="size-4 text-orange-500" />;
     }
   };
 
@@ -110,7 +111,7 @@ export default function PluginsPage() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
+          <ArrowUpDown className="ml-2 size-4" />
         </Button>
       ),
       cell: ({ row }) => (
@@ -136,23 +137,25 @@ export default function PluginsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" aria-label={`Actions for ${plugin.name}`}>
-                <MoreHorizontal className="h-4 w-4" />
+                <MoreHorizontal className="size-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => router.push(`/plugins/${activeTab}/${encodeURIComponent(plugin.name)}`)}
-              >
-                <Eye className="mr-2 h-4 w-4" />
-                View Details
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => setDeletePlugin({ name: plugin.name, type: activeTab })}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => router.push(`/plugins/${activeTab}/${encodeURIComponent(plugin.name)}`)}
+                >
+                  <Eye className="mr-2 size-4" />
+                  View Details
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() => setDeletePlugin({ name: plugin.name, type: activeTab })}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -173,7 +176,7 @@ export default function PluginsPage() {
 
   return (
     <AppLayout title="Plugins">
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -183,7 +186,7 @@ export default function PluginsPage() {
             </p>
           </div>
           <Button onClick={() => router.push(`/plugins/${activeTab}/new`)}>
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="mr-2 size-4" />
             Install Plugin
           </Button>
         </div>
@@ -192,19 +195,19 @@ export default function PluginsPage() {
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as InstallablePluginType)}>
           <TabsList>
             <TabsTrigger value="sources">
-              <Plug className="mr-2 h-4 w-4" />
+              <Plug className="mr-2 size-4" />
               Sources
             </TabsTrigger>
             <TabsTrigger value="sinks">
-              <Plug className="mr-2 h-4 w-4" />
+              <Plug className="mr-2 size-4" />
               Sinks
             </TabsTrigger>
             <TabsTrigger value="functions">
-              <Code2 className="mr-2 h-4 w-4" />
+              <Code2 className="mr-2 size-4" />
               Functions
             </TabsTrigger>
             <TabsTrigger value="portables">
-              <Box className="mr-2 h-4 w-4" />
+              <Box className="mr-2 size-4" />
               Portables
             </TabsTrigger>
           </TabsList>

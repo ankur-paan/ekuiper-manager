@@ -49,12 +49,6 @@ import { ekuiperClient } from "@/lib/ekuiper/client";
 import { Service } from "@/lib/ekuiper/types";
 import { toast } from "sonner";
 
-interface ServiceDetailPageProps {
-  params: {
-    name: string;
-  };
-}
-
 export default function ServiceDetailPage() {
   const router = useRouter();
   const params = useParams() as { name: string };
@@ -160,13 +154,13 @@ export default function ServiceDetailPage() {
 
   return (
     <AppLayout title={`Service: ${name}`}>
-      <div className="space-y-6">
+      <div className="flex flex-col gap-6">
         {/* Header Information */}
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <div className="flex items-center gap-4">
-              <Button variant="outline" size="icon" onClick={() => router.back()}>
-                <ArrowLeft className="h-4 w-4" />
+              <Button variant="outline" size="icon" onClick={() => router.back()} aria-label="Go back">
+                <ArrowLeft className="size-4" aria-hidden="true" />
               </Button>
               <h2 className="text-3xl font-bold tracking-tight">{name}</h2>
             </div>
@@ -177,7 +171,7 @@ export default function ServiceDetailPage() {
           <div className="flex items-center gap-2">
             <StatusBadge status="info" label="Registered" />
             <Button variant="outline" onClick={() => setUpdateOpen(true)}>
-              <Upload className="mr-2 h-4 w-4" />Update package
+              <Upload className="mr-2 size-4" aria-hidden="true" />Update package
             </Button>
           </div>
         </div>
@@ -193,9 +187,9 @@ export default function ServiceDetailPage() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {service.about?.author && (
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3">
                   <h4 className="text-sm font-medium text-muted-foreground">Author</h4>
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     {service.about.author.name && (
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{service.about.author.name}</span>
@@ -203,7 +197,7 @@ export default function ServiceDetailPage() {
                     )}
                     {service.about.author.email && (
                       <div className="flex items-center gap-2 text-sm">
-                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <Mail className="size-4 text-muted-foreground" aria-hidden="true" />
                         <a href={`mailto:${service.about.author.email}`} className="text-blue-500 hover:underline">
                           {service.about.author.email}
                         </a>
@@ -211,13 +205,13 @@ export default function ServiceDetailPage() {
                     )}
                     {service.about.author.company && (
                       <div className="flex items-center gap-2 text-sm">
-                        <Building className="h-4 w-4 text-muted-foreground" />
+                        <Building className="size-4 text-muted-foreground" aria-hidden="true" />
                         <span>{service.about.author.company}</span>
                       </div>
                     )}
                     {service.about.author.website && (
                       <div className="flex items-center gap-2 text-sm">
-                        <Globe className="h-4 w-4 text-muted-foreground" />
+                        <Globe className="size-4 text-muted-foreground" aria-hidden="true" />
                         <a
                           href={service.about.author.website}
                           target="_blank"
@@ -233,7 +227,7 @@ export default function ServiceDetailPage() {
               )}
 
               {service.about?.description && (
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3">
                   <h4 className="text-sm font-medium text-muted-foreground">Description</h4>
                   <p className="text-sm text-muted-foreground">
                     {service.about.description.en_US || service.about.description.zh_CN || "No description provided"}
@@ -242,10 +236,10 @@ export default function ServiceDetailPage() {
               )}
 
               {service.about?.helpUrl && (
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3">
                   <h4 className="text-sm font-medium text-muted-foreground">Documentation</h4>
                   <div className="flex items-center gap-2 text-sm">
-                    <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                    <HelpCircle className="size-4 text-muted-foreground" aria-hidden="true" />
                     <a
                       href={service.about.helpUrl.en_US || service.about.helpUrl.zh_CN}
                       target="_blank"
@@ -265,11 +259,11 @@ export default function ServiceDetailPage() {
         <Tabs defaultValue="interfaces">
           <TabsList>
             <TabsTrigger value="interfaces">
-              <Server className="mr-2 h-4 w-4" />
+              <Server className="mr-2 size-4" aria-hidden="true" />
               Interfaces
             </TabsTrigger>
             <TabsTrigger value="functions">
-              <Zap className="mr-2 h-4 w-4" />
+              <Zap className="mr-2 size-4" aria-hidden="true" />
               Functions
               <Badge variant="secondary" className="ml-2">
                 {functions.length}
@@ -277,14 +271,14 @@ export default function ServiceDetailPage() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="interfaces" className="space-y-4">
+          <TabsContent value="interfaces" className="flex flex-col gap-4">
             {service.interfaces && Object.entries(service.interfaces).map(([ifaceName, iface]) => (
               <Card key={ifaceName}>
                 <CardHeader>
                   <div className="flex items-center justify-between">
-                    <div className="space-y-1">
+                    <div className="flex flex-col gap-1">
                       <CardTitle className="text-base font-medium flex items-center gap-2">
-                        <Code className="h-4 w-4 text-blue-500" />
+                        <Code className="size-4 text-blue-500" aria-hidden="true" />
                         {ifaceName}
                       </CardTitle>
                       <CardDescription>{iface.address}</CardDescription>
@@ -338,7 +332,7 @@ export default function ServiceDetailPage() {
                       <TableRow key={`${func.interface}-${func.name}`}>
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
-                            <Zap className="h-4 w-4 text-yellow-500" />
+                            <Zap className="size-4 text-yellow-500" aria-hidden="true" />
                             {func.name}
                           </div>
                         </TableCell>
@@ -376,14 +370,14 @@ export default function ServiceDetailPage() {
             <DialogTitle>Update service package</DialogTitle>
             <DialogDescription>Provide a new zip-package URI that the selected eKuiper node can read.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <Label htmlFor="service-package-uri">Service Package URI</Label>
             <Input id="service-package-uri" value={packageUri} onChange={(event) => setPackageUri(event.target.value)} placeholder="https://example.com/my-service.zip" />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUpdateOpen(false)}>Cancel</Button>
-            <Button onClick={() => void updateService()} disabled={updating || !packageUri.trim()}>
-              {updating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Update service
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setUpdateOpen(false)} className="touch-manipulation">Cancel</Button>
+            <Button onClick={() => void updateService()} disabled={updating || !packageUri.trim()} className="touch-manipulation">
+              {updating && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />}Update service
             </Button>
           </DialogFooter>
         </DialogContent>

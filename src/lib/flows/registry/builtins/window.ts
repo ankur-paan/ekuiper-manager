@@ -14,7 +14,7 @@ import type { FlowNodeDefinition } from '../node-definition';
  *   config shapes, so they are out of scope for this v1 definition.
  *
  * Only the confirmed common properties required for one working tumbling
- * window are exposed: a numeric `length` plus a `timeUnit` string
+ * window are exposed: a numeric `length` plus a `timeUnit` select
  * (matching the two-argument `TumblingWindow(unit, size)` shape). Both are
  * stored as opaque editor semantics and are never parsed here; compiler
  * mapping (`runtimeKind`/`operation`) is intentionally omitted and lands in
@@ -32,6 +32,7 @@ export const windowDefinition: FlowNodeDefinition = {
   outputs: [{ id: 'out', label: 'Collection', kind: 'collection' }],
   properties: [
     {
+      // Authority: https://ekuiper.org/docs/en/latest/guide/rules/graph_rule.html#window — engine `window` prop `size` (int); Flow key `length` is the editor alias (envelope: public/ekuiper-openapi.json#/components/schemas/RuleGraph free-form props).
       key: 'length',
       label: 'Length',
       type: 'number',
@@ -40,12 +41,20 @@ export const windowDefinition: FlowNodeDefinition = {
         'Tumbling window length in timeUnit units. Stored as editor semantics; compiler mapping to the eKuiper window operator lands later.',
     },
     {
+      // Authority: https://ekuiper.org/docs/en/latest/guide/rules/graph_rule.html#window (`unit`) + https://ekuiper.org/docs/en/latest/sqls/windows.html#time-units (DD/HH/MI/SS/MS); Flow key `timeUnit` is the editor alias for engine `unit`.
       key: 'timeUnit',
       label: 'Time unit',
-      type: 'string',
+      type: 'select',
       required: true,
       description:
-        'Time unit for the tumbling window length. Stored as editor semantics; compiler mapping to the eKuiper window operator lands later.',
+        'Time unit for the tumbling window length. eKuiper time literals: DD (days), HH (hours), MI (minutes), SS (seconds), MS (milliseconds). Previously saved values are preserved by the inspector and copied verbatim by the compiler, so existing flows keep compiling.',
+      options: [
+        { label: 'DD', value: 'DD' },
+        { label: 'HH', value: 'HH' },
+        { label: 'MI', value: 'MI' },
+        { label: 'SS', value: 'SS' },
+        { label: 'MS', value: 'MS' },
+      ],
     },
   ],
 };

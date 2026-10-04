@@ -3,10 +3,12 @@
 import * as React from "react";
 import dynamic from "next/dynamic";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FlowOptionItem, FlowPropertyDefinition } from "@/lib/flows/registry/node-definition";
 import { mergeFlowPropertyOptions } from "@/lib/flows/registry/node-definition";
@@ -368,41 +370,247 @@ function SelectField({
   const showUnmatchedNote = matched === undefined && domValue !== "";
   const showLoadingNote = provider !== null && providerOptions === null && !providerFailed;
 
+  // UX-0001: searchable combobox state. `search` filters the merged option
+  // list; `activeIndex` tracks keyboard navigation within the filtered
+  // rows. Opening resets the filter; Escape closes without writing into
+  // node config (selection only commits on click/Enter).
+  const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const listboxId = `${fieldId}-listbox`;
+  const searchId = `${fieldId}-search`;
+  const manualId = `${fieldId}-manual`;
+
+  const filtered = React.useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (needle.length === 0) {
+      return options;
+    }
+    return options.filter((option) => {
+      const haystack = `${option.label} ${String(option.value)}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [options, search]);
+
+  // Focus moves into the filter field whenever the popup opens.
+  React.useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setSearch("");
+    setActiveIndex(0);
+    const timer = window.setTimeout(() => {
+      searchRef.current?.focus();
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [open ]);
+
+  // Pointer outside the control closes the popup without committing.
+  React.useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const handler = (event: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => {
+      document.removeEventListener("pointerdown", handler);
+    };
+  }, [open ]);
+
+  // Keep the keyboard cursor inside the filtered rows.
+  React.useEffect(() => {
+    setActiveIndex((index) => Math.min(index, Math.max(filtered.length - 1, 0)));
+  }, [filtered.length]);
+
+  const commitOption = (next: string | number | boolean) => {
+    onChange(next);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const clearSelection = () => {
+    onChange(undefined);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((index) => Math.min(index + 1, Math.max(filtered.length - 1, 0)));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const current = filtered[activeIndex];
+      if (current) {
+        commitOption(current.value);
+      }
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+  };
+
+  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Escape" && open) {
+      event.preventDefault();
+      setOpen(false);
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
+      if (!open) {
+        event.preventDefault();
+        setOpen(true);
+      }
+    }
+  };
+
+  const triggerLabel = matched ? matched.label : domValue !== "" ? domValue : "Select…";
+  // Manual fallback mirrors the current value as editable text so a failed
+  // provider lookup never blocks authoring; empty text clears the key.
+  const manualText = matched ? String(matched.value) : domValue;
+
   return (
     <React.Fragment>
-      <select
-        id={fieldId}
-        aria-describedby={descriptionId}
-        aria-label={definition.label}
-        className={cn(
-          "flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-        )}
-        value={options.some((option) => String(option.value) === domValue) ? domValue : ""}
-        onChange={(event) => {
-          const raw = event.target.value;
-          if (raw === "") {
-            onChange(undefined);
-            return;
-          }
-          const selected = options.find((option) => String(option.value) === raw);
-          onChange(selected ? selected.value : raw);
-        }}
-        data-testid={`property-field-select-${definition.key}`}
-      >
-        <option value="">Select…</option>
-        {options.map((option) => (
-          <option key={String(option.value)} value={String(option.value)}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <div ref={containerRef} className="relative">
+        <Button
+          ref={triggerRef}
+          type="button"
+          id={fieldId}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listboxId}
+          aria-haspopup="listbox"
+          aria-describedby={descriptionId}
+          aria-label={definition.label}
+          variant="outline"
+          data-testid={`property-field-select-${definition.key}`}
+          className="w-full justify-between font-normal"
+          onClick={() => {
+            setOpen((next) => !next);
+          }}
+          onKeyDown={handleTriggerKeyDown}
+        >
+          <span className="truncate">{triggerLabel}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
+        </Button>
+        {open ? (
+          <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-beautiful-md">
+            <div className="p-1">
+              <Input
+                ref={searchRef}
+                id={searchId}
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="Type to filter…"
+                aria-label={`${definition.label} filter`}
+                aria-controls={listboxId}
+                aria-activedescendant={filtered.length > 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setActiveIndex(0);
+                }}
+                onKeyDown={handleSearchKeyDown}
+                data-testid={`property-field-search-${definition.key}`}
+              />
+            </div>
+            <div
+              id={listboxId}
+              role="listbox"
+              aria-label={definition.label}
+              className="max-h-60 overflow-y-auto p-1"
+            >
+              {filtered.length === 0 ? (
+                <p className="px-2 py-6 text-center text-sm text-muted-foreground">No matches found.</p>
+              ) : (
+                filtered.map((option, index) => {
+                  const selected = matched !== undefined && Object.is(option.value, matched.value);
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={String(option.value)}
+                      type="button"
+                      role="option"
+                      id={`${listboxId}-option-${index}`}
+                      aria-selected={selected}
+                      data-testid={`property-field-option-${definition.key}-${String(option.value)}`}
+                      className={cn(
+                        "relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none",
+                        active ? "bg-accent text-accent-foreground" : "text-foreground",
+                      )}
+                      onClick={() => {
+                        commitOption(option.value);
+                      }}
+                      onMouseEnter={() => {
+                        setActiveIndex(index);
+                      }}
+                    >
+                      <span className="truncate">{option.label}</span>
+                      {selected ? (
+                        <span className="ml-auto flex h-3.5 w-3.5 items-center justify-center">
+                          <Check className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
+              {domValue !== "" ? (
+                <button
+                  type="button"
+                  className="relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground"
+                  onClick={clearSelection}
+                  data-testid={`property-field-clear-${definition.key}`}
+                >
+                  Clear selection
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
       {showLoadingNote ? (
         <p className="text-xs text-muted-foreground">Loading options…</p>
       ) : null}
       {providerFailed ? (
-        <p className="text-xs text-muted-foreground">
-          Live options could not be loaded. Saved value is preserved.
-        </p>
+        <React.Fragment>
+          <p className="text-xs text-muted-foreground" role="status">
+            Live options could not be loaded. You can still type a value manually below.
+          </p>
+          <Input
+            id={manualId}
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            aria-label={`${definition.label} manual entry`}
+            placeholder="Type a value manually…"
+            value={manualText}
+            onChange={(event) => {
+              const raw = event.target.value;
+              if (raw === "") {
+                onChange(undefined);
+                return;
+              }
+              onChange(raw);
+            }}
+            data-testid={`property-field-manual-${definition.key}`}
+          />
+        </React.Fragment>
       ) : null}
       {showUnmatchedNote ? (
         <p className="text-xs text-muted-foreground">Saved value is preserved but is not a known option.</p>

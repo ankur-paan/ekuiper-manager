@@ -186,7 +186,7 @@ export function DefinitionPanel({ flowId, className }: DefinitionPanelProps) {
               {": "}
               {diagnostic.message}
               {diagnostic.nodeId ? (
-                <span className="mt-0.5 block truncate opacity-80">
+                <span className="mt-0.5 block truncate opacity-80" title={`node ${diagnostic.nodeId}`}>
                   node {diagnostic.nodeId}
                 </span>
               ) : null}

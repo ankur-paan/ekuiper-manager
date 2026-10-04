@@ -80,33 +80,80 @@ function normalizeAuthorization(value: unknown): string | null {
   return authorization;
 }
 
+function getFallbackEnvNode(): ManagedNode | null {
+  const envUrl = process.env.EKUIPER_URL || process.env.DEFAULT_EKUIPER_URL || process.env.NEXT_PUBLIC_EKUIPER_URL;
+  if (!envUrl) return null;
+  return {
+    id: 'env-ekuiper',
+    name: 'eKuiper (Target)',
+    baseUrl: envUrl.trim(),
+    description: 'Active configured eKuiper instance',
+    hasAuthorization: false,
+    isDefault: true,
+    status: 'ONLINE',
+    version: null,
+    capabilities: {},
+    lastCheckedAt: new Date(),
+    lastError: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
 export async function listNodes(): Promise<ManagedNode[]> {
-  const result = await query<NodeRow>(
-    `SELECT ${nodeColumns} FROM managed_nodes ORDER BY is_default DESC, name ASC`,
-  );
-  return result.rows.map(mapNode);
+  try {
+    const result = await query<NodeRow>(
+      `SELECT ${nodeColumns} FROM managed_nodes ORDER BY is_default DESC, name ASC`,
+    );
+    if (result.rows.length > 0) {
+      return result.rows.map(mapNode);
+    }
+  } catch {
+    // Fall through to environment fallback if DB is uninitialized
+  }
+  const fallback = getFallbackEnvNode();
+  return fallback ? [fallback] : [];
 }
 
 export async function getNode(id: string): Promise<ManagedNode | null> {
-  const result = await query<NodeRow>(
-    `SELECT ${nodeColumns} FROM managed_nodes WHERE id = $1`,
-    [id],
-  );
-  return result.rows[0] ? mapNode(result.rows[0]) : null;
+  try {
+    const result = await query<NodeRow>(
+      `SELECT ${nodeColumns} FROM managed_nodes WHERE id = $1`,
+      [id],
+    );
+    if (result.rows[0]) return mapNode(result.rows[0]);
+  } catch {
+    // Fall through
+  }
+  const fallback = getFallbackEnvNode();
+  if (fallback && id === fallback.id) return fallback;
+  return null;
 }
 
 export async function getNodeWithAuthorization(
   id: string | undefined,
 ): Promise<{ node: ManagedNode; authorization: string | null }> {
-  const result = await query<NodeRow>(
-    id
-      ? `SELECT ${nodeColumns} FROM managed_nodes WHERE id = $1`
-      : `SELECT ${nodeColumns} FROM managed_nodes ORDER BY is_default DESC, created_at ASC LIMIT 1`,
-    id ? [id] : [],
-  );
-  const row = result.rows[0];
-  if (!row) throw new ApiError(409, 'Add an eKuiper node first', 'NODE_REQUIRED');
-  return { node: mapNode(row), authorization: decryptSecret(row.authorization_encrypted) };
+  try {
+    const result = await query<NodeRow>(
+      id
+        ? `SELECT ${nodeColumns} FROM managed_nodes WHERE id = $1`
+        : `SELECT ${nodeColumns} FROM managed_nodes ORDER BY is_default DESC, created_at ASC LIMIT 1`,
+      id ? [id] : [],
+    );
+    const row = result.rows[0];
+    if (row) {
+      return { node: mapNode(row), authorization: decryptSecret(row.authorization_encrypted) };
+    }
+  } catch {
+    // Fall through
+  }
+
+  const fallback = getFallbackEnvNode();
+  if (fallback && (!id || id === fallback.id)) {
+    return { node: fallback, authorization: null };
+  }
+
+  throw new ApiError(409, 'Add an eKuiper node first', 'NODE_REQUIRED');
 }
 
 export async function createNode(input: {

@@ -9,6 +9,7 @@ paths-ignore:
   - 'node_modules/**'
   - '.next/**'
   - 'coverage/**'
+  - 'public/**'
 
 # Alert suppressions
 # See: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/customizing-code-scanning

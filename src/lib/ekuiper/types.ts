@@ -378,18 +378,21 @@ export interface RuleTestResponse {
 // Metadata Types (Phase 5)
 // -----------------------------------------------------------------------------
 
+export type I18nString = string | Record<string, string>;
+
 export interface MetadataAbout {
-  trial: boolean;
-  installed: boolean;
-  author?: string;
-  helpUrl?: string;
-  description?: string;
+  trial?: boolean;
+  installed?: boolean;
+  author?: string | { name?: string; email?: string; company?: string; website?: string };
+  helpUrl?: I18nString;
+  description?: I18nString;
+  label?: I18nString;
 }
 
 export interface MetadataItem {
   name: string;
   about: MetadataAbout;
-  type: "internal" | "plugin";
+  type?: "internal" | "plugin";
 }
 
 export interface MetadataProperty {
@@ -397,23 +400,33 @@ export interface MetadataProperty {
   default?: any;
   type: string;
   control: string;
-  optional: boolean;
-  values?: string[];
-  hint?: string;
-  label?: string;
+  optional?: boolean;
+  values?: any[];
+  hint?: I18nString;
+  label?: I18nString;
   connection_related?: boolean;
+  properties?: MetadataProperty[];
+}
+
+export interface MetadataDataSource {
+  default?: string;
+  hint?: I18nString;
+  label?: I18nString;
 }
 
 export interface MetadataDetail {
-  about: MetadataAbout;
+  id?: string;
+  name?: string;
+  about?: MetadataAbout;
   libs?: string[];
-  properties: MetadataProperty[];
+  properties: MetadataProperty[] | { default?: MetadataProperty[] };
+  dataSource?: MetadataDataSource;
   node?: {
-    category: string;
+    category?: string;
     icon?: string;
     label?: string;
   };
-  type: "internal" | "plugin";
+  type?: "internal" | "plugin";
 }
 
 // -----------------------------------------------------------------------------
@@ -433,6 +446,7 @@ export interface PluginCreateRequest {
   name: string;
   file: string;
   shellParas?: string[];
+  functions?: string[];
 }
 
 // -----------------------------------------------------------------------------

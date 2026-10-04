@@ -64,6 +64,13 @@ export function AppLayout({ children, title }: AppLayoutProps) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-beautiful-md focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
+
       {/* Sidebar - Hidden on mobile, visible on md+ screens */}
       <div className="hidden md:block shrink-0">
         <Sidebar
@@ -75,7 +82,7 @@ export function AppLayout({ children, title }: AppLayoutProps) {
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <Header title={title} />
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto p-4 md:p-6 focus:outline-none">
           {children}
         </main>
       </div>

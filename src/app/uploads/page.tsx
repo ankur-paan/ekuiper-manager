@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -20,9 +21,12 @@ import {
   Trash2,
   UploadCloud,
   ArrowUpDown,
+  Plus,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { UploadFileModal } from "@/components/uploads/upload-file-modal";
 
 interface UploadItem {
   name: string;
@@ -38,6 +42,7 @@ export default function UploadsPage() {
   const [deleteName, setDeleteName] = React.useState<string | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [createModalOpen, setCreateModalOpen] = React.useState(false);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -127,12 +132,12 @@ export default function UploadsPage() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           File Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
+          <ArrowUpDown className="ml-2 size-4" />
         </Button>
       ),
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          <File className="h-4 w-4 text-blue-500" />
+          <File className="size-4 text-blue-500" />
           <span className="font-medium">{row.getValue("name")}</span>
         </div>
       ),
@@ -145,17 +150,28 @@ export default function UploadsPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" aria-label={`Actions for ${row.original.name}`}>
-                <MoreHorizontal className="h-4 w-4" />
+                <MoreHorizontal className="size-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => setDeleteName(row.original.name)}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => {
+                    navigator.clipboard.writeText(`file://${row.original.name}`);
+                    toast.success(`Copied path: file://${row.original.name}`);
+                  }}
+                >
+                  <Copy className="mr-2 size-4" />
+                  Copy File Path
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() => setDeleteName(row.original.name)}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -173,10 +189,16 @@ export default function UploadsPage() {
 
   return (
     <AppLayout title="File Uploads">
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">File Uploads</h2>
-          <p className="text-muted-foreground">Upload and remove files stored by the selected eKuiper node.</p>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">File Uploads</h2>
+            <p className="text-muted-foreground">Upload and remove files stored by the selected eKuiper node.</p>
+          </div>
+          <Button onClick={() => setCreateModalOpen(true)} className="gap-1.5 shrink-0">
+            <Plus className="size-4" />
+            Create / Upload File
+          </Button>
         </div>
 
         {/* Drag & Drop Zone */}
@@ -209,7 +231,7 @@ export default function UploadsPage() {
             disabled={uploading}
           />
           <div className={`p-4 rounded-full ${isDragging ? 'bg-primary/20' : 'bg-muted'} mb-4`}>
-            <UploadCloud className={cn("h-8 w-8", isDragging ? "text-primary" : "text-muted-foreground")} />
+            <UploadCloud className={cn("size-8", isDragging ? "text-primary" : "text-muted-foreground")} />
           </div>
           <h3 className="font-semibold text-lg mb-1">
             {uploading ? "Uploading..." : "Click or drag file to upload"}
@@ -239,6 +261,12 @@ export default function UploadsPage() {
           description={`Are you sure you want to delete "${deleteName}"? Configurations relying on this file path will break.`}
           onConfirm={handleDelete}
           variant="danger"
+        />
+
+        <UploadFileModal
+          open={createModalOpen}
+          onOpenChange={setCreateModalOpen}
+          onSuccess={fetchData}
         />
       </div>
     </AppLayout>

@@ -174,17 +174,17 @@ export default function PluginDetailPage() {
   const getPluginIcon = () => {
     switch (type) {
       case "sources":
-        return <Plug className="h-6 w-6 text-blue-500" />;
+        return <Plug className="size-6 text-blue-500" />;
       case "sinks":
-        return <Plug className="h-6 w-6 text-green-500" />;
+        return <Plug className="size-6 text-green-500" />;
       case "functions":
-        return <Code2 className="h-6 w-6 text-purple-500" />;
+        return <Code2 className="size-6 text-purple-500" />;
       case "portables":
-        return <Box className="h-6 w-6 text-orange-500" />;
+        return <Box className="size-6 text-orange-500" />;
       case "udfs":
-        return <Code2 className="h-6 w-6 text-yellow-500" />;
+        return <Code2 className="size-6 text-yellow-500" />;
       default:
-        return <Plug className="h-6 w-6 text-muted-foreground" />;
+        return <Plug className="size-6 text-muted-foreground" />;
     }
   };
 
@@ -194,9 +194,9 @@ export default function PluginDetailPage() {
     return (
       <Badge variant={isRunning ? "default" : "secondary"} className="ml-2">
         {isRunning ? (
-          <><CheckCircle2 className="mr-1 h-3 w-3" /> Running</>
+          <><CheckCircle2 className="mr-1 size-3" /> Running</>
         ) : (
-          <><AlertTriangle className="mr-1 h-3 w-3" /> {status}</>
+          <><AlertTriangle className="mr-1 size-3" /> {status}</>
         )}
       </Badge>
     );
@@ -246,7 +246,7 @@ export default function PluginDetailPage() {
 
   return (
     <AppLayout title={`Plugin: ${name}`}>
-      <div className="space-y-6">
+      <div className="flex flex-col gap-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -254,8 +254,9 @@ export default function PluginDetailPage() {
               variant="ghost"
               size="icon"
               onClick={() => router.push("/plugins")}
+              aria-label="Back to plugins"
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="size-5" aria-hidden="true" />
             </Button>
             <div className="flex items-center gap-3">
               {getPluginIcon()}
@@ -277,15 +278,15 @@ export default function PluginDetailPage() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="icon" onClick={fetchPluginDetails} aria-label="Refresh plugin">
-              <RefreshCw className="h-4 w-4" />
+              <RefreshCw className="size-4" aria-hidden="true" />
             </Button>
             {type !== "udfs" && <>
               <Button variant="outline" onClick={() => setShowUpdateDialog(true)}>
-                <Upload className="mr-2 h-4 w-4" />
+                <Upload className="mr-2 size-4" aria-hidden="true" />
                 Update
               </Button>
               <Button variant="destructive" onClick={() => setShowDeleteDialog(true)}>
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Trash2 className="mr-2 size-4" aria-hidden="true" />
                 Delete
               </Button>
             </>}
@@ -297,7 +298,7 @@ export default function PluginDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
+                <Activity className="size-5" aria-hidden="true" />
                 Runtime Status
               </CardTitle>
             </CardHeader>
@@ -306,9 +307,9 @@ export default function PluginDetailPage() {
                 <p className="text-sm text-muted-foreground">Status</p>
                 <p className="font-medium flex items-center gap-2">
                   {plugin.status === "running" ? (
-                    <><CheckCircle2 className="h-4 w-4 text-green-500" /> Running</>
+                    <><CheckCircle2 className="size-4 text-green-500" aria-hidden="true" /> Running</>
                   ) : (
-                    <><AlertTriangle className="h-4 w-4 text-amber-500" /> {plugin.status}</>
+                    <><AlertTriangle className="size-4 text-amber-500" aria-hidden="true" /> {plugin.status}</>
                   )}
                 </p>
               </div>
@@ -343,7 +344,7 @@ export default function PluginDetailPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2">
-                    <ListTree className="h-5 w-5" />
+                    <ListTree className="size-5" />
                     Functions
                   </CardTitle>
                   <CardDescription>
@@ -351,7 +352,7 @@ export default function PluginDetailPage() {
                   </CardDescription>
                 </div>
                 <Button size="sm" onClick={() => setShowRegisterDialog(true)}>
-                  <Code2 className="mr-2 h-4 w-4" />
+                  <Code2 className="mr-2 size-4" />
                   Register Functions
                 </Button>
               </div>
@@ -396,10 +397,10 @@ export default function PluginDetailPage() {
         onOpenChange={setShowDeleteDialog}
         title="Delete Plugin"
         description={
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4">
             <p>Are you sure you want to delete the plugin &quot;{name}&quot;? This action cannot be undone.</p>
             {type !== "portables" && (
-              <div className="flex items-center space-x-2 p-3 bg-amber-500/10 rounded-lg">
+              <div className="flex items-center gap-2 p-3 bg-amber-500/10 rounded-lg">
                 <Checkbox
                   id="stopRules"
                   checked={stopRulesOnDelete}
@@ -426,10 +427,11 @@ export default function PluginDetailPage() {
               Provide a URL to the new version of the plugin zip file
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Plugin URL</Label>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="plugin-update-url">Plugin URL</Label>
               <Input
+                id="plugin-update-url"
                 value={updateUrl}
                 onChange={(e) => setUpdateUrl(e.target.value)}
                 placeholder="https://example.com/plugin-v2.0.zip"
@@ -437,17 +439,17 @@ export default function PluginDetailPage() {
             </div>
             {type !== "portables" && (
               <div className="p-3 bg-amber-500/10 rounded-lg text-sm">
-                <AlertTriangle className="inline h-4 w-4 mr-1" />
+                <AlertTriangle className="inline size-4 mr-1" aria-hidden="true" />
                 Native plugins require an eKuiper restart to take effect.
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowUpdateDialog(false)}>
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowUpdateDialog(false)} className="touch-manipulation">
               Cancel
             </Button>
-            <Button onClick={handleUpdate} disabled={updating || !updateUrl}>
-              {updating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button onClick={handleUpdate} disabled={updating || !updateUrl} className="touch-manipulation">
+              {updating && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />}
               Update Plugin
             </Button>
           </DialogFooter>
@@ -463,10 +465,11 @@ export default function PluginDetailPage() {
               Register exported functions from the plugin &quot;{name}&quot;
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Function Names (comma-separated)</Label>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="plugin-functions-register">Function Names (comma-separated)</Label>
               <Input
+                id="plugin-functions-register"
                 value={functionsToRegister}
                 onChange={(e) => setFunctionsToRegister(e.target.value)}
                 placeholder="func1, func2, func3"
@@ -476,12 +479,12 @@ export default function PluginDetailPage() {
               </p>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowRegisterDialog(false)}>
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setShowRegisterDialog(false)} className="touch-manipulation">
               Cancel
             </Button>
-            <Button onClick={handleRegisterFunctions} disabled={registering || !functionsToRegister.trim()}>
-              {registering && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button onClick={handleRegisterFunctions} disabled={registering || !functionsToRegister.trim()} className="touch-manipulation">
+              {registering && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />}
               Register
             </Button>
           </DialogFooter>

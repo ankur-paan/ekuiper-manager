@@ -35,6 +35,7 @@ export const aggregateDefinition: FlowNodeDefinition = {
   outputs: [{ id: 'out', label: 'Stream', kind: 'stream' }],
   properties: [
     {
+      // Authority: https://ekuiper.org/docs/en/latest/guide/rules/graph_rule.html#aggfunc — engine `aggfunc` prop `expr` (string, one aggregate call); Flow key `fields` is the editor alias (envelope: public/ekuiper-openapi.json#/components/schemas/RuleGraph free-form props).
       key: 'fields',
       // AC-D002: labelled 'Fields' (plural) and described as expressions, this invited a
       // comma-separated list, which eKuiper rejects at deploy time - the aggfunc operator
@@ -83,6 +84,7 @@ export const groupByDefinition: FlowNodeDefinition = {
   outputs: [{ id: 'out', label: 'Collection', kind: 'collection' }],
   properties: [
     {
+      // Authority: https://ekuiper.org/docs/en/latest/guide/rules/graph_rule.html#groupby — engine `groupby` prop `dimensions` ([]string); Flow key `keys` is the editor alias (envelope: public/ekuiper-openapi.json#/components/schemas/RuleGraph free-form props).
       key: 'keys',
       label: 'Keys',
       type: 'expression',

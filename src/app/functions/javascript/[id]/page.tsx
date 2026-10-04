@@ -20,12 +20,6 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CodeEditor } from "@/components/ui/code-editor";
 
-interface PageProps {
-    params: {
-        id: string;
-    };
-}
-
 const DEFAULT_SCRIPT = `/**
  * Custom JavaScript UDF
  * @param {any[]} args - The arguments passed to the function
@@ -149,11 +143,12 @@ export default function JSUDFEditorPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => router.push("/functions")}
+                            aria-label="Back to functions"
                         >
-                            <ArrowLeft className="h-5 w-5" />
+                            <ArrowLeft className="size-5" aria-hidden="true" />
                         </Button>
                         <div className="flex items-center gap-3">
-                            <Code2 className="h-6 w-6 text-yellow-500" />
+                            <Code2 className="size-6 text-yellow-500" aria-hidden="true" />
                             <div>
                                 <h2 className="text-2xl font-bold tracking-tight">
                                     {isNew ? "Create JavaScript UDF" : funcId}
@@ -165,8 +160,8 @@ export default function JSUDFEditorPage() {
                         </div>
                     </div>
                     <Button onClick={handleSave} disabled={saving}>
-                        {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        <Save className="mr-2 h-4 w-4" />
+                        {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
+                        <Save className="mr-2 size-4" />
                         Save Function
                     </Button>
                 </div>
@@ -179,8 +174,8 @@ export default function JSUDFEditorPage() {
                             <CardTitle>Configuration</CardTitle>
                             <CardDescription>Function metadata</CardDescription>
                         </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="space-y-2">
+                        <CardContent className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-2">
                                 <Label htmlFor="funcId">Function ID</Label>
                                 <Input
                                     id="funcId"
@@ -192,7 +187,7 @@ export default function JSUDFEditorPage() {
                                 {!isNew && <p className="text-xs text-muted-foreground">ID cannot be changed after creation</p>}
                             </div>
 
-                            <div className="space-y-2">
+                            <div className="flex flex-col gap-2">
                                 <Label htmlFor="description">Description</Label>
                                 <Input
                                     id="description"
@@ -202,8 +197,8 @@ export default function JSUDFEditorPage() {
                                 />
                             </div>
 
-                            <div className="flex items-center justify-between rounded-lg border p-3 shadow-sm">
-                                <div className="space-y-0.5">
+                            <div className="flex items-center justify-between rounded-lg border p-3 shadow-beautiful-sm">
+                                <div className="flex flex-col gap-0.5">
                                     <Label htmlFor="isAgg">Aggregate Function</Label>
                                     <p className="text-xs text-muted-foreground">
                                         Enable if this function performs aggregation

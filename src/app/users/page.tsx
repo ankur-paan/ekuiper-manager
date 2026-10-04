@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Copy, KeyRound, MoreHorizontal, Plus, Shield, Trash2, UserRound, Users } from 'lucide-react';
+import { Copy, KeyRound, Loader2, MoreHorizontal, Plus, Shield, Trash2, UserRound, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout';
 import { ConfirmDialog } from '@/components/common';
@@ -19,6 +19,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -127,23 +128,23 @@ export default function UsersPage() {
 
   return (
     <AppLayout title="Users">
-      <div className="mx-auto max-w-5xl space-y-6">
+      <div className="mx-auto max-w-5xl flex flex-col gap-6">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">Manager users</h2>
             <p className="mt-1 text-muted-foreground">Simple local accounts for this installation.</p>
           </div>
-          <Button onClick={() => setAddOpen(true)}><Plus className="mr-2 h-4 w-4" />Add user</Button>
+          <Button onClick={() => setAddOpen(true)}><Plus className="mr-2 size-4" aria-hidden="true" />Add user</Button>
         </div>
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" />Accounts</CardTitle><CardDescription>Resetting a password signs the user out everywhere.</CardDescription></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Users className="size-5" aria-hidden="true" />Accounts</CardTitle><CardDescription>Resetting a password signs the user out everywhere.</CardDescription></CardHeader>
           <CardContent className="divide-y p-0">
             {users.map((user) => (
               <div key={user.id} className="flex items-center gap-4 px-6 py-4" data-testid="user-row">
-                <span className="rounded-full bg-muted p-2"><UserRound className="h-4 w-4" /></span>
+                <span className="rounded-full bg-muted p-2"><UserRound className="size-4" aria-hidden="true" /></span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate font-medium">{user.username}</p>
+                    <p className="truncate font-medium" title={user.username}>{user.username}</p>
                     <Badge variant={user.role === 'OWNER' ? 'default' : 'secondary'}>{user.role === 'OWNER' ? 'Owner' : 'User'}</Badge>
                     {user.mustChangePassword && <Badge variant="outline">Password change required</Badge>}
                     {user.id === currentUserId && <span className="text-xs text-muted-foreground">You</span>}
@@ -151,10 +152,19 @@ export default function UsersPage() {
                   <p className="mt-1 text-xs text-muted-foreground">Last sign in: {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never'}</p>
                 </div>
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${user.username}`}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                  <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${user.username}`}><MoreHorizontal className="size-4" aria-hidden="true" /></Button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => setResetUser(user)}><KeyRound className="mr-2 h-4 w-4" />Reset password</DropdownMenuItem>
-                    {user.id !== currentUserId && <><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" onSelect={() => setDeleteUser(user)}><Trash2 className="mr-2 h-4 w-4" />Delete user</DropdownMenuItem></>}
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem onSelect={() => setResetUser(user)}><KeyRound className="mr-2 size-4" aria-hidden="true" />Reset password</DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    {user.id !== currentUserId && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem className="text-destructive" onSelect={() => setDeleteUser(user)}><Trash2 className="mr-2 size-4" aria-hidden="true" />Delete user</DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -166,19 +176,19 @@ export default function UsersPage() {
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Add user</DialogTitle><DialogDescription>A temporary password is generated and shown once.</DialogDescription></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label htmlFor="new-username">Username</Label><Input id="new-username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="operator" autoFocus /></div>
-            <div className="space-y-2"><Label htmlFor="new-role">Role</Label><select id="new-role" value={role} onChange={(event) => setRole(event.target.value as 'OWNER' | 'USER')} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="USER">User — operate eKuiper</option><option value="OWNER">Owner — also manage users and nodes</option></select></div>
+          <div className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-2"><Label htmlFor="new-username">Username</Label><Input id="new-username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="operator" autoFocus /></div>
+            <div className="flex flex-col gap-2"><Label htmlFor="new-role">Role</Label><select id="new-role" value={role} onChange={(event) => setRole(event.target.value as 'OWNER' | 'USER')} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm touch-manipulation"><option value="USER">User — operate eKuiper</option><option value="OWNER">Owner — also manage users and nodes</option></select></div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button><Button data-testid="confirm-add-user" onClick={() => void createUser()} disabled={saving || !username}>{saving ? 'Adding…' : 'Add user'}</Button></DialogFooter>
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2"><Button variant="outline" onClick={() => setAddOpen(false)} className="touch-manipulation">Cancel</Button><Button data-testid="confirm-add-user" onClick={() => void createUser()} disabled={saving || !username} className="touch-manipulation">{saving && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />}{saving ? 'Adding…' : 'Add user'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={Boolean(temporaryPassword)} onOpenChange={(open) => !open && setTemporaryPassword('')}>
         <DialogContent>
           <DialogHeader><DialogTitle>Temporary password</DialogTitle><DialogDescription>Copy this now. It will not be shown again, and the user must change it after signing in.</DialogDescription></DialogHeader>
-          <div className="flex items-center gap-2 rounded-md border bg-muted p-3"><code className="min-w-0 flex-1 break-all text-sm">{temporaryPassword}</code><Button variant="outline" size="icon" aria-label="Copy temporary password" onClick={() => { void navigator.clipboard.writeText(temporaryPassword); toast.success('Copied'); }}><Copy className="h-4 w-4" /></Button></div>
-          <DialogFooter><Button onClick={() => setTemporaryPassword('')}>Done</Button></DialogFooter>
+          <div className="flex items-center gap-2 rounded-md border bg-muted p-3"><code className="min-w-0 flex-1 break-all font-mono text-sm">{temporaryPassword}</code><Button variant="outline" size="icon" aria-label="Copy temporary password" onClick={() => { void navigator.clipboard.writeText(temporaryPassword); toast.success('Copied'); }} className="touch-manipulation shrink-0"><Copy className="size-4" aria-hidden="true" /></Button></div>
+          <DialogFooter><Button onClick={() => setTemporaryPassword('')} className="w-full sm:w-auto touch-manipulation">Done</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
