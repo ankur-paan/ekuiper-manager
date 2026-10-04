@@ -334,9 +334,9 @@ export function RuleList() {
               Refresh
             </Button>
             <Button variant="outline" size="sm" asChild className="text-xs transition-transform duration-150 active:scale-[0.97]">
-              <Link href="/flowEditor/flow">
+              <Link href="/flows">
                 <Workflow className="mr-1.5 size-3.5 text-primary" />
-                Flow (Beta)
+                Flows
               </Link>
             </Button>
             <Button size="sm" asChild className="text-xs transition-transform duration-150 active:scale-[0.97]">
@@ -586,9 +586,9 @@ export function RuleList() {
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuItem asChild>
-                            <Link href={`/flowEditor/flow?id=${encodeURIComponent(rule.id)}&name=${encodeURIComponent(rule.name ?? rule.id)}&oper=edit`}>
+                            <Link href="/flows">
                               <Workflow className="mr-2 size-4 text-primary" />
-                              Visual Flow
+                              Flow Studio
                             </Link>
                           </DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => openDuplicate(rule)}>
