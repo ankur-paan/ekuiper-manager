@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -121,12 +122,12 @@ export default function ServicesPage() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
+          <ArrowUpDown className="ml-2 size-4" />
         </Button>
       ),
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          <Server className="h-4 w-4 text-blue-500" />
+          <Server className="size-4 text-blue-500" />
           <span className="font-medium">{row.getValue("name")}</span>
         </div>
       ),
@@ -147,23 +148,25 @@ export default function ServicesPage() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" aria-label={`Actions for ${service.name}`}>
-                <MoreHorizontal className="h-4 w-4" />
+                <MoreHorizontal className="size-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => router.push(`/services/${encodeURIComponent(service.name)}`)}
-              >
-                <Eye className="mr-2 h-4 w-4" />
-                View Details
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => setDeleteService(service.name)}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  onClick={() => router.push(`/services/${encodeURIComponent(service.name)}`)}
+                >
+                  <Eye className="mr-2 size-4" />
+                  View Details
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive"
+                  onClick={() => setDeleteService(service.name)}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         );
@@ -180,12 +183,12 @@ export default function ServicesPage() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
+          <ArrowUpDown className="ml-2 size-4" />
         </Button>
       ),
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          <Zap className="h-4 w-4 text-yellow-500" />
+          <Zap className="size-4 text-yellow-500" />
           <span className="font-medium">{row.getValue("name")}</span>
         </div>
       ),
@@ -210,7 +213,7 @@ export default function ServicesPage() {
             size="sm"
             onClick={() => router.push(`/services/functions/${encodeURIComponent(func.name)}`)}
           >
-            <Eye className="mr-2 h-4 w-4" />
+            <Eye className="mr-2 size-4" />
             View
           </Button>
         );
@@ -231,7 +234,7 @@ export default function ServicesPage() {
 
   return (
     <AppLayout title="Services">
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -241,7 +244,7 @@ export default function ServicesPage() {
             </p>
           </div>
           <Button onClick={() => router.push("/services/new")}>
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="mr-2 size-4" />
             Register Service
           </Button>
         </div>
@@ -250,11 +253,11 @@ export default function ServicesPage() {
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "services" | "functions")}>
           <TabsList>
             <TabsTrigger value="services">
-              <Server className="mr-2 h-4 w-4" />
+              <Server className="mr-2 size-4" />
               Services
             </TabsTrigger>
             <TabsTrigger value="functions">
-              <Zap className="mr-2 h-4 w-4" />
+              <Zap className="mr-2 size-4" />
               Functions
             </TabsTrigger>
           </TabsList>

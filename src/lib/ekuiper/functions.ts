@@ -44,6 +44,8 @@ export const EKUIPER_FUNCTIONS: Record<string, EKuiperFunction[]> = {
         { name: 'stddevs', signature: 'stddevs(col)', description: 'Sample standard deviation', returnType: 'float' },
         { name: 'var', signature: 'var(col)', description: 'Variance', returnType: 'float' },
         { name: 'vars', signature: 'vars(col)', description: 'Sample variance', returnType: 'float' },
+        { name: 'percentile', signature: 'percentile(col, percentile)', description: 'Calculate percentile of column in group', returnType: 'float' },
+        { name: 'percentile_disc', signature: 'percentile_disc(col, percentile)', description: 'Calculate discrete percentile value', returnType: 'any' },
     ],
 
     // 2. Math Functions
@@ -71,6 +73,9 @@ export const EKUIPER_FUNCTIONS: Record<string, EKuiperFunction[]> = {
         { name: 'bitor', signature: 'bitor(x, y)', description: 'Bitwise OR', returnType: 'int' },
         { name: 'bitxor', signature: 'bitxor(x, y)', description: 'Bitwise XOR', returnType: 'int' },
         { name: 'bitnot', signature: 'bitnot(x)', description: 'Bitwise NOT', returnType: 'int' },
+        { name: 'cosh', signature: 'cosh(col)', description: 'Hyperbolic cosine', returnType: 'float' },
+        { name: 'sinh', signature: 'sinh(col)', description: 'Hyperbolic sine', returnType: 'float' },
+        { name: 'tanh', signature: 'tanh(col)', description: 'Hyperbolic tangent', returnType: 'float' },
     ],
 
     // 3. String Functions
@@ -94,6 +99,9 @@ export const EKUIPER_FUNCTIONS: Record<string, EKuiperFunction[]> = {
         { name: 'format', signature: 'format(template, args...)', description: 'Format string', returnType: 'string' },
         { name: 'lpad', signature: 'lpad(str, len, pad)', description: 'Left pad string', returnType: 'string' },
         { name: 'rpad', signature: 'rpad(str, len, pad)', description: 'Right pad string', returnType: 'string' },
+        { name: 'numbytes', signature: 'numbytes(col)', description: 'Number of bytes in UTF-8 string', returnType: 'int' },
+        { name: 'reverse', signature: 'reverse(col)', description: 'Reverse characters in string', returnType: 'string' },
+        { name: 'split_value', signature: 'split_value(col, delimiter, index)', description: 'Split string and retrieve token at index', returnType: 'string' },
     ],
 
     // 4. Array Functions
@@ -148,6 +156,7 @@ export const EKUIPER_FUNCTIONS: Record<string, EKuiperFunction[]> = {
         { name: 'compress', signature: 'compress(col, "gzip")', description: 'Compress data', returnType: 'bytes' },
         { name: 'decompress', signature: 'decompress(col, "gzip")', description: 'Decompress data', returnType: 'bytes' },
         { name: 'trunc', signature: 'trunc(col, precision)', description: 'Truncate decimal places', returnType: 'float' },
+        { name: 'chr', signature: 'chr(code)', description: 'Convert ASCII integer code to character', returnType: 'string' },
     ],
 
     // 8. JSON Functions
@@ -196,6 +205,7 @@ export const EKUIPER_FUNCTIONS: Record<string, EKuiperFunction[]> = {
         { name: 'lag', signature: 'lag(col, offset, default)', description: 'Previous row value', returnType: 'any' },
         { name: 'latest', signature: 'latest(col, ignoreNull)', description: 'Latest non-null value', returnType: 'any' },
         { name: 'acc', signature: 'acc(col)', description: 'Accumulate values', returnType: 'any' },
+        { name: 'delay', signature: 'delay(col, period)', description: 'Retrieve value delayed by specified period', returnType: 'any' },
     ],
 
     // 12. Multi-Row Functions
@@ -217,6 +227,25 @@ export const EKUIPER_FUNCTIONS: Record<string, EKuiperFunction[]> = {
         { name: 'SessionWindow', signature: 'SessionWindow(ss, 10, 5)', description: 'Gap-based session window', returnType: 'window' },
         { name: 'CountWindow', signature: 'CountWindow(5)', description: 'Count-based window', returnType: 'window' },
         { name: 'DelayWindow', signature: 'DelayWindow(ss, 10)', description: 'Delayed trigger window', returnType: 'window' },
+        { name: 'window_start', signature: 'window_start()', description: 'Window start timestamp (ms)', returnType: 'int' },
+        { name: 'window_end', signature: 'window_end()', description: 'Window end timestamp (ms)', returnType: 'int' },
+    ],
+
+    // 15. Signal Processing & DSP (Edge Industrial Algorithms)
+    signal_processing: [
+        { name: 'datasmooth', signature: 'datasmooth(data, degree)', description: 'Polynomial fitting smoothing (Savitzky-Golay algorithm). Degree 0 (weak) to 4 (strong).', returnType: 'array', examples: ['datasmooth(vibration_data, 2)'] },
+        { name: 'cleannormal', signature: 'cleannormal(data, regression_type)', description: 'Data normalization function for scaling signal series.', returnType: 'array', examples: ['cleannormal(sensor_signal, "linear")'] },
+        { name: 'dimensionreduction', signature: 'dimensionreduction(array, compression_ratio, method)', description: 'Data dimensionality reduction and feature compression.', returnType: 'array', examples: ['dimensionreduction(features, 0.5, "pca")'] },
+        { name: 'cleandrop', signature: 'cleandrop(data, compression_ratio)', description: 'Data downsampling and thinning for high-frequency streams.', returnType: 'array', examples: ['cleandrop(raw_stream, 0.25)'] },
+        { name: 'cleansort', signature: 'cleansort(array, range, sort_type)', description: 'Sort function for windowed or grouped signal arrays.', returnType: 'array', examples: ['cleansort(telemetry, "all", "asc")'] },
+        { name: 'peakvallydet', signature: 'peakvallydet(data, pthresh)', description: 'Peak and valley detection in signal series based on amplitude threshold.', returnType: 'object', examples: ['peakvallydet(waveform, 0.75)'] },
+        { name: 'listmax', signature: 'listmax(data, param1)', description: 'Maximum value statistics over array or window sequence.', returnType: 'float', examples: ['listmax(pressure_batch, 1)'] },
+        { name: 'listrms', signature: 'listrms(data, param1)', description: 'Root mean square (RMS) statistics for vibration and power calculations.', returnType: 'float', examples: ['listrms(vibration_z, 1)'] },
+        { name: 'listamp', signature: 'listamp(data, param1)', description: 'Spoke value (peak-to-peak amplitude) statistics.', returnType: 'float', examples: ['listamp(amplitude_data, 1)'] },
+        { name: 'butterworth', signature: 'butterworth(data, sample_rate, filter_band, type, order)', description: 'Butterworth IIR digital filter (lowpass, highpass, bandpass, bandstop).', returnType: 'array', examples: ['butterworth(accel_data, 1000, [10, 50], "bandpass", 4)'] },
+        { name: 'chebyshev', signature: 'chebyshev(data, fs, ftype, freqs, order, rp)', description: 'Chebyshev Type I/II digital filter with passband ripple control.', returnType: 'array', examples: ['chebyshev(accel_data, 1000, "low", 50, 4, 0.5)'] },
+        { name: 'fftamp', signature: 'fftamp(signal, sample_rate, type)', description: 'Fast Fourier Transform magnitude spectrum analysis.', returnType: 'array', examples: ['fftamp(vibration_waveform, 2048, "magnitude")'] },
+        { name: 'fftpower', signature: 'fftpower(signal, sample_rate, unit, method, type)', description: 'Power Spectral Density (PSD) analysis using Welch or periodogram methods.', returnType: 'array', examples: ['fftpower(vibration_waveform, 2048, "dB", "welch", "power")'] },
     ],
 };
 
@@ -227,6 +256,7 @@ export const EKUIPER_FUNCTIONS: Record<string, EKuiperFunction[]> = {
 export const FUNCTION_CATEGORIES: FunctionCategory[] = [
     { id: 'aggregate', name: 'Aggregate', icon: '📊', functions: EKUIPER_FUNCTIONS.aggregate },
     { id: 'math', name: 'Math', icon: '🔢', functions: EKUIPER_FUNCTIONS.math },
+    { id: 'signal_processing', name: 'Signal & DSP', icon: '📡', functions: EKUIPER_FUNCTIONS.signal_processing },
     { id: 'string', name: 'String', icon: '📝', functions: EKUIPER_FUNCTIONS.string },
     { id: 'array', name: 'Array', icon: '📋', functions: EKUIPER_FUNCTIONS.array },
     { id: 'object', name: 'Object', icon: '📦', functions: EKUIPER_FUNCTIONS.object },

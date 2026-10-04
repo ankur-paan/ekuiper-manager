@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, Workflow } from 'lucide-react';
+import { Loader2, ShieldCheck, Workflow } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -71,17 +72,17 @@ export default function WelcomePage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-md space-y-6">
+      <div className="flex w-full max-w-md flex-col gap-6">
         <div className="flex items-center justify-center gap-3">
           <span className="rounded-xl bg-primary p-2.5 text-primary-foreground">
-            <Workflow className="h-6 w-6" />
+            <Workflow className="size-6" />
           </span>
           <div>
             <h1 className="text-xl font-semibold">eKuiper Manager</h1>
             <p className="text-sm text-muted-foreground">A focused workspace for your eKuiper nodes</p>
           </div>
         </div>
-        <Card className="shadow-sm">
+        <Card className="shadow-beautiful-md">
           <CardHeader>
             <CardTitle>{status?.setupRequired ? 'Create the owner account' : 'Sign in'}</CardTitle>
             <CardDescription>
@@ -91,8 +92,8 @@ export default function WelcomePage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={submit} className="space-y-4">
-              <div className="space-y-2">
+            <form onSubmit={submit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="username">Username</Label>
                 <Input
                   id="username"
@@ -104,7 +105,7 @@ export default function WelcomePage() {
                   autoFocus
                 />
               </div>
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="password">Password</Label>
                 <Input
                   id="password"
@@ -121,7 +122,7 @@ export default function WelcomePage() {
                 )}
               </div>
               {status?.setupRequired && (
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   <Label htmlFor="confirm-password">Confirm password</Label>
                   <Input
                     id="confirm-password"
@@ -135,18 +136,19 @@ export default function WelcomePage() {
                 </div>
               )}
               {error && (
-                <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  {error}
-                </div>
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
-              <Button type="submit" className="w-full" disabled={!status || submitting}>
+              <Button type="submit" className="w-full touch-manipulation" disabled={!status || submitting}>
+                {submitting && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />}
                 {submitting ? 'Please wait…' : status?.setupRequired ? 'Complete setup' : 'Sign in'}
               </Button>
             </form>
           </CardContent>
         </Card>
         <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-          <ShieldCheck className="h-4 w-4" /> Credentials remain in this installation.
+          <ShieldCheck className="size-4" /> Credentials remain in this installation.
         </p>
       </div>
     </main>

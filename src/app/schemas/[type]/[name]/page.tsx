@@ -14,7 +14,6 @@ import {
     Save,
     Loader2,
     FileCode,
-    File,
 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -110,20 +109,21 @@ export default function SchemaDetailPage() {
                             variant="ghost"
                             size="icon"
                             onClick={() => router.push("/schemas")}
+                            aria-label="Back to schemas"
                         >
-                            <ArrowLeft className="h-5 w-5" />
+                            <ArrowLeft className="size-5" aria-hidden="true" />
                         </Button>
                         <div>
                             <h2 className="text-2xl font-bold tracking-tight">{name}</h2>
                             <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                                <FileCode className="h-4 w-4" />
+                                <FileCode className="size-4" aria-hidden="true" />
                                 <span className="capitalize">{type} Schema</span>
                             </div>
                         </div>
                     </div>
                     <Button onClick={handleSave} disabled={saving}>
-                        {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        <Save className="mr-2 h-4 w-4" />
+                        {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
+                        <Save className="mr-2 size-4" />
                         Save Changes
                     </Button>
                 </div>
@@ -131,8 +131,8 @@ export default function SchemaDetailPage() {
                 {/* Content */}
                 <div className="flex-1 flex flex-col min-h-0 bg-card border rounded-lg overflow-hidden">
                     {type === "custom" ? (
-                        <div className="p-6 space-y-4">
-                            <div className="space-y-2">
+                        <div className="p-6 flex flex-col gap-4">
+                            <div className="flex flex-col gap-2">
                                 <Label>File URL</Label>
                                 <Input
                                     value={fileUrl}

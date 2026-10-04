@@ -1,4 +1,5 @@
 import type { MetadataProperty, Rule, Sink } from './types';
+import { getBuiltinConnectorProperties } from './connector-catalog';
 
 export type JsonObject = Record<string, unknown>;
 
@@ -55,11 +56,18 @@ export const BUILTIN_SINKS: Array<{ type: string; label: string; description: st
   { type: 'log', label: 'Log', description: 'Write result rows to the eKuiper log.' },
   { type: 'nop', label: 'No-op', description: 'Discard output; useful for testing processing cost.' },
   { type: 'mqtt', label: 'MQTT', description: 'Publish results to an MQTT topic or shared connection.' },
-  { type: 'rest', label: 'HTTP', description: 'Send results to an HTTP endpoint.' },
+  { type: 'rest', label: 'HTTP / REST', description: 'Send results to an HTTP/REST endpoint.' },
   { type: 'memory', label: 'Memory', description: 'Publish results to an in-memory topic.' },
   { type: 'file', label: 'File', description: 'Write results to a file managed by eKuiper.' },
-  { type: 'sql', label: 'SQL', description: 'Insert results into a SQL table.' },
-  { type: 'edgex', label: 'EdgeX', description: 'Publish results to an installed EdgeX sink.' },
+  { type: 'sql', label: 'SQL', description: 'Insert results into a SQL database table.' },
+  { type: 'influx2', label: 'InfluxDB v2', description: 'Write time-series data points to InfluxDB v2 bucket.' },
+  { type: 'influx', label: 'InfluxDB v1', description: 'Write metrics to InfluxDB v1 database.' },
+  { type: 'kafka', label: 'Kafka', description: 'Stream messages to an Apache Kafka topic.' },
+  { type: 'redis', label: 'Redis / RedisPub', description: 'Publish messages to Redis key or Pub/Sub channel.' },
+  { type: 'image', label: 'Image Store', description: 'Save processed video frames or image buffers to disk.' },
+  { type: 'websocket', label: 'WebSocket', description: 'Stream output messages over an outbound WebSocket.' },
+  { type: 'neuron', label: 'Neuron Gateway', description: 'Forward processed data to Neuron northbound nodes.' },
+  { type: 'edgex', label: 'EdgeX Foundry', description: 'Publish results to an installed EdgeX Foundry bus.' },
 ];
 
 const KNOWN_FIELDS: Record<string, SinkFieldDefinition[]> = {
@@ -116,6 +124,50 @@ const KNOWN_FIELDS: Record<string, SinkFieldDefinition[]> = {
     { key: 'deviceName', label: 'Device name', kind: 'string' },
     { key: 'sourceName', label: 'Source name', kind: 'string' },
   ],
+  influx2: [
+    { key: 'addr', label: 'Server Address', kind: 'string', required: true, placeholder: 'http://127.0.0.1:8086' },
+    { key: 'bucket', label: 'Bucket', kind: 'string', required: true, placeholder: 'my-bucket' },
+    { key: 'org', label: 'Organization', kind: 'string', required: true, placeholder: 'my-org' },
+    { key: 'token', label: 'API Token', kind: 'secret', placeholder: 'Token string' },
+    { key: 'measurement', label: 'Measurement', kind: 'string', placeholder: 'sensor_metrics' },
+    { key: 'precision', label: 'Precision', kind: 'string', options: ['s', 'ms', 'us', 'ns'] },
+    { key: 'useLineProtocol', label: 'Use Line Protocol', kind: 'boolean' },
+  ],
+  influx: [
+    { key: 'addr', label: 'Server Address', kind: 'string', required: true, placeholder: 'http://127.0.0.1:8086' },
+    { key: 'database', label: 'Database', kind: 'string', required: true, placeholder: 'telemetry' },
+    { key: 'measurement', label: 'Measurement', kind: 'string', placeholder: 'sensor_metrics' },
+    { key: 'username', label: 'Username', kind: 'string' },
+    { key: 'password', label: 'Password', kind: 'secret' },
+    { key: 'precision', label: 'Precision', kind: 'string', options: ['s', 'ms', 'us', 'ns'] },
+  ],
+  image: [
+    { key: 'path', label: 'Storage Path', kind: 'string', required: true, placeholder: './tmp' },
+    { key: 'imageFormat', label: 'Format', kind: 'string', options: ['jpeg', 'png'] },
+    { key: 'maxAge', label: 'Max Retention (hours)', kind: 'number', placeholder: '72' },
+    { key: 'maxCount', label: 'Max Image Count', kind: 'number', placeholder: '1000' },
+  ],
+  kafka: [
+    { key: 'brokers', label: 'Broker Addresses', kind: 'string', required: true, placeholder: '127.0.0.1:9092' },
+    { key: 'topic', label: 'Topic', kind: 'string', required: true, placeholder: 'alerts' },
+    { key: 'saslAuthType', label: 'SASL Auth Type', kind: 'string', options: ['none', 'plain', 'scram-sha-256', 'scram-sha-512'] },
+    { key: 'username', label: 'SASL Username', kind: 'string' },
+    { key: 'password', label: 'SASL Password', kind: 'secret' },
+  ],
+  redis: [
+    { key: 'addr', label: 'Redis Address', kind: 'string', required: true, placeholder: '127.0.0.1:6379' },
+    { key: 'topic', label: 'Pub/Sub Topic / Key', kind: 'string', required: true, placeholder: 'events' },
+    { key: 'db', label: 'Database Index', kind: 'number', placeholder: '0' },
+    { key: 'password', label: 'Password', kind: 'secret' },
+  ],
+  websocket: [
+    { key: 'url', label: 'WebSocket URL', kind: 'string', required: true, placeholder: 'ws://127.0.0.1:8080/ws' },
+  ],
+  neuron: [
+    { key: 'url', label: 'Neuron URL', kind: 'string', required: true, placeholder: 'tcp://127.0.0.1:7081' },
+    { key: 'nodeName', label: 'Target Node Name', kind: 'string', required: true },
+    { key: 'groupName', label: 'Target Group Name', kind: 'string', required: true },
+  ],
 };
 
 function humanize(value: string): string {
@@ -135,18 +187,29 @@ function metadataKind(property: MetadataProperty): SinkFieldKind {
   return 'string';
 }
 
+function toLabelString(val: unknown): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') {
+    const obj = val as Record<string, string>;
+    return obj.en ?? obj.en_US ?? Object.values(obj)[0] ?? '';
+  }
+  return String(val);
+}
+
 export function sinkFields(type: string, metadata: MetadataProperty[] = []): SinkFieldDefinition[] {
   const merged = new Map<string, SinkFieldDefinition>();
   for (const field of [...(KNOWN_FIELDS[type] ?? []), ...COMMON_FIELDS]) merged.set(field.key, field);
-  for (const property of metadata) {
+  const effectiveMetadata = metadata.length > 0 ? metadata : getBuiltinConnectorProperties('sinks', type);
+  for (const property of effectiveMetadata) {
     const existing = merged.get(property.name);
     merged.set(property.name, {
       key: property.name,
-      label: property.label || existing?.label || humanize(property.name),
+      label: toLabelString(property.label) || existing?.label || humanize(property.name),
       kind: existing?.kind ?? metadataKind(property),
       required: existing?.required ?? !property.optional,
       options: property.values?.map(String) ?? existing?.options,
-      hint: property.hint || existing?.hint,
+      hint: toLabelString(property.hint) || existing?.hint,
       placeholder: existing?.placeholder,
     });
   }

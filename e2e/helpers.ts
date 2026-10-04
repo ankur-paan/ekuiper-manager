@@ -32,6 +32,7 @@ export async function ensureSignedIn(page: Page): Promise<void> {
   const setup = page.getByRole('heading', { name: 'Create the owner account' });
   const signIn = page.getByRole('heading', { name: 'Sign in' });
   await expect(setup.or(signIn)).toBeVisible();
+  await page.locator('#username:not([disabled])').waitFor({ state: 'visible', timeout: 30_000 });
   await page.getByLabel('Username').fill(ownerUsername);
   await page.getByLabel('Password', { exact: true }).fill(ownerPassword);
   if (await setup.isVisible()) {

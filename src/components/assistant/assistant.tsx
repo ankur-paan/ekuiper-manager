@@ -136,7 +136,7 @@ async function responseError(response: Response): Promise<string> {
 
 function AssistantMarkdown({ content }: { content: string }) {
   return (
-    <div className="space-y-2 break-words">
+    <div className="flex flex-col gap-2 break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         skipHtml
@@ -145,8 +145,8 @@ function AssistantMarkdown({ content }: { content: string }) {
           h2: ({ children }) => <h3 className="mt-3 text-sm font-semibold first:mt-0">{children}</h3>,
           h3: ({ children }) => <h4 className="mt-2 text-sm font-medium first:mt-0">{children}</h4>,
           p: ({ children }) => <p className="leading-relaxed">{children}</p>,
-          ul: ({ children }) => <ul className="ml-5 list-disc space-y-1">{children}</ul>,
-          ol: ({ children }) => <ol className="ml-5 list-decimal space-y-1">{children}</ol>,
+          ul: ({ children }) => <ul className="ml-5 list-disc flex flex-col gap-1">{children}</ul>,
+          ol: ({ children }) => <ol className="ml-5 list-decimal flex flex-col gap-1">{children}</ol>,
           li: ({ children }) => <li className="pl-0.5">{children}</li>,
           blockquote: ({ children }) => (
             <blockquote className="border-l-2 border-primary/50 pl-3 text-muted-foreground">
@@ -195,19 +195,19 @@ function Investigation({ activity, rounds }: { activity: AssistantActivity[]; ro
   return (
     <details className="mb-2 rounded-md border border-border/70 bg-background/60 text-xs">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 font-medium">
-        <Search className="h-3.5 w-3.5 text-primary" />
+        <Search className="size-3.5 text-primary" />
         Investigated {activity.length} read-only source{activity.length === 1 ? '' : 's'}
         {rounds && rounds > 1 ? ` over ${rounds} reasoning rounds` : ''}
       </summary>
       <div className="border-t px-3 py-2 text-muted-foreground">
         <p className="mb-2">{completed} reads completed. Tool inputs and raw results stay server-side.</p>
-        <ul className="space-y-1.5">
+        <ul className="flex flex-col gap-1.5">
           {activity.map((item, index) => (
             <li key={`${item.tool}-${item.round}-${index}`} className="flex items-start gap-2">
               {item.status === 'completed' ? (
-                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
               ) : (
-                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
               )}
               <span>
                 {item.label}
@@ -319,7 +319,7 @@ export function Assistant({ pageTitle }: AssistantProps) {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
           <Button
-            className="fixed bottom-5 right-5 z-40 h-12 rounded-full px-4 shadow-lg"
+            className="fixed bottom-5 right-5 z-40 h-12 rounded-full px-4 shadow-beautiful-md active:scale-95"
             aria-label="Open AI assistant"
           >
             <Sparkles className="mr-2 h-4 w-4" />
@@ -357,16 +357,16 @@ export function Assistant({ pageTitle }: AssistantProps) {
                 }}
                 disabled={sending}
               >
-                <Trash2 className="mr-1 h-3.5 w-3.5" /> Clear
+                <Trash2 className="mr-1 size-3.5" /> Clear
               </Button>
             )}
           </div>
 
           <ScrollArea className="min-h-0 flex-1">
-            <div className="space-y-4 p-5" aria-live="polite">
+            <div className="flex flex-col gap-4 p-5" aria-live="polite">
               {!status && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Checking assistant configuration…
+                  <Loader2 className="size-4 animate-spin" /> Checking assistant configuration…
                 </div>
               )}
 
@@ -382,10 +382,10 @@ export function Assistant({ pageTitle }: AssistantProps) {
               )}
 
               {status?.enabled && messages.length === 0 && (
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3">
                   <div className="rounded-lg bg-muted/60 p-4 text-sm">
                     <p className="flex items-center gap-2 font-medium">
-                      <Database className="h-4 w-4 text-primary" /> Ask about the actual stack
+                      <Database className="size-4 text-primary" /> Ask about the actual stack
                     </p>
                     <p className="mt-1 text-muted-foreground">
                       I can inspect permission-appropriate Manager data and the selected eKuiper node,
@@ -436,7 +436,7 @@ export function Assistant({ pageTitle }: AssistantProps) {
                     index === messages.length - 1 &&
                     message.suggestions &&
                     message.suggestions.length > 0 && (
-                      <div className="mt-2 space-y-2" aria-label="Suggested next questions">
+                      <div className="mt-2 flex flex-col gap-2" aria-label="Suggested next questions">
                         <p className="text-xs font-medium text-muted-foreground">Continue with</p>
                         <div className="flex flex-wrap gap-2">
                           {message.suggestions.map((suggestion) => (

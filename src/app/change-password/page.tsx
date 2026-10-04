@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, Loader2 } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -43,27 +44,34 @@ export default function ChangePasswordPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md shadow-sm">
+      <Card className="w-full max-w-md shadow-beautiful-md">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" />Change password</CardTitle>
+          <CardTitle className="flex items-center gap-2"><KeyRound className="size-5" />Change password</CardTitle>
           <CardDescription>Your new password must contain at least 12 characters.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-2">
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="current-password">Current password</Label>
               <Input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required autoFocus />
             </div>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="new-password">New password</Label>
               <Input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={12} required />
             </div>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <Label htmlFor="confirm-new-password">Confirm new password</Label>
               <Input id="confirm-new-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
             </div>
-            {error && <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
-            <Button type="submit" className="w-full" disabled={submitting}>{submitting ? 'Saving…' : 'Save password'}</Button>
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            <Button type="submit" className="w-full touch-manipulation" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />}
+              {submitting ? 'Saving…' : 'Save password'}
+            </Button>
           </form>
         </CardContent>
       </Card>

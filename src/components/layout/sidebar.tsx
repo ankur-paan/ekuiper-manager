@@ -121,49 +121,57 @@ export function Sidebar({ collapsed = false, onCollapsedChange }: SidebarProps) 
     >
       <div className="flex h-14 items-center border-b px-3">
         <Link href="/dashboard" className="flex min-w-0 items-center gap-2" aria-label="eKuiper Manager">
-          <Workflow className="h-6 w-6 shrink-0 text-primary" />
-          {!collapsed && <span className="truncate font-semibold">eKuiper Manager</span>}
+          <Workflow className="size-6 shrink-0 text-primary" aria-hidden="true" />
+          {!collapsed && <span className="truncate font-semibold" title="eKuiper Manager">eKuiper Manager</span>}
         </Link>
         <Button
           variant="ghost"
           size="icon"
-          className={cn('ml-auto h-8 w-8', collapsed && 'mx-auto')}
+          className={cn('ml-auto size-8', collapsed && 'mx-auto')}
           onClick={() => onCollapsedChange?.(!collapsed)}
           aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          aria-expanded={!collapsed}
         >
-          <ChevronLeft className={cn('h-4 w-4 transition-transform', collapsed && 'rotate-180')} />
+          <ChevronLeft className={cn('size-4 transition-transform', collapsed && 'rotate-180')} aria-hidden="true" />
         </Button>
       </div>
       <ScrollArea className="flex-1 py-3">
-        <nav className="space-y-4 px-2" aria-label="Primary navigation">
+        <nav className="flex flex-col gap-4 px-2" aria-label="Primary navigation">
           {navigationGroups.map((group) => (
             <div key={group.title}>
               {!collapsed && (
-                <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="mb-1 px-3 text-xs font-semibold text-muted-foreground/80">
                   {group.title}
                 </p>
               )}
-              <div className="space-y-1">
+              <div className="flex flex-col gap-1">
                 {group.items.map((item) => {
                   const itemButton = (
                     <Button
                       variant={active(pathname, item.href) ? 'secondary' : 'ghost'}
                       size={collapsed ? 'icon' : 'default'}
                       className={cn('h-9', !collapsed && 'w-full justify-start gap-3')}
+                      aria-label={collapsed ? item.title : undefined}
                     >
-                      <item.icon className="h-4 w-4 shrink-0" />
+                      <item.icon className="size-4 shrink-0" aria-hidden="true" />
                       {!collapsed && item.title}
                     </Button>
                   );
                   return collapsed ? (
                     <Tooltip key={item.href} delayDuration={0}>
                       <TooltipTrigger asChild>
-                        <Link href={item.href}>{itemButton}</Link>
+                        <Link href={item.href} aria-current={active(pathname, item.href) ? 'page' : undefined}>
+                          {itemButton}
+                        </Link>
                       </TooltipTrigger>
                       <TooltipContent side="right">{item.title}</TooltipContent>
                     </Tooltip>
                   ) : (
-                    <Link key={item.href} href={item.href}>
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={active(pathname, item.href) ? 'page' : undefined}
+                    >
                       {itemButton}
                     </Link>
                   );

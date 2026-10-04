@@ -44,6 +44,8 @@ import {
   UploadFile,
   ConfKey,
 } from "./types";
+import { getBuiltinConnectorProperties } from "./connector-catalog";
+import { BUILTIN_OPERATOR_LIST, getOperatorSchema, type OperatorNodeSchema } from "./operator-catalog";
 
 function normalizeExternalFunction(value: ExternalFunction | Record<string, unknown>): ExternalFunction {
   const item = value as Record<string, unknown>;
@@ -556,28 +558,84 @@ export class EKuiperClient {
    * List available sinks with metadata
    */
   async listSinkMetadata(): Promise<MetadataItem[]> {
-    return this.request<MetadataItem[]>("/metadata/sinks");
+    const raw = await this.request<any[]>("/metadata/sinks");
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item) => ({
+      ...item,
+      name: item.name || item.id || "",
+    }));
   }
 
   /**
    * Get detailed sink metadata including properties
    */
   async getSinkMetadata(sinkType: string): Promise<MetadataDetail> {
-    return this.request<MetadataDetail>(`/metadata/sinks/${encodeURIComponent(sinkType)}`);
+    const hasProps = (d: any): boolean => {
+      if (!d || !d.properties) return false;
+      if (Array.isArray(d.properties) && d.properties.length > 0) return true;
+      if (Array.isArray(d.properties.default) && d.properties.default.length > 0) return true;
+      return false;
+    };
+
+    try {
+      const res = await this.request<MetadataDetail>(`/metadata/sinks/${encodeURIComponent(sinkType)}`);
+      if (hasProps(res)) return res;
+    } catch {
+      // 404 or network error
+    }
+
+    // Try source metadata fallback (eKuiper shares schemas for mqtt, edgex, etc.)
+    try {
+      const src = await this.request<MetadataDetail>(`/metadata/sources/${encodeURIComponent(sinkType)}`);
+      if (hasProps(src)) return src;
+    } catch {
+      // ignore
+    }
+
+    const fallbackProps = getBuiltinConnectorProperties('sinks', sinkType);
+    return {
+      name: sinkType,
+      about: { trial: false, installed: true, label: sinkType },
+      properties: fallbackProps,
+    };
   }
 
   /**
    * List available sources with metadata
    */
   async listSourceMetadata(): Promise<MetadataItem[]> {
-    return this.request<MetadataItem[]>("/metadata/sources");
+    const raw = await this.request<any[]>("/metadata/sources");
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item) => ({
+      ...item,
+      name: item.name || item.id || "",
+    }));
   }
 
   /**
    * Get detailed source metadata including properties
    */
   async getSourceMetadata(sourceType: string): Promise<MetadataDetail> {
-    return this.request<MetadataDetail>(`/metadata/sources/${encodeURIComponent(sourceType)}`);
+    const hasProps = (d: any): boolean => {
+      if (!d || !d.properties) return false;
+      if (Array.isArray(d.properties) && d.properties.length > 0) return true;
+      if (Array.isArray(d.properties.default) && d.properties.default.length > 0) return true;
+      return false;
+    };
+
+    try {
+      const res = await this.request<MetadataDetail>(`/metadata/sources/${encodeURIComponent(sourceType)}`);
+      if (hasProps(res)) return res;
+    } catch {
+      // 404 or network error
+    }
+
+    const fallbackProps = getBuiltinConnectorProperties('sources', sourceType);
+    return {
+      name: sourceType,
+      about: { trial: false, installed: true, label: sourceType },
+      properties: fallbackProps,
+    };
   }
 
   async getSourceConfig(type: string): Promise<Record<string, any>> {
@@ -586,6 +644,32 @@ export class EKuiperClient {
 
   async getSinkConfig(type: string): Promise<Record<string, any>> {
     return this.request<Record<string, any>>(`/metadata/sinks/yaml/${encodeURIComponent(type)}`);
+  }
+
+  /**
+   * List available operators with metadata (filter, window, join, etc.)
+   */
+  async listOperatorMetadata(): Promise<OperatorNodeSchema[]> {
+    try {
+      const raw = await this.request<any[]>("/metadata/ops");
+      if (Array.isArray(raw) && raw.length > 0) return raw;
+    } catch {
+      // eKuiper doesn't serve /metadata/ops directly; return authoritative builtins
+    }
+    return BUILTIN_OPERATOR_LIST;
+  }
+
+  /**
+   * Get detailed operator schema including inputs, outputs, and property form controls
+   */
+  async getOperatorMetadata(operatorName: string): Promise<OperatorNodeSchema | undefined> {
+    try {
+      const res = await this.request<OperatorNodeSchema>(`/metadata/ops/${encodeURIComponent(operatorName)}`);
+      if (res && res.name) return res;
+    } catch {
+      // fallback
+    }
+    return getOperatorSchema(operatorName);
   }
 
   /**
@@ -616,6 +700,160 @@ export class EKuiperClient {
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : "Connection test failed" };
     }
+  }
+
+  /**
+   * List available connection types with metadata
+   */
+  async listConnectionMetadata(): Promise<MetadataItem[]> {
+    const raw = await this.request<any[]>("/metadata/connections");
+    if (!Array.isArray(raw)) return [];
+    return raw.map((item) => ({
+      ...item,
+      name: item.name || item.id || "",
+    }));
+  }
+
+  /**
+   * Get detailed connection metadata including properties
+   */
+  async getConnectionMetadata(connectionType: string): Promise<MetadataDetail> {
+    const hasProps = (d: any): boolean => {
+      if (!d || !d.properties) return false;
+      if (Array.isArray(d.properties) && d.properties.length > 0) return true;
+      if (Array.isArray(d.properties.default) && d.properties.default.length > 0) return true;
+      return false;
+    };
+
+    let detail: MetadataDetail | null = null;
+    try {
+      detail = await this.request<MetadataDetail>(`/metadata/connections/${encodeURIComponent(connectionType)}`);
+      if (hasProps(detail)) {
+        return detail!;
+      }
+    } catch {
+      // Endpoint may return 404 or plain string
+    }
+
+    // eKuiper defines connection schemas under /metadata/sources/<type>
+    try {
+      const srcMeta = await this.getSourceMetadata(connectionType);
+      if (hasProps(srcMeta)) {
+        const rawProps = Array.isArray(srcMeta.properties)
+          ? srcMeta.properties
+          : (srcMeta.properties as any).default ?? [];
+        const filteredProps = rawProps.filter((p: any) => p.name !== 'connectionSelector');
+        return {
+          ...srcMeta,
+          id: connectionType,
+          name: connectionType,
+          properties: filteredProps,
+        };
+      }
+    } catch {
+      // Continue
+    }
+
+    // Try sinks metadata fallback
+    try {
+      const snkMeta = await this.getSinkMetadata(connectionType);
+      if (hasProps(snkMeta)) {
+        const rawProps = Array.isArray(snkMeta.properties)
+          ? snkMeta.properties
+          : (snkMeta.properties as any).default ?? [];
+        const filteredProps = rawProps.filter((p: any) => p.name !== 'connectionSelector');
+        return {
+          ...snkMeta,
+          id: connectionType,
+          name: connectionType,
+          properties: filteredProps,
+        };
+      }
+    } catch {
+      // Continue
+    }
+
+    // Builtin fallback for standard connection types
+    if (connectionType.toLowerCase() === 'mqtt') {
+      return {
+        id: 'mqtt',
+        name: 'mqtt',
+        about: { trial: false, installed: true, label: 'MQTT Connection', description: 'Shared MQTT broker connection' },
+        properties: [
+          { name: 'server', type: 'string', control: 'text', default: 'tcp://127.0.0.1:1883', optional: false, label: 'Broker Address', hint: 'The broker address of the MQTT server, e.g. tcp://127.0.0.1:1883' },
+          { name: 'protocolVersion', type: 'string', control: 'select', default: '3.1.1', optional: true, values: ['3.1.1', '3.1', '5.0'], label: 'Protocol Version' },
+          { name: 'clientid', type: 'string', control: 'text', default: '', optional: true, label: 'Client ID' },
+          { name: 'username', type: 'string', control: 'text', default: '', optional: true, label: 'Username' },
+          { name: 'password', type: 'string', control: 'text', default: '', optional: true, label: 'Password' },
+          { name: 'insecureSkipVerify', type: 'bool', control: 'radio', default: false, optional: true, label: 'Skip TLS Verify' },
+          { name: 'certificationPath', type: 'string', control: 'text', default: '', optional: true, label: 'Certificate Path' },
+          { name: 'privateKeyPath', type: 'string', control: 'text', default: '', optional: true, label: 'Private Key Path' },
+          { name: 'rootCaPath', type: 'string', control: 'text', default: '', optional: true, label: 'Root CA Path' },
+        ],
+      } as any;
+    }
+
+    if (connectionType.toLowerCase() === 'edgex') {
+      return {
+        id: 'edgex',
+        name: 'edgex',
+        about: { trial: false, installed: true, label: 'EdgeX Connection', description: 'Shared EdgeX message bus connection' },
+        properties: [
+          { name: 'protocol', type: 'string', control: 'select', default: 'tcp', optional: true, values: ['tcp', 'http', 'https'], label: 'Protocol' },
+          { name: 'server', type: 'string', control: 'text', default: '127.0.0.1', optional: false, label: 'Server Host' },
+          { name: 'port', type: 'int', control: 'text', default: 5566, optional: false, label: 'Port' },
+          { name: 'type', type: 'string', control: 'select', default: 'redis', optional: false, values: ['redis', 'mqtt', 'zero'], label: 'Bus Type' },
+          { name: 'topic', type: 'string', control: 'text', default: '', optional: true, label: 'Topic' },
+        ],
+      } as any;
+    }
+
+    return detail || ({ id: connectionType, name: connectionType, properties: [] } as any);
+  }
+
+  /**
+   * Get YAML configurations for a connection type
+   */
+  async getConnectionConfig(type: string): Promise<Record<string, any>> {
+    return this.request<Record<string, any>>(`/metadata/connections/yaml/${encodeURIComponent(type)}`);
+  }
+
+  /**
+   * Generic connection test across categories
+   */
+  async testConnection(category: "sources" | "sinks" | "connections", type: string, config: Record<string, any>): Promise<ConnectionTestResult> {
+    try {
+      await this.request<void>(`/metadata/${category}/connection/${encodeURIComponent(type)}`, {
+        method: "POST",
+        body: JSON.stringify(config),
+      });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : "Connection test failed" };
+    }
+  }
+
+  /**
+   * Get all configuration key resources across sources and sinks
+   */
+  async getConfigKeyResources(): Promise<Record<string, any>> {
+    return this.request<Record<string, any>>("/metadata/resources");
+  }
+
+  /**
+   * List confKeys for a specific source
+   */
+  async getSourceConfKeys(source: string): Promise<string[]> {
+    const res = await this.request<any>(`/metadata/sources/${encodeURIComponent(source)}/confKeys`);
+    return Array.isArray(res) ? res : (res ? Object.keys(res) : []);
+  }
+
+  /**
+   * List confKeys for a specific sink
+   */
+  async getSinkConfKeys(sink: string): Promise<string[]> {
+    const res = await this.request<any>(`/metadata/sinks/${encodeURIComponent(sink)}/confKeys`);
+    return Array.isArray(res) ? res : (res ? Object.keys(res) : []);
   }
 
   // ---------------------------------------------------------------------------
@@ -775,12 +1013,21 @@ export class EKuiperClient {
     return this.request<Schema>(`/schemas/${type}/${encodeURIComponent(name)}`);
   }
 
-  async createSchema(type: string, name: string, content: string): Promise<void> {
-    const payload: any = { name };
-    if (type === "custom") {
-      payload.soFile = content;
+  async createSchema(
+    type: string,
+    nameOrPayload: string | { name: string; content?: string; file?: string; soFile?: string },
+    content?: string
+  ): Promise<void> {
+    let payload: Record<string, any>;
+    if (typeof nameOrPayload === "object") {
+      payload = { ...nameOrPayload };
     } else {
-      payload.content = content;
+      payload = { name: nameOrPayload };
+      if (type === "custom") {
+        payload.soFile = content;
+      } else {
+        payload.content = content;
+      }
     }
     await this.request<void>(`/schemas/${type}`, {
       method: "POST",
@@ -788,12 +1035,25 @@ export class EKuiperClient {
     });
   }
 
-  async updateSchema(type: string, name: string, content: string): Promise<void> {
-    const payload: any = {};
-    if (type === "custom") {
-      payload.soFile = content;
+  async updateSchema(
+    type: string,
+    nameOrPayload: string | { name: string; content?: string; file?: string; soFile?: string },
+    content?: string
+  ): Promise<void> {
+    let name = "";
+    let payload: Record<string, any>;
+    if (typeof nameOrPayload === "object") {
+      name = nameOrPayload.name;
+      payload = { ...nameOrPayload };
+      delete payload.name;
     } else {
-      payload.content = content;
+      name = nameOrPayload;
+      payload = {};
+      if (type === "custom") {
+        payload.soFile = content;
+      } else {
+        payload.content = content;
+      }
     }
     await this.request<void>(`/schemas/${type}/${encodeURIComponent(name)}`, {
       method: "PUT",

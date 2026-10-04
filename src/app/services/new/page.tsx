@@ -66,18 +66,19 @@ export default function NewServicePage() {
 
   return (
     <AppLayout title="Register Service">
-      <div className="space-y-6 max-w-2xl">
+      <div className="flex flex-col gap-6 max-w-2xl">
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => router.push("/services")}
+            aria-label="Back to services"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ArrowLeft className="size-5" aria-hidden="true" />
           </Button>
           <div className="flex items-center gap-3">
-            <Server className="h-5 w-5 text-blue-500" />
+            <Server className="size-5 text-blue-500" aria-hidden="true" />
             <div>
               <h2 className="text-2xl font-bold tracking-tight">
                 Register External Service
@@ -97,10 +98,10 @@ export default function NewServicePage() {
               eKuiper installs services from a zip package containing the service definition and interfaces.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="flex flex-col gap-6">
             {/* Basic Info */}
-            <div className="space-y-4">
-              <div className="space-y-2">
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="name">Service Name</Label>
                 <Input
                   id="name"
@@ -110,7 +111,7 @@ export default function NewServicePage() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="file">Service Package URI</Label>
                 <Input
                   id="file"
@@ -133,7 +134,7 @@ export default function NewServicePage() {
                 Cancel
               </Button>
               <Button onClick={handleCreate} disabled={creating || !name.trim() || !file.trim()}>
-                {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {creating && <Loader2 className="mr-2 size-4 animate-spin" />}
                 Register Service
               </Button>
             </div>

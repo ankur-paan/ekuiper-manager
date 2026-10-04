@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -83,12 +84,12 @@ export default function SchemasPage() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         >
           Schema Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
+          <ArrowUpDown className="ml-2 size-4" />
         </Button>
       ),
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          <FileCode className="h-4 w-4 text-blue-500" />
+          <FileCode className="size-4 text-blue-500" />
           <span className="font-medium font-mono">{row.getValue("name")}</span>
         </div>
       ),
@@ -100,23 +101,25 @@ export default function SchemasPage() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" aria-label={`Actions for ${row.original.name}`}>
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => router.push(`/schemas/${activeTab}/${encodeURIComponent(row.original.name)}`)}
-            >
-              <FileType className="mr-2 h-4 w-4" />
-              View / Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive"
-              onClick={() => setDeleteParams({ type: activeTab, name: row.original.name })}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() => router.push(`/schemas/${activeTab}/${encodeURIComponent(row.original.name)}`)}
+              >
+                <FileType className="mr-2 size-4" />
+                View / Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => setDeleteParams({ type: activeTab, name: row.original.name })}
+              >
+                <Trash2 className="mr-2 size-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -133,7 +136,7 @@ export default function SchemasPage() {
 
   return (
     <AppLayout title="Schemas">
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold tracking-tight">Schemas</h2>
@@ -142,12 +145,12 @@ export default function SchemasPage() {
             </p>
           </div>
           <Button onClick={() => router.push(`/schemas/new?type=${activeTab}`)}>
-            <Plus className="mr-2 h-4 w-4" />
+            <Plus className="mr-2 size-4" />
             Create Schema
           </Button>
         </div>
 
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "protobuf" | "custom")}>
           <TabsList>
             <TabsTrigger value="protobuf">Protobuf</TabsTrigger>
             <TabsTrigger value="custom">Custom</TabsTrigger>

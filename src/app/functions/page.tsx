@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -101,12 +102,12 @@ export default function FunctionsPage() {
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
                     Function ID
-                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                    <ArrowUpDown className="ml-2 size-4" />
                 </Button>
             ),
             cell: ({ row }) => (
                 <div className="flex items-center gap-2">
-                    <Code2 className="h-4 w-4 text-yellow-500" />
+                    <Code2 className="size-4 text-yellow-500" />
                     <span className="font-medium font-mono">{row.getValue("id")}</span>
                 </div>
             ),
@@ -119,23 +120,25 @@ export default function FunctionsPage() {
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" aria-label={`Actions for ${row.original.id}`}>
-                                <MoreHorizontal className="h-4 w-4" />
+                                <MoreHorizontal className="size-4" />
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                                onClick={() => router.push(`/functions/javascript/${encodeURIComponent(row.original.id)}`)}
-                            >
-                                <FileCode className="mr-2 h-4 w-4" />
-                                Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={() => setDeleteId(row.original.id)}
-                            >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
-                            </DropdownMenuItem>
+                            <DropdownMenuGroup>
+                                <DropdownMenuItem
+                                    onClick={() => router.push(`/functions/javascript/${encodeURIComponent(row.original.id)}`)}
+                                >
+                                    <FileCode className="mr-2 size-4" />
+                                    Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => setDeleteId(row.original.id)}
+                                >
+                                    <Trash2 className="mr-2 size-4" />
+                                    Delete
+                                </DropdownMenuItem>
+                            </DropdownMenuGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 );
@@ -149,7 +152,7 @@ export default function FunctionsPage() {
             header: "Function Name",
             cell: ({ row }) => (
                 <div className="flex items-center gap-2">
-                    <Network className="h-4 w-4 text-blue-500" />
+                    <Network className="size-4 text-blue-500" />
                     <span className="font-medium">{row.getValue("name")}</span>
                 </div>
             ),
@@ -174,7 +177,7 @@ export default function FunctionsPage() {
                     onClick={() => router.push(`/services/functions/${encodeURIComponent(row.original.name)}`)}
                     aria-label={`View ${row.original.name}`}
                 >
-                    <Eye className="h-4 w-4" />
+                    <Eye className="size-4" />
                 </Button>
             )
         }
@@ -193,7 +196,7 @@ export default function FunctionsPage() {
 
     return (
         <AppLayout title="Functions">
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                     <div>
                         <h2 className="text-2xl font-bold tracking-tight">Functions</h2>
@@ -203,7 +206,7 @@ export default function FunctionsPage() {
                     </div>
                     {activeTab === "javascript" && (
                         <Button onClick={() => router.push("/functions/javascript/new")}>
-                            <Plus className="mr-2 h-4 w-4" />
+                            <Plus className="mr-2 size-4" />
                             Create Function
                         </Button>
                     )}
@@ -212,15 +215,15 @@ export default function FunctionsPage() {
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
                     <TabsList>
                         <TabsTrigger value="javascript">
-                            <Code2 className="mr-2 h-4 w-4" />
+                            <Code2 className="mr-2 size-4" />
                             JavaScript UDFs
                         </TabsTrigger>
                         <TabsTrigger value="services">
-                            <Network className="mr-2 h-4 w-4" />
+                            <Network className="mr-2 size-4" />
                             Service Functions
                         </TabsTrigger>
                         <TabsTrigger value="reference">
-                            <BookOpen className="mr-2 h-4 w-4" />
+                            <BookOpen className="mr-2 size-4" />
                             Built-in Reference
                         </TabsTrigger>
                     </TabsList>

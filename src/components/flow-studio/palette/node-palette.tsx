@@ -221,7 +221,7 @@ export function NodePalette({ definitions, capabilities, children, className }: 
       className={cn("flex h-full min-h-0 flex-col", className)}
       data-testid="node-palette"
     >
-      <div className="shrink-0 space-y-2 border-b px-4 py-3">
+      <div className="shrink-0 flex flex-col gap-2 border-b px-4 py-3">
         <h2 className="text-sm font-semibold leading-tight">Palette</h2>
         {children === undefined ? (
           <Input

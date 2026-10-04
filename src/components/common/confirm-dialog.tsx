@@ -30,22 +30,25 @@ interface ConfirmDialogProps {
 
 const variantConfig: Record<
   ConfirmVariant,
-  { icon: typeof AlertTriangle; iconClass: string; buttonClass: string }
+  { icon: typeof AlertTriangle; iconClass: string; buttonClass: string; iconBgClass: string }
 > = {
   danger: {
     icon: Trash2,
     iconClass: "text-destructive",
     buttonClass: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+    iconBgClass: "bg-destructive/10",
   },
   warning: {
     icon: AlertTriangle,
-    iconClass: "text-yellow-600",
-    buttonClass: "bg-yellow-600 text-white hover:bg-yellow-700",
+    iconClass: "text-amber-600 dark:text-amber-400",
+    buttonClass: "bg-amber-600 text-white hover:bg-amber-700",
+    iconBgClass: "bg-amber-500/10",
   },
   info: {
     icon: Power,
-    iconClass: "text-blue-600",
-    buttonClass: "bg-blue-600 text-white hover:bg-blue-700",
+    iconClass: "text-primary",
+    buttonClass: "bg-primary text-primary-foreground hover:bg-primary/90",
+    iconBgClass: "bg-primary/10",
   },
 };
 
@@ -81,13 +84,11 @@ export function ConfirmDialog({
           <div className="flex items-center gap-3">
             <div
               className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-full",
-                variant === "danger" && "bg-destructive/10",
-                variant === "warning" && "bg-yellow-100",
-                variant === "info" && "bg-blue-100"
+                "flex size-10 shrink-0 items-center justify-center rounded-full",
+                config.iconBgClass
               )}
             >
-              <Icon className={cn("h-5 w-5", config.iconClass)} />
+              <Icon className={cn("size-5", config.iconClass)} aria-hidden="true" />
             </div>
             <AlertDialogTitle>{title}</AlertDialogTitle>
           </div>
@@ -108,7 +109,7 @@ export function ConfirmDialog({
             className={config.buttonClass}
           >
             {(isLoading || loading) && (
-              <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <span className="mr-2 size-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
             )}
             {confirmLabel}
           </AlertDialogAction>

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   FLOW_DOCUMENT_VERSION,
   type FlowDocument,
@@ -1270,13 +1271,12 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
         );
       }
       return (
-        <div className="space-y-4">
-          <div
-            role="alert"
-            className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
-          >
-            {flowQuery.error instanceof Error ? flowQuery.error.message : 'Failed to load flow'}
-          </div>
+        <div className="flex flex-col gap-4">
+          <Alert variant="destructive">
+            <AlertDescription>
+              {flowQuery.error instanceof Error ? flowQuery.error.message : 'Failed to load flow'}
+            </AlertDescription>
+          </Alert>
           <Button variant="outline" onClick={() => void flowQuery.refetch()}>
             Retry
           </Button>
@@ -1294,13 +1294,12 @@ export function FlowStudioPage({ flowId, initialDocument }: { flowId: string; in
     }
     if (!isLocalFixture && draftQuery.isError) {
       return (
-        <div className="space-y-4">
-          <div
-            role="alert"
-            className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
-          >
-            {draftQuery.error instanceof Error ? draftQuery.error.message : 'Failed to load draft'}
-          </div>
+        <div className="flex flex-col gap-4">
+          <Alert variant="destructive">
+            <AlertDescription>
+              {draftQuery.error instanceof Error ? draftQuery.error.message : 'Failed to load draft'}
+            </AlertDescription>
+          </Alert>
           <Button variant="outline" onClick={() => void draftQuery.refetch()}>
             Retry
           </Button>

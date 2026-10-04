@@ -33,6 +33,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       const setup = page.getByRole('heading', { name: 'Create the owner account' });
       const signIn = page.getByRole('heading', { name: 'Sign in' });
       await setup.or(signIn).waitFor({ state: 'visible', timeout: 30_000 });
+      await page.locator('#username:not([disabled])').waitFor({ state: 'visible', timeout: 30_000 });
 
       await page.getByLabel('Username').fill(ownerUsername);
       await page.getByLabel('Password', { exact: true }).fill(ownerPassword);

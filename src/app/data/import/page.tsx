@@ -129,8 +129,8 @@ export default function DataImportPage() {
 
     return (
         <AppLayout title="Data Import">
-            <div className="max-w-3xl mx-auto space-y-6">
-                <div className="space-y-2">
+            <div className="max-w-3xl mx-auto flex flex-col gap-6">
+                <div className="flex flex-col gap-2">
                     <h1 className="text-3xl font-bold">Import eKuiper configuration</h1>
                     <p className="text-muted-foreground">Import configuration or a ruleset into the selected node. Manager users and nodes are not included.</p>
                 </div>
@@ -144,9 +144,9 @@ export default function DataImportPage() {
                     <Card className="mt-6 border-dashed border-2">
                         <CardContent className="pt-6">
                             {uploading ? (
-                                <div className="flex flex-col items-center justify-center py-10 space-y-4">
-                                    <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                                    <div className="space-y-2 text-center w-full max-w-md">
+                                <div className="flex flex-col items-center justify-center py-10 gap-4">
+                                    <Loader2 className="size-10 animate-spin text-primary" />
+                                    <div className="flex flex-col gap-2 text-center w-full max-w-md">
                                         <h3 className="font-semibold text-lg">Importing...</h3>
                                         <p className="text-sm text-muted-foreground">{importStatus?.message || "Processing..."}</p>
                                         {importStatus && (
@@ -175,7 +175,7 @@ export default function DataImportPage() {
                                     aria-label={`Select ${activeTab === "data" ? "configuration" : "ruleset"} JSON file`}
                                 >
                                     <div className="p-4 rounded-full bg-primary/10 mb-4">
-                                        {activeTab === 'data' ? <UploadCloud className="h-8 w-8 text-primary" /> : <FileJson className="h-8 w-8 text-primary" />}
+                                        {activeTab === 'data' ? <UploadCloud className="size-8 text-primary" /> : <FileJson className="size-8 text-primary" />}
                                     </div>
                                     <h3 className="text-lg font-semibold mb-1">
                                         Drag & drop {activeTab === 'data' ? 'configuration' : 'ruleset'} file
@@ -203,12 +203,12 @@ export default function DataImportPage() {
                             <CardHeader>
                                 <CardTitle>Import Options</CardTitle>
                             </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="flex items-center space-x-2">
+                            <CardContent className="flex flex-col gap-4">
+                                <div className="flex items-center gap-2">
                                     <Checkbox id="stop" checked={optionStop} onCheckedChange={(c) => setOptionStop(!!c)} />
                                     <Label htmlFor="stop" className="cursor-pointer">Stop eKuiper before import</Label>
                                 </div>
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center gap-2">
                                     <Checkbox id="partial" checked={optionPartial} onCheckedChange={(c) => setOptionPartial(!!c)} />
                                     <Label htmlFor="partial" className="cursor-pointer">Partial import (skip existing items)</Label>
                                 </div>
@@ -218,7 +218,7 @@ export default function DataImportPage() {
 
                     <TabsContent value="rules" className="mt-4">
                         <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg flex items-start gap-3 text-sm text-blue-700 dark:text-blue-300">
-                            <AlertTriangle className="h-5 w-5 shrink-0" />
+                            <AlertTriangle className="size-5 shrink-0" />
                             <p>Ruleset import expects a specific JSON structure containing only rules. This is useful for migrating logic between instances.</p>
                         </div>
                     </TabsContent>
@@ -228,7 +228,7 @@ export default function DataImportPage() {
                     <Card className="border-destructive/50 bg-destructive/10">
                         <CardHeader>
                             <CardTitle className="text-destructive flex items-center gap-2">
-                                <XCircle className="h-5 w-5" /> Import Errors
+                                <XCircle className="size-5" /> Import Errors
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
